@@ -2449,7 +2449,7 @@ struct cfg80211_ops {
 			       const u8 *mac,
 			       struct station_parameters *params);
 	int	(*del_station)(struct wiphy *wiphy, struct net_device *dev,
-			       const u8 *mac);
+			       struct station_del_parameters *params);
 	int	(*change_station)(struct wiphy *wiphy, struct net_device *dev,
 				  const u8 *mac,
 				  struct station_parameters *params);
