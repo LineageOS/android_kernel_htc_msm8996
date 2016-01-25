@@ -44,7 +44,7 @@
 static void _cff_write_ringbuffer(struct adreno_ringbuffer *rb)
 {
 	struct adreno_device *adreno_dev = ADRENO_RB_DEVICE(rb);
-	struct kgsl_device *device = &adreno_dev->dev;
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	uint64_t gpuaddr;
 	unsigned int *hostptr;
 	size_t size;
@@ -129,7 +129,7 @@ void adreno_ringbuffer_submit(struct adreno_ringbuffer *rb,
 		 * Let the pwrscale policy know that new commands have
 		 * been submitted.
 		 */
-		kgsl_pwrscale_busy(&adreno_dev->dev);
+		kgsl_pwrscale_busy(KGSL_DEVICE(adreno_dev));
 		adreno_writereg(adreno_dev, ADRENO_REG_CP_RB_WPTR, rb->wptr);
 	}
 }
@@ -140,7 +140,7 @@ int adreno_ringbuffer_submit_spin(struct adreno_ringbuffer *rb,
 	struct adreno_device *adreno_dev = ADRENO_RB_DEVICE(rb);
 
 	adreno_ringbuffer_submit(rb, NULL);
-	return adreno_spin_idle(&adreno_dev->dev, timeout);
+	return adreno_spin_idle(adreno_dev, timeout);
 }
 
 int adreno_ringbuffer_submit_spin_retry(struct adreno_ringbuffer *rb,
@@ -233,7 +233,7 @@ adreno_ringbuffer_waitspace(struct adreno_ringbuffer *rb,
 			break;
 
 		if (time_after(jiffies, wait_time)) {
-			KGSL_DRV_ERR((&adreno_dev->dev),
+			KGSL_DRV_ERR(KGSL_DEVICE(adreno_dev),
 			"Timed out waiting for freespace in RB rptr: 0x%x, wptr: 0x%x, rb id %d\n",
 			rptr, wptr, rb->id);
 			return -ETIMEDOUT;
@@ -242,7 +242,7 @@ adreno_ringbuffer_waitspace(struct adreno_ringbuffer *rb,
 done:
 	if (wptr_ahead) {
 		*cmds = cp_packet(adreno_dev, CP_NOP, nopcount);
-		kgsl_cffdump_write(&adreno_dev->dev, gpuaddr, *cmds);
+		kgsl_cffdump_write(KGSL_DEVICE(adreno_dev), gpuaddr, *cmds);
 
 	}
 	return 0;
@@ -294,7 +294,7 @@ unsigned int *adreno_ringbuffer_allocspace(struct adreno_ringbuffer *rb,
  */
 static void _ringbuffer_setup_common(struct adreno_device *adreno_dev)
 {
-	struct kgsl_device *device = &adreno_dev->dev;
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	struct adreno_ringbuffer *rb;
 	int i;
 
@@ -385,17 +385,24 @@ int adreno_ringbuffer_start(struct adreno_device *adreno_dev,
 
 void adreno_ringbuffer_stop(struct adreno_device *adreno_dev)
 {
-	struct kgsl_device *device = &adreno_dev->dev;
 	struct adreno_ringbuffer *rb;
 	int i;
+
 	FOR_EACH_RINGBUFFER(adreno_dev, rb, i)
-		kgsl_cancel_events(device, &(rb->events));
+		kgsl_cancel_events(KGSL_DEVICE(adreno_dev), &(rb->events));
+}
+
+static int _rb_readtimestamp(struct kgsl_device *device,
+		void *priv, enum kgsl_timestamp_type type,
+		unsigned int *timestamp)
+{
+	return adreno_rb_readtimestamp(ADRENO_DEVICE(device), priv, type,
+		timestamp);
 }
 
 static int _adreno_ringbuffer_init(struct adreno_device *adreno_dev,
 		int id)
 {
-	struct kgsl_device *device = &adreno_dev->dev;
 	struct adreno_ringbuffer *rb = &adreno_dev->ringbuffers[id];
 	int ret;
 	char name[64];
@@ -404,7 +411,7 @@ static int _adreno_ringbuffer_init(struct adreno_device *adreno_dev,
 
 	snprintf(name, sizeof(name), "rb_events-%d", id);
 	kgsl_add_event_group(&rb->events, NULL, name,
-		adreno_rb_readtimestamp, rb);
+		_rb_readtimestamp, rb);
 	rb->timestamp = 0;
 	init_waitqueue_head(&rb->ts_expire_waitq);
 
@@ -412,12 +419,12 @@ static int _adreno_ringbuffer_init(struct adreno_device *adreno_dev,
 	 * Allocate mem for storing RB pagetables and commands to
 	 * switch pagetable
 	 */
-	ret = kgsl_allocate_global(device, &rb->pagetable_desc,
+	ret = kgsl_allocate_global(KGSL_DEVICE(adreno_dev), &rb->pagetable_desc,
 		PAGE_SIZE, 0, KGSL_MEMDESC_PRIVILEGED);
 	if (ret)
 		return ret;
 
-	return kgsl_allocate_global(device, &rb->buffer_desc,
+	return kgsl_allocate_global(KGSL_DEVICE(adreno_dev), &rb->buffer_desc,
 			KGSL_RB_SIZE, KGSL_MEMFLAGS_GPUREADONLY, 0);
 }
 
@@ -449,7 +456,7 @@ int adreno_ringbuffer_init(struct adreno_device *adreno_dev, bool nopreempt)
 static void _adreno_ringbuffer_close(struct adreno_device *adreno_dev,
 		struct adreno_ringbuffer *rb)
 {
-	struct kgsl_device *device = &adreno_dev->dev;
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 
 	kgsl_free_global(device, &rb->pagetable_desc);
 	kgsl_free_global(device, &rb->preemption_desc);
@@ -529,7 +536,7 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 {
 	struct adreno_device *adreno_dev = ADRENO_RB_DEVICE(rb);
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
-	struct kgsl_device *device = &adreno_dev->dev;
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	unsigned int *ringcmds, *start;
 	unsigned int total_sizedwords = sizedwords;
 	unsigned int i;
@@ -932,7 +939,7 @@ static inline int _get_alwayson_counter(struct adreno_device *adreno_dev,
 int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 		struct kgsl_cmdbatch *cmdbatch, struct adreno_submit_time *time)
 {
-	struct kgsl_device *device = &adreno_dev->dev;
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	struct kgsl_memobj_node *ib;
 	unsigned int numibs = 0;
 	unsigned int *link;
@@ -982,7 +989,7 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 		set_bit(CMDBATCH_FLAG_FORCE_PREAMBLE, &cmdbatch->priv);
 
 		/* if context is detached print fault recovery */
-		adreno_fault_skipcmd_detached(device, drawctxt, cmdbatch);
+		adreno_fault_skipcmd_detached(adreno_dev, drawctxt, cmdbatch);
 
 		/* clear the drawctxt flags */
 		clear_bit(ADRENO_CONTEXT_SKIP_CMD, &drawctxt->base.priv);
@@ -1244,7 +1251,7 @@ static inline int adreno_ringbuffer_check_timestamp(
 	struct adreno_device *adreno_dev = ADRENO_RB_DEVICE(rb);
 	unsigned int ts;
 
-	adreno_rb_readtimestamp(&adreno_dev->dev, rb, type, &ts);
+	adreno_rb_readtimestamp(adreno_dev, rb, type, &ts);
 	return (timestamp_cmp(ts, timestamp) >= 0);
 }
 
@@ -1260,7 +1267,7 @@ int adreno_ringbuffer_waittimestamp(struct adreno_ringbuffer *rb,
 					unsigned int msecs)
 {
 	struct adreno_device *adreno_dev = ADRENO_RB_DEVICE(rb);
-	struct kgsl_device *device = &adreno_dev->dev;
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	int ret;
 	unsigned long wait_time;
 
@@ -1307,7 +1314,7 @@ int adreno_ringbuffer_submit_preempt_token(struct adreno_ringbuffer *rb,
 					struct adreno_ringbuffer *incoming_rb)
 {
 	struct adreno_device *adreno_dev = ADRENO_RB_DEVICE(rb);
-	struct kgsl_device *device = &adreno_dev->dev;
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	unsigned int *ringcmds, *start;
 	struct kgsl_iommu *iommu = device->mmu.priv;
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
