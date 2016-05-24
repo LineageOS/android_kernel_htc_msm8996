@@ -503,6 +503,7 @@ static int fpc1020_probe(struct platform_device *spi)
 
 	set_bit(EV_KEY, input_dev->evbit);
 	set_bit(KEY_WAKEUP, input_dev->keybit);
+	set_bit(KEY_HOMEPAGE, input_dev->keybit);
 	rc = input_register_device(input_dev);
 	if (rc) {
 		dev_err(dev, "%s failed to register input device\n", __func__);
