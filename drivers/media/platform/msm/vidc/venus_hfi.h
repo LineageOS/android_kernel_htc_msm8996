@@ -133,7 +133,13 @@ struct vidc_iface_q_info {
 	struct vidc_mem_addr q_array;
 };
 
+/*
+ * These are helper macros to iterate over various lists within
+ * venus_hfi_device->res.  The intention is to cut down on a lot of boiler-plate
+ * code
+ */
 
+/* Read as "for each 'thing' in a set of 'thingies'" */
 #define venus_hfi_for_each_thing(__device, __thing, __thingy) \
 	venus_hfi_for_each_thing_continue(__device, __thing, __thingy, 0)
 
@@ -141,6 +147,11 @@ struct vidc_iface_q_info {
 	venus_hfi_for_each_thing_reverse_continue(__device, __thing, __thingy, \
 			(__device)->res->__thingy##_set.count - 1)
 
+/* TODO: the __from parameter technically not required since we can figure it
+ * out with some pointer magic (i.e. __thing - __thing##_tbl[0]).  If this macro
+ * sees extensive use, probably worth cleaning it up but for now omitting it
+ * since it introduces unneccessary complexity.
+ */
 #define venus_hfi_for_each_thing_continue(__device, __thing, __thingy, __from) \
 	for (__thing = &(__device)->res->\
 			__thingy##_set.__thingy##_tbl[__from]; \
@@ -155,6 +166,7 @@ struct vidc_iface_q_info {
 		__thing >= &(__device)->res->__thingy##_set.__thingy##_tbl[0]; \
 		--__thing)
 
+/* Regular set helpers */
 #define venus_hfi_for_each_regulator(__device, __rinfo) \
 	venus_hfi_for_each_thing(__device, __rinfo, regulator)
 
@@ -166,18 +178,21 @@ struct vidc_iface_q_info {
 	venus_hfi_for_each_thing_reverse_continue(__device, __rinfo, \
 			regulator, __from)
 
+/* Clock set helpers */
 #define venus_hfi_for_each_clock(__device, __cinfo) \
 	venus_hfi_for_each_thing(__device, __cinfo, clock)
 
 #define venus_hfi_for_each_clock_reverse(__device, __cinfo) \
 	venus_hfi_for_each_thing_reverse(__device, __cinfo, clock)
 
+/* Bus set helpers */
 #define venus_hfi_for_each_bus(__device, __binfo) \
 	venus_hfi_for_each_thing(__device, __binfo, bus)
 #define venus_hfi_for_each_bus_reverse(__device, __binfo) \
 	venus_hfi_for_each_thing_reverse(__device, __binfo, bus)
 
 
+/* Internal data used in vidc_hal not exposed to msm_vidc*/
 struct hal_data {
 	u32 irq;
 	phys_addr_t firmware_base;
