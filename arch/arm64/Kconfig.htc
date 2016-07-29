@@ -1,0 +1,92 @@
+comment "HTC Debugging Features"
+menuconfig HTC_DEBUG
+	bool "HTC Debugging Feature Switch"
+	default n
+	help
+	  Enable collection of debug features.
+	  This feature is enabled in defconfig.
+
+config HTC_DEBUG_RTB
+	default n
+	depends on HTC_DEBUG && MSM_RTB
+	bool "HTC style rtb debug features"
+	help
+	  Say Y here if you want the HTC style rtb debug features
+
+config HTC_DEBUG_SSR
+	bool "HTC style subsys restart debug features"
+	default n
+	depends on HTC_DEBUG && MSM_SUBSYSTEM_RESTART
+	help
+	  Say Y here if you want the HTC style subsys restart debug features
+
+config HTC_POWER_DEBUG
+	bool "Support htc power debug feature"
+	help
+	  Use this to enable htc power debug feature including pm statistics,
+	  clock/gpio/qpnp pin dump, wakeup source, kerenl top and autosuspend
+	  stage footprint
+
+comment "HTC features"
+menuconfig HTC_FEATURES
+	bool "HTC Implement Features"
+	default n
+	help
+	  Enable collection of HTC features.
+	  This feature is enabled in defconfig.
+
+config HTC_FEATURES_SSR
+	bool "HTC style ssr features"
+	depends on HTC_FEATURES && MSM_SUBSYSTEM_RESTART
+	default n
+	help
+	  Say Y here if you want the HTC style ssr features
+
+#HTC_AUD_START
+config HTC_DEBUG_DSP
+        bool "HTC debug feature for trigger ramdump when lpass related timeout"
+        depends on HTC_DEBUG
+        default n
+        help
+          This option enables the trigger ramdump when lpass command timeout.
+#HTC_AUD_END
+
+config HTC_FEATURES_SSR_MODEM_ENABLE
+	bool "HTC style modem ssr features"
+	depends on HTC_FEATURES_SSR
+	default n
+	help
+	  Say Y here if you want the HTC style for modem ssr features
+
+config HTC_FEATURES_SSR_LPASS_ENABLE
+	bool "HTC style lpass ssr features"
+	depends on HTC_FEATURES_SSR
+	default n
+	help
+	  Say Y here if you want the HTC style for lpass ssr features
+
+config HTC_FEATURES_SSR_SLPI_ENABLE
+	bool "HTC style slpi ssr features"
+	depends on HTC_FEATURES_SSR
+	default n
+	help
+	  Say Y here if you want the HTC style for slpi ssr features
+
+config HTC_FEATURES_SSR_WCNSS_ENABLE
+	bool "HTC style wcnss ssr features"
+	depends on HTC_FEATURES_SSR
+	default n
+	help
+	  Say Y here if you want the HTC style for wcnss ssr features
+
+config HTC_DEBUG_MEM_DUMP_TABLE
+	bool "HTC style memory dump table features"
+	depends on HTC_DEBUG
+	help
+	  Say Y here if you want the HTC style memory dump table features
+
+config LMK_ZYGOTE_PROTECT
+	bool "LMK zygote protect"
+	default n
+	help
+	  Say Y here if you want the HTC style for protecting zygote to be killed by LMK with invalid adj values

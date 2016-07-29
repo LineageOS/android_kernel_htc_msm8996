@@ -1,0 +1,30 @@
+&soc {
+	hall_ak8789 {
+		compatible = "hall_sensor,ak8789";
+		hall,att_used = <2>;
+		hall,att_gpio = <&pm8994_gpios 11 0>;
+		hall,att_gpio_s = <&pm8994_gpios 2 0>;
+	};
+};
+
+&pm8994_gpios {
+		gpio@c100 { /* GPIO 2 */
+		/* hall pole s (COVER_INT2#) */
+			qcom,mode = <0>;                /* QPNP_PIN_MODE_DIG_IN */
+			qcom,pull = <5>;                /* QPNP_PIN_NO_PULL */
+			qcom,vin-sel = <2>;             /* QPNP_PIN_VIN2 */
+			qcom,src-sel = <0>;             /* GPIO */
+			qcom,master-en = <1>;
+			status = "okay";
+		};
+
+		gpio@ca00 { /* GPIO 11 */
+		/* hall pole n (COVER_INT1#) */
+			qcom,mode = <0>;                /* QPNP_PIN_MODE_DIG_IN */
+			qcom,pull = <5>;                /* QPNP_PIN_NO_PULL */
+			qcom,vin-sel = <2>;             /* QPNP_PIN_VIN2 */
+			qcom,src-sel = <0>;             /* GPIO */
+			qcom,master-en = <1>;
+			status = "okay";
+		};
+};

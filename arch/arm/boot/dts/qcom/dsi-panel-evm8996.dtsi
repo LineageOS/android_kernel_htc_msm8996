@@ -1,0 +1,290 @@
+&mdss_mdp {
+	dsi_dual_jdi_wqhd_video: qcom,mdss_dsi_evm8996_jdi_wqhd_dualmipi_video {
+		compatible = "qcom,mdss_dsi_evm8996_jdi_wqhd_dualmipi_video";
+		qcom,mdss-dsi-panel-name = "EVM8996 WQHD JDI/R63423 5.2\" Dual video mode dsi panel";
+		qcom,mdss-dsi-panel-type = "dsi_video_mode";
+		qcom,mdss-dsi-panel-framerate = <60>;
+		qcom,mdss-dsi-virtual-channel-id = <0>;
+		qcom,mdss-dsi-stream = <0>;
+		qcom,mdss-dsi-panel-width = <720>;
+		qcom,mdss-dsi-panel-height = <2560>;
+		qcom,mdss-dsi-h-front-porch = <100>;
+		qcom,mdss-dsi-h-back-porch = <44>;
+		qcom,mdss-dsi-h-pulse-width = <16>;
+		qcom,mdss-dsi-h-sync-skew = <0>;
+		qcom,mdss-dsi-v-back-porch = <4>;
+		qcom,mdss-dsi-v-front-porch = <4>;
+		qcom,mdss-dsi-v-pulse-width = <4>;
+		qcom,mdss-dsi-h-left-border = <0>;
+		qcom,mdss-dsi-h-right-border = <0>;
+		qcom,mdss-dsi-v-top-border = <0>;
+		qcom,mdss-dsi-v-bottom-border = <0>;
+		qcom,mdss-pan-physical-width-dimension  = <64>;
+		qcom,mdss-pan-physical-height-dimension = <114>;
+		qcom,mdss-dsi-bpp = <24>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
+		qcom,mdss-dsi-underflow-color = <0xff>;
+		qcom,mdss-dsi-border-color = <0>;
+		qcom,mdss-dsi-h-sync-pulse = <0>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
+		qcom,mdss-dsi-bllp-eof-power-mode;
+		qcom,mdss-dsi-bllp-power-mode;
+		qcom,mdss-dsi-panel-broadcast-mode;
+		qcom,mdss-dsi-lane-0-state;
+		qcom,mdss-dsi-lane-1-state;
+		qcom,mdss-dsi-lane-2-state;
+		qcom,mdss-dsi-lane-3-state;
+		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
+		qcom,mdss-dsi-panel-timings-8996 = [23 1E 07 08 05 03 04 a0
+			23 1E 07 08 05 03 04 a0
+			23 1E 07 08 05 03 04 a0
+			23 1E 07 08 05 03 04 a0
+			23 19 07 08 05 03 04 a0];
+		qcom,mdss-dsi-reset-sequence =  <0 2>, <1 10>;
+		qcom,mdss-dsi-t-clk-post = <0x03>;
+		qcom,mdss-dsi-t-clk-pre = <0x28>;
+		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+		qcom,mdss-dsi-bl-min-level = <1>;
+		qcom,mdss-dsi-bl-max-level = <4095>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
+		qcom,mdss-dsi-wr-mem-start = <0x2c>;
+		qcom,mdss-dsi-wr-mem-continue = <0x3c>;
+		qcom,mdss-dsi-on-command = [
+			05 01 00 00 78 00 01 11 /* exit_sleep_mode wait 120 ms*/
+			23 01 00 00 00 00 02 b0 04
+			23 01 00 00 00 00 02 b3 10
+			23 01 00 00 00 00 02 b0 03
+			15 01 00 00 00 00 02 36 00
+			15 01 00 00 00 00 02 3a 77 /* set_address_mode */
+			05 01 00 00 14 00 01 29 /* set_display_on */
+			15 01 00 00 00 00 02 51 FF /* Display Brightness */
+			15 01 00 00 00 00 02 53 2C /* Control Display */
+			15 01 00 00 00 00 02 55 00 /* Content Adaptive Brightness Control(CABC) */
+		];
+		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
+		qcom,mdss-dsi-off-command = [
+			05 01 00 00 14 00 01 28 /* set_display_off */
+			05 01 00 00 3c 00 01 10 /* enter_sleep_mode */
+		];
+		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
+		qcom,cont-splash-enabled;
+		qcom,dcs-cmd-by-left;
+		qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+		htc,mdss-camera-blk = <190>;
+		htc,mdss-camera-dua-blk = <190>;
+		htc,panel-id = <0>;
+		htc,mdss-bl-brt = <97 97 1161 2667 3446 4095>;
+		htc,cabc-off-cmds = [39 01 00 00 00 00 02 55 00];
+		htc,cabc-ui-cmds = [39 01 00 00 00 00 02 55 82];
+		htc,cabc-video-cmds = [39 01 00 00 00 00 02 55 83];
+		htc,mdss-max-brt-level = <4230>;
+		htc,brt-code-table = <
+			0 9 19 29 38 48 58 67 77 87
+			96 106 116 125 135 145 154 164 174 183
+			193 203 212 222 232 242 251 261 271 280
+			290 300 309 319 329 338 348 358 367 377
+			387 396 406 416 425 435 445 455 464 474
+			484 493 503 513 522 532 542 551 561 571
+			580 590 600 609 619 629 638 648 658 667
+			677 687 697 706 716 726 735 745 755 764
+			774 784 793 803 813 822 832 842 851 861
+			871 880 890 900 910 919 929 939 948 958
+			968 977 987 997 1006 1016 1026 1035 1045 1055
+			1064 1074 1084 1093 1103 1113 1122 1132 1142 1152
+			1161 1171 1181 1190 1200 1210 1219 1229 1239 1248
+			1258 1268 1277 1287 1297 1306 1316 1326 1335 1345
+			1355 1365 1374 1384 1394 1403 1413 1423 1432 1442
+			1452 1461 1471 1481 1490 1500 1510 1519 1529 1539
+			1548 1558 1568 1577 1587 1597 1607 1616 1626 1636
+			1645 1655 1665 1674 1684 1694 1703 1713 1723 1732
+			1742 1752 1761 1771 1781 1790 1800 1810 1820 1829
+			1839 1849 1858 1868 1878 1887 1897 1907 1916 1926
+			1936 1945 1955 1965 1974 1984 1994 2003 2013 2023
+			2032 2042 2052 2062 2071 2081 2091 2100 2110 2120
+			2129 2139 2149 2158 2168 2178 2187 2197 2207 2216
+			2226 2236 2245 2255 2265 2275 2284 2294 2304 2313
+			2323 2333 2342 2352 2362 2371 2381 2391 2400 2410
+			2420 2429 2439 2449 2458 2468 2478 2487 2497 2507
+			2517 2526 2536 2546 2555 2565 2575 2584 2594 2604
+			2613 2623 2633 2642 2652 2662 2671 2681 2691 2700
+			2710 2720 2730 2739 2749 2759 2768 2778 2788 2797
+			2807 2817 2826 2836 2846 2855 2865 2875 2884 2894
+			2904 2913 2923 2933 2942 2952 2962 2972 2981 2991
+			3001 3010 3020 3030 3039 3049 3059 3068 3078 3088
+			3097 3107 3117 3126 3136 3146 3155 3165 3175 3185
+			3194 3204 3214 3223 3233 3243 3252 3262 3272 3281
+			3291 3301 3310 3320 3330 3339 3349 3359 3368 3378
+			3388 3397 3407 3417 3427 3436 3446 3456 3465 3475
+			3485 3494 3504 3514 3523 3533 3543 3552 3562 3572
+			3581 3591 3601 3610 3620 3630 3640 3649 3659 3669
+			3678 3688 3698 3707 3717 3727 3736 3746 3756 3765
+			3775 3785 3794 3804 3814 3823 3833 3843 3852 3862
+			3872 3882 3891 3901 3911 3920 3930 3940 3949 3959
+			3969 3978 3988 3998 4007 4017 4027 4036 4046 4056
+			4065 4075 4085 4095
+		>;
+	};
+
+	dsi_dual_jdi_wqhd_cmd: qcom,mdss_dsi_evm8996_jdi_wqhd_dualmipi_cmd {
+		compatible = "qcom,mdss_dsi_evm8996_jdi_wqhd_dualmipi_cmd";
+		qcom,mdss-dsi-panel-name = "EVM8996 WQHD JDI/R63423 5.2\" Dual cmd mode dsi panel";
+		qcom,mdss-dsi-panel-type = "dsi_cmd_mode";
+		qcom,mdss-dsi-panel-framerate = <60>;
+		qcom,mdss-dsi-virtual-channel-id = <0>;
+		qcom,mdss-dsi-stream = <0>;
+		qcom,mdss-dsi-panel-width = <720>;
+		qcom,mdss-dsi-panel-height = <2560>;
+		qcom,mdss-dsi-h-front-porch = <100>;
+		qcom,mdss-dsi-h-back-porch = <44>;
+		qcom,mdss-dsi-h-pulse-width = <16>;
+		qcom,mdss-dsi-h-sync-skew = <0>;
+		qcom,mdss-dsi-v-back-porch = <4>;
+		qcom,mdss-dsi-v-front-porch = <4>;
+		qcom,mdss-dsi-v-pulse-width = <4>;
+		qcom,mdss-dsi-h-left-border = <0>;
+		qcom,mdss-dsi-h-right-border = <0>;
+		qcom,mdss-dsi-v-top-border = <0>;
+		qcom,mdss-dsi-v-bottom-border = <0>;
+		qcom,mdss-pan-physical-width-dimension  = <64>;
+		qcom,mdss-pan-physical-height-dimension = <114>;
+		qcom,mdss-dsi-bpp = <24>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
+		qcom,mdss-dsi-underflow-color = <0xff>;
+		qcom,mdss-dsi-border-color = <0>;
+		qcom,mdss-dsi-h-sync-pulse = <0>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
+		qcom,mdss-dsi-bllp-eof-power-mode;
+		qcom,mdss-dsi-bllp-power-mode;
+		qcom,mdss-dsi-panel-broadcast-mode;
+		qcom,mdss-dsi-lane-0-state;
+		qcom,mdss-dsi-lane-1-state;
+		qcom,mdss-dsi-lane-2-state;
+		qcom,mdss-dsi-lane-3-state;
+		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
+		qcom,mdss-dsi-panel-timings-8996 = [23 1E 07 08 05 03 04 a0
+			23 1E 07 08 05 03 04 a0
+			23 1E 07 08 05 03 04 a0
+			23 1E 07 08 05 03 04 a0
+			23 19 07 08 05 03 04 a0];
+		qcom,mdss-dsi-reset-sequence =  <0 2>, <1 10>;
+		qcom,mdss-dsi-t-clk-post = <0x0D>;
+		qcom,mdss-dsi-t-clk-pre = <0x2D>;
+		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+		qcom,mdss-dsi-bl-min-level = <1>;
+		qcom,mdss-dsi-bl-max-level = <4095>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
+		qcom,mdss-dsi-te-pin-select = <1>;
+		qcom,mdss-dsi-wr-mem-start = <0x2c>;
+		qcom,mdss-dsi-wr-mem-continue = <0x3c>;
+		qcom,mdss-dsi-te-dcs-command = <1>;
+		qcom,mdss-dsi-te-check-enable;
+		qcom,mdss-dsi-te-using-te-pin;
+		qcom,mdss-dsi-on-command = [
+			39 00 00 00 00 00 05 2a 00 00 05 9f
+			/* set_column_address */
+			39 00 00 00 00 00 05 2b 00 00 09 ff
+			/* set_page_address */
+			05 01 00 00 78 00 01 11
+			23 00 00 00 00 00 02 B0 04
+			29 00 00 00 00 00 16 C6 5B 5B 5B 04 4D 00 00 00 00 00 00 4A 0B 00 00 00 00 03 15 04 5B
+			23 00 00 00 00 00 02 B0 03
+			/* exit_sleep_mode wait 120 ms*/
+			39 00 00 00 00 00 03 44 00 00
+			/* set_tear_scanline */
+			15 00 00 00 00 00 02 35 00
+			/* set_tear_on */
+			15 00 00 00 00 00 02 36 00
+			/* set_address_mode */
+			15 00 00 00 00 00 02 3a 77
+			/* set_pixel_format */
+			/* 39 01 00 00 00 00 01 2c */
+			/* write_memory_start */
+			05 01 00 00 14 00 01 29
+			/* set_display_on wait 20 ms */
+			23 00 00 00 00 00 02 B0 04
+			39 00 00 00 00 00 02 51 FF
+			/* set_display_pwm level*/
+			39 00 00 00 00 00 02 5E 22
+			29 00 00 00 00 00 08 B9 67 45 15 40 09 00 00
+			29 00 00 00 00 00 08 BA CD 55 15 40 09 00 00
+			29 00 00 00 00 00 1A CE 3D 40 46 4E 57 60 6A 75 7E
+				85 90 A3 B9 C8 D8 E6 FF 26 00 04 04 42 04 69 5A
+			39 00 00 00 00 00 02 55 82
+			/* Content Adaptive Brightness Control(CABC) */
+			29 00 00 00 00 00 25 CA A1 90 C0 C0 C0 90 90 0A 3F
+				00 C0 00 00 00 00 00 00 F0 10 4A 20 FF 00 FF 0C
+				0C 20 10 3F 3F 10 10 3F 3F 3F 3F
+			39 01 00 00 00 00 02 53 2C
+			/* Enable backlight */
+		];
+		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
+		qcom,mdss-dsi-off-command = [05 01 00 00 14 00 01 28
+			/* set_display_off */
+			15 01 00 00 00 00 02 34 00
+			/* set_tear_off */
+			05 01 00 00 3c 00 01 10
+			/* enter_sleep_mode */
+			];
+		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
+		qcom,cont-splash-enabled;
+		qcom,dcs-cmd-by-left;
+		qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+		htc,mdss-camera-blk = <190>;
+		htc,mdss-camera-dua-blk = <190>;
+		htc,panel-id = <0>;
+		htc,mdss-bl-brt = <97 97 1161 2667 3446 4095>;
+		htc,cabc-off-cmds = [39 01 00 00 00 00 02 55 00];
+		htc,cabc-ui-cmds = [39 01 00 00 00 00 02 55 82];
+		htc,cabc-video-cmds = [39 01 00 00 00 00 02 55 83];
+		htc,mdss-max-brt-level = <4230>;
+		htc,brt-code-table = <
+			0 9 19 29 38 48 58 67 77 87
+			96 106 116 125 135 145 154 164 174 183
+			193 203 212 222 232 242 251 261 271 280
+			290 300 309 319 329 338 348 358 367 377
+			387 396 406 416 425 435 445 455 464 474
+			484 493 503 513 522 532 542 551 561 571
+			580 590 600 609 619 629 638 648 658 667
+			677 687 697 706 716 726 735 745 755 764
+			774 784 793 803 813 822 832 842 851 861
+			871 880 890 900 910 919 929 939 948 958
+			968 977 987 997 1006 1016 1026 1035 1045 1055
+			1064 1074 1084 1093 1103 1113 1122 1132 1142 1152
+			1161 1171 1181 1190 1200 1210 1219 1229 1239 1248
+			1258 1268 1277 1287 1297 1306 1316 1326 1335 1345
+			1355 1365 1374 1384 1394 1403 1413 1423 1432 1442
+			1452 1461 1471 1481 1490 1500 1510 1519 1529 1539
+			1548 1558 1568 1577 1587 1597 1607 1616 1626 1636
+			1645 1655 1665 1674 1684 1694 1703 1713 1723 1732
+			1742 1752 1761 1771 1781 1790 1800 1810 1820 1829
+			1839 1849 1858 1868 1878 1887 1897 1907 1916 1926
+			1936 1945 1955 1965 1974 1984 1994 2003 2013 2023
+			2032 2042 2052 2062 2071 2081 2091 2100 2110 2120
+			2129 2139 2149 2158 2168 2178 2187 2197 2207 2216
+			2226 2236 2245 2255 2265 2275 2284 2294 2304 2313
+			2323 2333 2342 2352 2362 2371 2381 2391 2400 2410
+			2420 2429 2439 2449 2458 2468 2478 2487 2497 2507
+			2517 2526 2536 2546 2555 2565 2575 2584 2594 2604
+			2613 2623 2633 2642 2652 2662 2671 2681 2691 2700
+			2710 2720 2730 2739 2749 2759 2768 2778 2788 2797
+			2807 2817 2826 2836 2846 2855 2865 2875 2884 2894
+			2904 2913 2923 2933 2942 2952 2962 2972 2981 2991
+			3001 3010 3020 3030 3039 3049 3059 3068 3078 3088
+			3097 3107 3117 3126 3136 3146 3155 3165 3175 3185
+			3194 3204 3214 3223 3233 3243 3252 3262 3272 3281
+			3291 3301 3310 3320 3330 3339 3349 3359 3368 3378
+			3388 3397 3407 3417 3427 3436 3446 3456 3465 3475
+			3485 3494 3504 3514 3523 3533 3543 3552 3562 3572
+			3581 3591 3601 3610 3620 3630 3640 3649 3659 3669
+			3678 3688 3698 3707 3717 3727 3736 3746 3756 3765
+			3775 3785 3794 3804 3814 3823 3833 3843 3852 3862
+			3872 3882 3891 3901 3911 3920 3930 3940 3949 3959
+			3969 3978 3988 3998 4007 4017 4027 4036 4046 4056
+			4065 4075 4085 4095
+		>;
+	};
+};
