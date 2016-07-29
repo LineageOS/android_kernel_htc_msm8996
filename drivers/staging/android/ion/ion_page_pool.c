@@ -38,6 +38,7 @@ static void *ion_page_pool_alloc_pages(struct ion_page_pool *pool)
 		if (msm_ion_heap_high_order_page_zero(page, pool->order))
 			goto error_free_pages;
 
+	ion_alloc_inc_usage(ION_TOTAL, 1 << pool->order);
 	return page;
 error_free_pages:
 	__free_pages(page, pool->order);
@@ -47,6 +48,7 @@ error_free_pages:
 static void ion_page_pool_free_pages(struct ion_page_pool *pool,
 				     struct page *page)
 {
+	ion_alloc_dec_usage(ION_TOTAL, 1 << pool->order);
 	__free_pages(page, pool->order);
 }
 

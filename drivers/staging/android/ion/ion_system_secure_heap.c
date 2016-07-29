@@ -37,7 +37,7 @@ static void ion_system_secure_heap_free(struct ion_buffer *buffer)
 {
 	int ret = 0;
 	int i;
-	u32 source_vm;
+	int source_vm;
 	int dest_vmid;
 	int dest_perms;
 	struct sg_table *sgt;

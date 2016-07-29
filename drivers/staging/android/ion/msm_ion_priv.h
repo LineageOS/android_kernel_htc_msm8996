@@ -26,6 +26,12 @@
 #include <linux/iommu.h>
 #include <linux/seq_file.h>
 
+enum ion_heap_mem_usage {
+	ION_IN_USE = 0U,
+	ION_TOTAL = 1U,
+	ION_USAGE_MAX,
+};
+
 /**
  * struct mem_map_data - represents information about the memory map for a heap
  * @node:		list node used to store in the list of mem_map_data
@@ -121,6 +127,12 @@ int ion_heap_allow_heap_secure(enum ion_heap_type type);
 int ion_heap_allow_handle_secure(enum ion_heap_type type);
 
 int get_secure_vmid(unsigned long);
+
+void ion_alloc_inc_usage(const enum ion_heap_mem_usage usage,
+			 const size_t size);
+
+void ion_alloc_dec_usage(const enum ion_heap_mem_usage usage,
+			 const size_t size);
 
 /**
  * ion_create_chunked_sg_table - helper function to create sg table
