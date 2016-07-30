@@ -41,7 +41,6 @@
 #include "kgsl_trace.h"
 #include "kgsl_sync.h"
 #include "kgsl_compat.h"
-#include "kgsl_htc.h"
 
 #undef MODULE_PARAM_PREFIX
 #define MODULE_PARAM_PREFIX "kgsl."
@@ -370,13 +369,11 @@ kgsl_mem_entry_attach_process(struct kgsl_mem_entry *entry,
 
 	entry->id = id;
 	entry->priv = process;
-	entry->memdesc.private = process;
 
 	ret = kgsl_mem_entry_track_gpuaddr(process, entry);
 	if (ret) {
 		spin_lock(&process->mem_lock);
 		idr_remove(&process->mem_idr, entry->id);
-		kgsl_dump_contextpid_locked(&dev_priv->device->context_idr);
 		spin_unlock(&process->mem_lock);
 		goto err_put_proc_priv;
 	}
@@ -423,7 +420,6 @@ static void kgsl_mem_entry_detach_process(struct kgsl_mem_entry *entry)
 	entry->id = 0;
 
 	type = kgsl_memdesc_usermem_type(&entry->memdesc);
-	atomic_long_sub(entry->memdesc.size, &entry->priv->stats[type].cur);
 	spin_unlock(&entry->priv->mem_lock);
 	kgsl_process_private_put(entry->priv);
 
@@ -2629,7 +2625,6 @@ static struct kgsl_mem_entry *gpumem_alloc_entry(
 	struct kgsl_process_private *private = dev_priv->process_priv;
 	struct kgsl_mem_entry *entry;
 	unsigned int align;
-	struct kgsl_memdesc *memdesc = NULL;
 
 	flags &= KGSL_MEMFLAGS_GPUREADONLY
 		| KGSL_CACHEMODE_MASK
@@ -2673,7 +2668,6 @@ static struct kgsl_mem_entry *gpumem_alloc_entry(
 	flags = kgsl_filter_cachemode(flags);
 
 	entry = kgsl_mem_entry_create();
-	memdesc = &entry->memdesc;
 
 	if (entry == NULL)
 		return ERR_PTR(-ENOMEM);
@@ -2684,7 +2678,6 @@ static struct kgsl_mem_entry *gpumem_alloc_entry(
 	if (flags & KGSL_MEMFLAGS_SECURE)
 		entry->memdesc.priv |= KGSL_MEMDESC_SECURE;
 
-	memdesc->private = private;
 	ret = kgsl_allocate_user(dev_priv->device, &entry->memdesc,
 				private->pagetable, size, flags);
 	if (ret != 0)
@@ -3605,8 +3598,6 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 	kgsl_pwrctrl_init_sysfs(device);
 
 	
-	kgsl_device_htc_init(device);
-
 	dev_info(device->dev, "Initialized %s: mmu=%s\n", device->name,
 		kgsl_mmu_enabled() ? "on" : "off");
 
@@ -3737,8 +3728,6 @@ static int __init kgsl_core_init(void)
 		goto err;
 
 	kgsl_memfree_init();
-
-	kgsl_driver_htc_init(&kgsl_driver.priv);
 
 	return 0;
 

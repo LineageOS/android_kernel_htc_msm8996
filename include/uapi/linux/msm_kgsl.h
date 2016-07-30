@@ -706,15 +706,6 @@ struct kgsl_gpumem_sync_cache_bulk {
 #define IOCTL_KGSL_GPUMEM_SYNC_CACHE_BULK \
 	_IOWR(KGSL_IOC_TYPE, 0x3C, struct kgsl_gpumem_sync_cache_bulk)
 
-#ifdef CONFIG_MSM_KGSL
-unsigned int kgsl_get_alloc_size(int detailed);
-#else
-static inline unsigned int kgsl_get_alloc_size(__attribute__((unused))int detailed)
-{
-	return 0;
-}
-#endif
-
 struct kgsl_cmd_syncpoint_timestamp {
 	unsigned int context_id;
 	unsigned int timestamp;

@@ -252,9 +252,6 @@ struct kgsl_device {
 	struct workqueue_struct *events_wq;
 
 	struct device *busmondev; 
-
-	
-	int gpu_fault_no_panic;
 };
 
 #define KGSL_MMU_DEVICE(_mmu) \
@@ -326,7 +323,7 @@ struct kgsl_process_private {
 	struct kobject kobj;
 	struct dentry *debug_root;
 	struct {
-		atomic_long_t cur;
+		uint64_t cur;
 		uint64_t max;
 	} stats[KGSL_MEM_ENTRY_MAX];
 	struct idr syncsource_idr;
@@ -373,22 +370,9 @@ struct kgsl_device *kgsl_get_device(int dev_idx);
 static inline void kgsl_process_add_stats(struct kgsl_process_private *priv,
 	unsigned int type, uint64_t size)
 {
-	uint64_t cur;
-	if (type >= KGSL_MEM_ENTRY_MAX)
-		return;
-
-	spin_lock(&priv->mem_lock);
-	atomic_long_add(size, &priv->stats[type].cur);
-	cur = atomic_long_read(&priv->stats[type].cur);
-	if (priv->stats[type].max < cur)
-		priv->stats[type].max = cur;
-	spin_unlock(&priv->mem_lock);
-}
-
-static inline void kgsl_process_sub_stats(struct kgsl_process_private *priv,
-		unsigned int type, size_t size)
-{
-	atomic_long_sub(size, &priv->stats[type].cur);
+	priv->stats[type].cur += size;
+	if (priv->stats[type].max < priv->stats[type].cur)
+		priv->stats[type].max = priv->stats[type].cur;
 }
 
 static inline void kgsl_regread(struct kgsl_device *device,
