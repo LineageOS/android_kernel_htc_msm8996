@@ -168,6 +168,10 @@ void adreno_ringbuffer_submit(struct adreno_ringbuffer *rb,
 int adreno_ringbuffer_submit_spin(struct adreno_ringbuffer *rb,
 		struct adreno_submit_time *time, unsigned int timeout);
 
+int adreno_ringbuffer_submit_spin_retry(struct adreno_ringbuffer *rb,
+		struct adreno_submit_time *time, unsigned int timeout,
+		unsigned int retry);
+
 void kgsl_cp_intrcallback(struct kgsl_device *device);
 
 unsigned int *adreno_ringbuffer_allocspace(struct adreno_ringbuffer *rb,
