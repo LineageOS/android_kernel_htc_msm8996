@@ -16,19 +16,45 @@
 #include "kgsl_iommu.h"
 #include "adreno_dispatch.h"
 
+/* Adreno ringbuffer size in bytes */
 #define KGSL_RB_SIZE (32 * 1024)
 
+/*
+ * A handy macro to convert the RB size to dwords since most ringbuffer
+ * operations happen in dword increments
+ */
 #define KGSL_RB_DWORDS (KGSL_RB_SIZE >> 2)
 
 struct kgsl_device;
 struct kgsl_device_private;
 
+/**
+ * struct adreno_submit_time - utility structure to store the wall clock / GPU
+ * ticks at command submit time
+ * @ticks: GPU ticks at submit time (from the 19.2Mhz timer)
+ * @ktime: local clock time (in nanoseconds)
+ * @utime: Wall clock time
+ */
 struct adreno_submit_time {
 	uint64_t ticks;
 	u64 ktime;
 	struct timespec utime;
 };
 
+/**
+ * struct adreno_ringbuffer_pagetable_info - Contains fields used during a
+ * pagetable switch.
+ * @current_global_ptname: The current pagetable id being used by the GPU.
+ * Only the ringbuffers[0] current_global_ptname is used to keep track of
+ * the current pagetable id
+ * @current_rb_ptname: The current pagetable active on the given RB
+ * @incoming_ptname: Contains the incoming pagetable we are switching to. After
+ * switching of pagetable this value equals current_rb_ptname.
+ * @switch_pt_enable: Flag used during pagetable switch to check if pt
+ * switch can be skipped
+ * @ttbr0: value to program into TTBR0 during pagetable switch.
+ * @contextidr: value to program into CONTEXTIDR during pagetable switch.
+ */
 struct adreno_ringbuffer_pagetable_info {
 	int current_global_ptname;
 	int current_rb_ptname;
@@ -95,10 +121,17 @@ struct adreno_ringbuffer {
 	enum adreno_dispatcher_starve_timer_states starve_timer_state;
 };
 
+/* enable timestamp (...scratch0) memory shadowing */
 #define GSL_RB_MEMPTRS_SCRATCH_MASK 0x1
 
+/*
+ * protected mode error checking below register address 0x800
+ * note: if CP_INTERRUPT packet is used then checking needs
+ * to change to below register address 0x7C8
+ */
 #define GSL_RB_PROTECTED_MODE_CONTROL		0x200001F2
 
+/* Returns the current ringbuffer */
 #define ADRENO_CURRENT_RINGBUFFER(a)	((a)->cur_rb)
 
 #define KGSL_MEMSTORE_RB_OFFSET(rb, field)	\
@@ -166,18 +199,21 @@ static inline int adreno_ringbuffer_count(struct adreno_ringbuffer *rb,
 	return rb->wptr + KGSL_RB_DWORDS - rptr;
 }
 
+/* Increment a value by 4 bytes with wrap-around based on size */
 static inline unsigned int adreno_ringbuffer_inc_wrapped(unsigned int val,
 							unsigned int size)
 {
 	return (val + sizeof(unsigned int)) % size;
 }
 
+/* Decrement a value by 4 bytes with wrap-around based on size */
 static inline unsigned int adreno_ringbuffer_dec_wrapped(unsigned int val,
 							unsigned int size)
 {
 	return (val + size - sizeof(unsigned int)) % size;
 }
 
+/* check if timestamp is greater than the current rb timestamp */
 static inline int adreno_ringbuffer_check_timestamp(
 			struct adreno_ringbuffer *rb,
 			unsigned int timestamp, int type)
@@ -187,4 +223,4 @@ static inline int adreno_ringbuffer_check_timestamp(
 	return (timestamp_cmp(ts, timestamp) >= 0);
 }
 
-#endif  
+#endif  /* __ADRENO_RINGBUFFER_H */
