@@ -173,6 +173,10 @@ static const struct file_operations pstore_file_operations = {
 	.release	= seq_release,
 };
 
+/*
+ * When a file is unlinked from our file system we call the
+ * platform driver to erase the record from persistent store.
+ */
 static int pstore_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct pstore_private *p = dentry->d_inode->i_private;
@@ -272,6 +276,11 @@ int pstore_is_mounted(void)
 	return pstore_sb != NULL;
 }
 
+/*
+ * Make a regular file in the root directory of our file system.
+ * Load it up with "size" bytes of data from "buf".
+ * Set the mtime & ctime to the date that this record was originally stored.
+ */
 int pstore_mkfile(enum pstore_type_id type, char *psname, u64 id, int count,
 		  char *data, bool compressed, size_t size,
 		  struct timespec time, struct pstore_info *psi)
@@ -439,7 +448,7 @@ static int __init init_pstore_fs(void)
 {
 	int err = 0;
 
-	
+	/* Create a convenient mount point for people to access pstore */
 	pstore_kobj = kobject_create_and_add("pstore", fs_kobj);
 	if (!pstore_kobj) {
 		err = -ENOMEM;

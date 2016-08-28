@@ -104,6 +104,11 @@ void diag_md_close_all()
 		if (ch->ops && ch->ops->close)
 			ch->ops->close(ch->ctx, DIAG_MEMORY_DEVICE_MODE);
 
+		/*
+		 * When we close the Memory device mode, make sure we flush the
+		 * internal buffers in the table so that there are no stale
+		 * entries.
+		 */
 		spin_lock_irqsave(&ch->lock, flags);
 		for (j = 0; j < ch->num_tbl_entries; j++) {
 			entry = &ch->tbl[j];
@@ -188,7 +193,7 @@ int diag_md_write(int id, unsigned char *buf, int len, int ctx)
 			continue;
 
 		found = 1;
-		driver->data_ready[i] |= USERMODE_DIAGFWD;
+		driver->data_ready[i] |= USERMODE_DIAGFWD;/*++ 2015/07/14, USB Team, PCN00012 ++*/
 		DIAG_DBUG("diag: wake up logging process\n");
 		wake_up_interruptible(&driver->wait_q);
 	}
@@ -221,7 +226,7 @@ int diag_md_copy_to_user(char __user *buf, int *pret, size_t buf_size,
 			if (entry->len <= 0)
 				continue;
 			peripheral = GET_BUF_PERIPHERAL(entry->ctx);
-			
+			/* Account for Apps data as well */
 			if (peripheral > NUM_PERIPHERALS)
 				goto drop_data;
 			session_info =
@@ -232,6 +237,10 @@ int diag_md_copy_to_user(char __user *buf, int *pret, size_t buf_size,
 			if ((info && (info->peripheral_mask &
 			    MD_PERIPHERAL_MASK(peripheral)) == 0))
 				goto drop_data;
+			/*
+			 * If the data is from remote processor, copy the remote
+			 * token first
+			 */
 			if (i > 0) {
 				if ((ret + (3 * sizeof(int)) + entry->len) >=
 							buf_size) {
@@ -254,20 +263,25 @@ int diag_md_copy_to_user(char __user *buf, int *pret, size_t buf_size,
 				ret += sizeof(int);
 			}
 
-			
+			/* Copy the length of data being passed */
 			err = copy_to_user(buf + ret, (void *)&(entry->len),
 					   sizeof(int));
 			if (err)
 				goto drop_data;
 			ret += sizeof(int);
 
-			
+			/* Copy the actual data being passed */
 			err = copy_to_user(buf + ret, (void *)entry->buf,
 					   entry->len);
 			if (err)
 				goto drop_data;
 			ret += entry->len;
 
+			/*
+			 * The data is now copied to the user space client,
+			 * Notify that the write is complete and delete its
+			 * entry from the table
+			 */
 			num_data++;
 drop_data:
 			spin_lock_irqsave(&ch->lock, flags);

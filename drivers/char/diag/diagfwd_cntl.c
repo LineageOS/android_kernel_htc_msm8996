@@ -27,6 +27,7 @@
 
 #define FEATURE_SUPPORTED(x)	((feature_mask << (i * 8)) & (1 << x))
 
+/* tracks which peripheral is undergoing SSR */
 static uint16_t reg_dirty;
 static void diag_notify_md_client(uint8_t peripheral, int data);
 
@@ -196,12 +197,16 @@ static void process_command_deregistration(uint8_t *buf, uint32_t len,
 	struct cmd_code_range *range = NULL;
 	struct diag_cmd_reg_entry_t del_entry;
 
+	/*
+	 * Perform Basic sanity. The len field is the size of the data payload.
+	 * This doesn't include the header size.
+	 */
 	if (!buf || peripheral >= NUM_PERIPHERALS || len == 0)
 		return;
 
 	dereg = (struct diag_ctrl_cmd_dereg *)ptr;
 	ptr += header_len;
-	
+	/* Don't account for pkt_id and length */
 	read_len += header_len - (2 * sizeof(uint32_t));
 
 	if (dereg->count_entries == 0) {
@@ -237,12 +242,16 @@ static void process_command_registration(uint8_t *buf, uint32_t len,
 	struct cmd_code_range *range = NULL;
 	struct diag_cmd_reg_entry_t new_entry;
 
+	/*
+	 * Perform Basic sanity. The len field is the size of the data payload.
+	 * This doesn't include the header size.
+	 */
 	if (!buf || peripheral >= NUM_PERIPHERALS || len == 0)
 		return;
 
 	reg = (struct diag_ctrl_cmd_reg *)ptr;
 	ptr += header_len;
-	
+	/* Don't account for pkt_id and length */
 	read_len += header_len - (2 * sizeof(uint32_t));
 
 	if (reg->count_entries == 0) {
@@ -298,7 +307,7 @@ static void process_socket_feature(uint8_t peripheral)
 
 static void process_log_on_demand_feature(uint8_t peripheral)
 {
-	
+	/* Log On Demand command is registered only on Modem */
 	if (peripheral != PERIPHERAL_MODEM)
 		return;
 
@@ -417,7 +426,7 @@ static void process_log_range_report(uint8_t *buf, uint32_t len,
 
 	header = (struct diag_ctrl_log_range_report *)ptr;
 	ptr += header_len;
-	
+	/* Don't account for pkt_id and length */
 	read_len += header_len - (2 * sizeof(uint32_t));
 
 	driver->num_equip_id[peripheral] = header->num_ranges;
@@ -484,7 +493,7 @@ static void process_ssid_range_report(uint8_t *buf, uint32_t len,
 
 	header = (struct diag_ctrl_ssid_range_report *)ptr;
 	ptr += header_len;
-	
+	/* Don't account for pkt_id and length */
 	read_len += header_len - (2 * sizeof(uint32_t));
 
 	driver->max_ssid_count[peripheral] = header->count;
@@ -613,7 +622,7 @@ static void process_build_mask_report(uint8_t *buf, uint32_t len,
 
 	header = (struct diag_ctrl_build_mask_report *)ptr;
 	ptr += header_len;
-	
+	/* Don't account for pkt_id and length */
 	read_len += header_len - (2 * sizeof(uint32_t));
 
 	for (i = 0; i < header->count && read_len < len; i++) {
@@ -694,16 +703,34 @@ static int diag_compute_real_time(int idx)
 {
 	int real_time = MODE_REALTIME;
 	if (driver->proc_active_mask == 0) {
+		/*
+		 * There are no DCI or Memory Device processes. Diag should
+		 * be in Real Time mode irrespective of USB connection
+		 */
 		real_time = MODE_REALTIME;
 	} else if (driver->proc_rt_vote_mask[idx] & driver->proc_active_mask) {
+		/*
+		 * Atleast one process is alive and is voting for Real Time
+		 * data - Diag should be in real time mode irrespective of USB
+		 * connection.
+		 */
 		real_time = MODE_REALTIME;
 	} else if (driver->usb_connected) {
+		/*
+		 * If USB is connected, check individual process. If Memory
+		 * Device Mode is active, set the mode requested by Memory
+		 * Device process. Set to realtime mode otherwise.
+		 */
 		if ((driver->proc_rt_vote_mask[idx] &
 						DIAG_PROC_MEMORY_DEVICE) == 0)
 			real_time = MODE_NONREALTIME;
 		else
 			real_time = MODE_REALTIME;
 	} else {
+		/*
+		 * We come here if USB is not connected and the active
+		 * processes are voting for Non realtime mode.
+		 */
 		real_time = MODE_NONREALTIME;
 	}
 	return real_time;
@@ -722,6 +749,11 @@ static void diag_create_diag_mode_ctrl_pkt(unsigned char *dest_buf,
 	diagmode.ctrl_pkt_data_len = DIAG_MODE_PKT_LEN;
 	diagmode.version = 1;
 	diagmode.sleep_vote = real_time ? 1 : 0;
+	/*
+	 * 0 - Disables real-time logging (to prevent
+	 *     frequent APPS wake-ups, etc.).
+	 * 1 - Enable real-time logging
+	 */
 	diagmode.real_time = real_time;
 	diagmode.use_nrt_values = 0;
 	diagmode.commit_threshold = 0;
@@ -807,7 +839,7 @@ static void diag_send_diag_mode_update_remote(int token, int real_time)
 			__func__);
 		return;
 	}
-	
+	/* Frame the DCI header */
 	dci_header.start = CONTROL_CHAR;
 	dci_header.version = 1;
 	dci_header.length = msg_size + 1;
@@ -817,7 +849,7 @@ static void diag_send_diag_mode_update_remote(int token, int real_time)
 	write_len += dci_header_size;
 	diag_create_diag_mode_ctrl_pkt(buf + write_len, real_time);
 	write_len += msg_size;
-	*(buf + write_len) = CONTROL_CHAR; 
+	*(buf + write_len) = CONTROL_CHAR; /* End Terminator */
 	write_len += sizeof(uint8_t);
 	err = diagfwd_bridge_write(TOKEN_TO_BRIDGE(token), buf, write_len);
 	if (err != write_len) {
@@ -839,6 +871,11 @@ void diag_real_time_work_fn(struct work_struct *work)
 	int temp_real_time = MODE_REALTIME, i, j;
 	uint8_t send_update = 1;
 
+	/*
+	 * If any peripheral in the local processor is in either threshold or
+	 * circular buffering mode, don't send the real time mode control
+	 * packet.
+	 */
 	for (i = 0; i < NUM_PERIPHERALS; i++) {
 		if (!driver->feature[i].peripheral_buffering)
 			continue;
@@ -885,10 +922,14 @@ void diag_real_time_work_fn(struct work_struct *work)
 
 	for (i = 0; i < DIAG_NUM_PROC; i++) {
 		if (driver->proc_active_mask == 0) {
+			/*
+			 * There are no DCI or Memory Device processes.
+			 * Diag should be in Real Time mode.
+			 */
 			temp_real_time = MODE_REALTIME;
 		} else if (!(driver->proc_rt_vote_mask[i] &
 						driver->proc_active_mask)) {
-			
+			/* No active process is voting for real time mode */
 			temp_real_time = MODE_NONREALTIME;
 		}
 		if (temp_real_time == driver->real_time_mode[i]) {
@@ -958,6 +999,10 @@ int diag_send_real_time_update(uint8_t peripheral, int real_time)
 	for (i = 0; i < NUM_PERIPHERALS; i++) {
 		if (!driver->buffering_flag[i])
 			continue;
+		/*
+		 * One of the peripherals is in buffering mode. Don't set
+		 * the RT value.
+		 */
 		return -EINVAL;
 	}
 
@@ -1004,6 +1049,10 @@ int diag_send_peripheral_buffering_mode(struct diag_buffering_mode_t *params)
 		return -EIO;
 	}
 
+	/*
+	 * Perform sanity on watermark values. These values must be
+	 * checked irrespective of the buffering mode.
+	 */
 	if (((params->high_wm_val > DIAG_MAX_WM_VAL) ||
 	     (params->low_wm_val > DIAG_MAX_WM_VAL)) ||
 	    (params->low_wm_val > params->high_wm_val) ||
@@ -1097,7 +1146,7 @@ int diag_send_peripheral_drain_immediate(uint8_t peripheral)
 	}
 
 	ctrl_pkt.pkt_id = DIAG_CTRL_MSG_PERIPHERAL_BUF_DRAIN_IMM;
-	
+	/* The length of the ctrl pkt is size of version and stream id */
 	ctrl_pkt.len = sizeof(uint32_t) + sizeof(uint8_t);
 	ctrl_pkt.version = 1;
 	ctrl_pkt.stream_id = 1;
@@ -1144,7 +1193,7 @@ int diag_send_buffering_tx_mode_pkt(uint8_t peripheral,
 	}
 
 	ctrl_pkt.pkt_id = DIAG_CTRL_MSG_CONFIG_PERIPHERAL_TX_MODE;
-	
+	/* Control packet length is size of version, stream_id and tx_mode */
 	ctrl_pkt.len = sizeof(uint32_t) +  (2 * sizeof(uint8_t));
 	ctrl_pkt.version = 1;
 	ctrl_pkt.stream_id = 1;
@@ -1202,7 +1251,7 @@ int diag_send_buffering_wm_values(uint8_t peripheral,
 	}
 
 	ctrl_pkt.pkt_id = DIAG_CTRL_MSG_CONFIG_PERIPHERAL_WMQ_VAL;
-	
+	/* Control packet length is size of version, stream_id and wmq values */
 	ctrl_pkt.len = sizeof(uint32_t) + (3 * sizeof(uint8_t));
 	ctrl_pkt.version = 1;
 	ctrl_pkt.stream_id = 1;

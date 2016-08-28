@@ -56,7 +56,7 @@ struct msm_mi2s_pdata {
 };
 
 struct msm_i2s_data {
-	u32 capability; 
+	u32 capability; /* RX or TX */
 	u16 sd_lines;
 };
 

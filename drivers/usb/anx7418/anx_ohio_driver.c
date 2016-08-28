@@ -2348,28 +2348,6 @@ static int ohio_i2c_probe(struct i2c_client *client,
 	wake_lock_init(&ohio->ohio_lock,
 		       WAKE_LOCK_SUSPEND, "ohio_wake_lock"); 
 
-	ret = request_threaded_irq(ohio->cbl_det_irq, NULL, ohio_cbl_det_isr,
-				   IRQF_TRIGGER_FALLING  | IRQF_TRIGGER_RISING
-				   | IRQF_ONESHOT, "ohio-cbl-det", ohio);
-	if (ret < 0) {
-		pr_err("%s : failed to request irq\n", __func__);
-		goto err3;
-	}
-
-	ret = irq_set_irq_wake(ohio->cbl_det_irq, 1);
-	if (ret < 0) {
-		pr_err("%s : Request irq for cable detect", __func__);
-		pr_err("interrupt wake set fail\n");
-		goto err4;
-	}
-
-	ret = enable_irq_wake(ohio->cbl_det_irq);
-	if (ret < 0) {
-		pr_err("%s : Enable irq for cable detect", __func__);
-		pr_err("interrupt wake enable fail\n");
-		goto err4;
-	}
-
 	client->irq = gpio_to_irq(ohio->pdata->gpio_intr_comm);
 	if (client->irq < 0) {
 		pr_err("%s : failed to get ohio gpio comm irq\n", __func__);
@@ -2425,20 +2403,44 @@ static int ohio_i2c_probe(struct i2c_client *client,
 	ohio->ohio_dual_role_instance = devm_dual_role_instance_register(&client->dev, &ohio_desc);
 	if (IS_ERR(ohio->ohio_dual_role_instance)) {
 		pr_err("%s: dual_role_instance register fail\n", __func__);
-		goto err5;
+		goto err4;
 	}
 
 	ohio->fw_version = 0xFF;
 
+	ret = request_threaded_irq(ohio->cbl_det_irq, NULL, ohio_cbl_det_isr,
+				   IRQF_TRIGGER_FALLING  | IRQF_TRIGGER_RISING
+				   | IRQF_ONESHOT, "ohio-cbl-det", ohio);
+	if (ret < 0) {
+		pr_err("%s : failed to request irq\n", __func__);
+		goto err5;
+	}
+
+	ret = irq_set_irq_wake(ohio->cbl_det_irq, 1);
+	if (ret < 0) {
+		pr_err("%s : Request irq for cable detect", __func__);
+		pr_err("interrupt wake set fail\n");
+		goto err6;
+	}
+
+	ret = enable_irq_wake(ohio->cbl_det_irq);
+	if (ret < 0) {
+		pr_err("%s : Enable irq for cable detect", __func__);
+		pr_err("interrupt wake enable fail\n");
+		goto err6;
+	}
+
 	pr_info("%s successfully\n", __func__);
 	goto exit;
 
+err6:
+	free_irq(ohio->cbl_det_irq, ohio);
 err5:
 	devm_dual_role_instance_unregister(&client->dev, ohio->ohio_dual_role_instance);
 err4:
 	free_irq(client->irq, ohio);
 err3:
-	free_irq(ohio->cbl_det_irq, ohio);
+	wake_lock_destroy(&ohio->ohio_lock);
 err2:
 	destroy_workqueue(ohio->workqueue);
 	destroy_workqueue(ohio->comm_workqueue);

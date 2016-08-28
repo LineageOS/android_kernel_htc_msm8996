@@ -30,8 +30,8 @@
 struct hrtimer clr_kpd_reset_timer;
 struct hrtimer enable_kpd_s2_timer;
 static int clear_kpdpwr_s2_rst_flag;
-#define KPDPWR_CLR_RESET_TIMER (150 * NSEC_PER_MSEC) 
-#endif 
+#define KPDPWR_CLR_RESET_TIMER (150 * NSEC_PER_MSEC) /* Time out set as 0.15 sec. */
+#endif /* CONFIG_KPDPWR_S2_DVDD_RESET */
 
 static unsigned int vzw_key_flag = 0;
 
@@ -89,7 +89,7 @@ static enum hrtimer_restart enable_kpd_s2_timer_func(struct hrtimer *timer)
 
 	return HRTIMER_NORESTART;
 }
-#endif 
+#endif /* CONFIG_KPDPWR_S2_DVDD_RESET */
 
 static int keycombo_pinctrl_configure(struct pinctrl *key_pinctrl, bool active);
 void clear_hw_reset(void)
@@ -130,7 +130,7 @@ static void keep_hw_reset_clear(struct work_struct *dummy)
 				__func__, clear_kpdpwr_s2_rst_flag);
 	hrtimer_start(&clr_kpd_reset_timer,
 		ktime_set(0, KPDPWR_CLR_RESET_TIMER), HRTIMER_MODE_REL);
-#endif 
+#endif /* CONFIG_KPDPWR_S2_DVDD_RESET */
 	clear_hw_reset();
 	schedule_delayed_work(&clear_restart_work, msecs_to_jiffies(1000));
 }
@@ -150,7 +150,7 @@ static void stop_clearing(void *dummy)
 		hrtimer_cancel(&clr_kpd_reset_timer);
 	if (hrtimer_is_queued(&enable_kpd_s2_timer))
 		hrtimer_cancel(&enable_kpd_s2_timer);
-#endif 
+#endif /* CONFIG_KPDPWR_S2_DVDD_RESET */
 	cancel_delayed_work_sync(&clear_restart_work);
 }
 
@@ -241,7 +241,7 @@ static int keycombo_pinctrl_configure(struct pinctrl *key_pinctrl,
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_POWER_KEY_CLR_RESET */
 
 static void do_key_down(struct work_struct *work)
 {
@@ -376,13 +376,13 @@ static int keycombo_parse_dt(struct device_node *dt,
 		snprintf(parser_st[2], 15, "vzw_keys_up");
 	}
 
-	
+	/* Parse key_down_delay */
 	if (of_property_read_u32(dt, parser_st[0], &pdata->key_down_delay))
 		KEY_LOGI("DT:%s parser gets nothing\n", parser_st[0]);
 
 	KEY_LOGI("DT:%s=%d\n", parser_st[0], pdata->key_down_delay);
 
-	
+	/* Parse keys_down keycode */
 	prop = of_find_property(dt, parser_st[1], NULL);
 	if (!prop) {
 		KEY_LOGE("DT:%s property not found\n", parser_st[1]);
@@ -409,7 +409,7 @@ static int keycombo_parse_dt(struct device_node *dt,
 	for(cnt = 0; cnt < num_keys; cnt++)
 		KEY_LOGI("DT:%s=%d\n", parser_st[1], pdata->keys_down[cnt]);
 
-	
+	/* Parse keys_up keycode */
 	prop = of_find_property(dt, parser_st[2], NULL);
 	if (!prop) {
 		KEY_LOGE("DT:%s property not found\n", parser_st[2]);
@@ -437,7 +437,7 @@ static int keycombo_parse_dt(struct device_node *dt,
 		KEY_LOGI("DT:%s=%d\n", parser_st[2], pdata->keys_up[cnt]);
 
 #if defined(CONFIG_POWER_KEY_CLR_RESET)
-	
+	/* Parse clr_gpio */
 	ret = of_get_named_gpio(dt, parser_st[3], 0);
 	if (!gpio_is_valid(ret))
 		KEY_LOGI("DT:%s parser fails/gets nothing, ret=%d\n", parser_st[3], ret);
@@ -534,7 +534,7 @@ static int keycombo_probe(struct platform_device *pdev)
 
 #if defined(CONFIG_POWER_KEY_CLR_RESET)
 	if(state->priv == NULL) {
-		
+		/* Get pinctrl if target uses pinctrl */
 		key_pinctrl = devm_pinctrl_get(&pdev->dev);
 		if (IS_ERR(key_pinctrl)) {
 			if (PTR_ERR(key_pinctrl) == -EPROBE_DEFER)
@@ -564,7 +564,7 @@ static int keycombo_probe(struct platform_device *pdev)
 
 			clr_gpio = pdata->clr_gpio;
 
-			
+			/* Contrl gpio directly if target does not use pinctrl */
 			if(key_pinctrl == NULL) {
 				KEY_LOGI("control clr_gpio directly\n");
 				ret = gpio_direction_input(pdata->clr_gpio);
@@ -590,7 +590,7 @@ static int keycombo_probe(struct platform_device *pdev)
 		clr_kpd_reset_timer.function = clr_kpd_rst_timer_func;
 		hrtimer_init(&enable_kpd_s2_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 		enable_kpd_s2_timer.function = enable_kpd_s2_timer_func;
-#endif 
+#endif /* CONFIG_KPDPWR_S2_DVDD_RESET && CONFIG_POWER_KEY_CLR_RESET */
 
 	if (pdata->key_down_fn)
 		state->key_down_fn = pdata->key_down_fn;

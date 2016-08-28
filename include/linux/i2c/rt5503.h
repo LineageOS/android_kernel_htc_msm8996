@@ -19,8 +19,11 @@
 #define RT5503_DEVICE_NAME		"rt5503"
 #define RT5503_DRV_VER			"1.0.0_C"
 
+/* unit: milli-second */
 #define RT5503_HDET_DEBOUNCE 100
+/* total 13 bits : 12~0 */
 #define RT5503_MICISADC_RESOL 8192
+/* unit: % */
 #define RT5503_MICDET_PERCENT 7
 
 #ifdef CONFIG_RT_REGMAP
@@ -28,10 +31,10 @@
 #if RT5503_SIMULATE_DEVICE
 int rt5503_calculate_offset(int reg);
 int rt5503_calculate_total_size(void);
-#endif 
+#endif /* #if RT5503_SIMULATE_DEVICE */
 #else
 #define RT5503_SIMULATE_DEVICE	0
-#endif 
+#endif /* #ifdef CONFIG_RT_REGMAP */
 
 enum {
 	RT_HEADSET_NONE,
@@ -53,7 +56,7 @@ struct rt5503_chip {
 	struct input_dev *input;
 #if RT5503_SIMULATE_DEVICE
 	void *sim;
-#endif 
+#endif /* #if RT5503_SIMULATE_DEVICE */
 	struct delayed_work dwork;
 	int irq;
 	struct semaphore io_semaphore;
@@ -63,6 +66,7 @@ struct rt5503_chip {
 	u8 headset_in:1;
 };
 
+/* RT5503_REGISTER_LIST */
 #define RT5503_REG_CHIPEN	0x00
 #define RT5503_REG_DIGVOL	0x01
 #define RT5503_REG_CFG1		0x02
@@ -219,6 +223,7 @@ struct rt5503_chip {
 #define RT5503_REG_DACPLSBTEST	0xFA
 #define RT5503_REG_DACNLSBTEST	0xFB
 
+/* RT5503_REG_CHIPEN:0x00 */
 #define RT5503_HPENL_MASK	0x80
 #define RT5503_HPENL_SHFT	7
 #define RT5503_HPENR_MASK	0x40
@@ -227,19 +232,25 @@ struct rt5503_chip {
 #define RT5503_HPHQMOD_MASK	0x02
 #define RT5503_CHIPEN_MASK	0x01
 
+/* RT5503_REG_CFG1: 0x02 */
 #define RT5503_MUTE_MASK	0xc0
 #define RT5503_PLLSEL_MASK	0x30
 #define RT5503_PLLSEL_SHFT	4
 
+/* RT5503_REG_IMSCFG1:0x03 */
 #define RT5503_IMSEN_MASK	0x80
 
+/* RT5503_REG_MICCFG1:0x09 */
 #define RT5503_MICBEN_MASK	0x20
 #define RT5503_MICISEN_MASK	0x10
 #define RT5503_MICISDEBEN_MASK	0x02
 
+/* RT5503_REG_ADCCFG1:0x0c */
 #define RT5503_ADCEN_MASK	0x80
 #define RT5503_ADCEN_SHFT	7
 
+/* RT5503_REG_DACCFG1:0x0e */
+/* RT5503_REG_ADCCFG1:0x10 */
 enum {
 	RT5503_BCKMODE_32FS,
 	RT5503_BCKMODE_48FS,
@@ -261,6 +272,8 @@ enum {
 #define RT5503_SRMODE_MASK	0x0f
 #define RT5503_SRMODE_SHFT	0
 
+/* RT5503_REG_DACAUDFMT:0x0f */
+/* RT5503_REG_ADCAUDFMT:0x11 */
 enum {
 	RT5503_DSPMODE_A,
 	RT5503_DSPMODE_B,
@@ -284,11 +297,13 @@ enum {
 #define RT5503_AUDBIT_MASK	0x03
 #define RT5503_AUDBIT_SHFT	0
 
+/* RT5503_REG_BLOCKEN: 0x12 */
 #define RT5503_BBEN_MASK	0x80
 #define RT5503_CPEN_MASK	0x40
 #define RT5503_PLLEN_MASK	0x20
 #define RT5503_PLLEN_SHFT	5
 
+/* RT5503_REG_DACCFG2: 0x8C */
 #define RT5503_DACLEN_MASK	0x80
 #define RT5503_DACLEN_SHFT	7
 #define RT5503_DACREN_MASK	0x40
@@ -298,4 +313,4 @@ struct rt_regmap_device * rt5503_regmap_register(
 	struct rt_regmap_fops *regmap_ops,
 	struct device *parent, void *client, void *drvdata);
 
-#endif 
+#endif /* #ifndef __LINUX_I2C_RT5503_H */

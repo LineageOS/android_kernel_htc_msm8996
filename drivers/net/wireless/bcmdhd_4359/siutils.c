@@ -109,6 +109,8 @@ int do_4360_pcie2_war = 0;
 static si_info_t ksii;
 static si_cores_info_t ksii_cores_info;
 
+#define read_type_max 3
+
 si_t *
 si_attach(uint devid, osl_t *osh, void *regs,
                        uint bustype, void *sdh, char **vars, uint *varsz)
@@ -446,6 +448,7 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, void *regs,
 	chipcregs_t *cc;
 	char *pvars = NULL;
 	uint origidx;
+	uint read_cnt = 0;
 #if !defined(_CFEZ_) || defined(CFG_WL)
 #endif 
 
@@ -503,6 +506,8 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, void *regs,
 		SI_ERROR(("%s: chipcommon register space is null \n", __FUNCTION__));
 		return NULL;
 	}
+
+read_type_again:
 	w = R_REG(osh, &cc->chipid);
 	if ((w & 0xfffff) == 148277) w -= 65532;
 	sih->socitype = (w & CID_TYPE_MASK) >> CID_TYPE_SHIFT;
@@ -535,8 +540,10 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, void *regs,
 		SI_MSG(("Found chip type UBUS (0x%08x), chip id = 0x%4x\n", w, sih->chip));
 		
 		ub_scan(&sii->pub, (void *)(uintptr)cc, devid);
-	} else {
+	} else if (read_cnt++ < read_type_max) {
 		SI_ERROR(("Found chip of unknown type (0x%08x)\n", w));
+		goto read_type_again;
+	} else {
 		return NULL;
 	}
 	

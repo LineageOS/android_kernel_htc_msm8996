@@ -29,6 +29,8 @@
 #include "../../../fs/proc/internal.h"
 #include <linux/uaccess.h>
 
+/* configuration tags specific to msm */
+//#define ATAG_MSM_WIFI	0x57494649 /* MSM WiFi */
 
 #define NVS_MAX_SIZE	0x800U
 #define NVS_LEN_OFFSET	0x0C
@@ -113,13 +115,22 @@ static unsigned wifi_get_nvs_size( void )
 	unsigned len;
 
 	ptr = get_wifi_nvs_ram();
-	
+	/* Size in format LE assumed */
 	memcpy(&len, ptr + NVS_LEN_OFFSET, sizeof(len));
 	len = min(len, (NVS_MAX_SIZE - NVS_DATA_OFFSET));
 	return len;
 }
 
+/*
+int wifi_calibration_size_set(void)
+{
+	if (wifi_calibration != NULL)
+		wifi_calibration->size = wifi_get_nvs_size();
+	return 0;
+}
+*/
 
+//static int wifi_calibration_read_proc(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 static ssize_t wifi_calibration_read_proc(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 {
     unsigned char *ptr;
@@ -155,6 +166,7 @@ static ssize_t wifi_calibration_read_proc(struct file *file, char __user *buf, s
     return ret;
 }
 
+//static int wifi_data_read_proc(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 static ssize_t wifi_data_read_proc(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 {
 	unsigned char *ptr;
@@ -202,7 +214,7 @@ static const struct file_operations htc_wifi_data_partition_fops = {
 static int __init wifi_nvs_init(void)
 {
 
-    
+    // New create proc method for kernel 3.10.
     wifi_calibration = proc_create_data("calibration", 0444, NULL, &htc_cal_partition_fops, NULL);
     if (wifi_calibration == NULL) {
         printk("%s: unable to create /proc/calibration entry\n", __func__);

@@ -63,6 +63,11 @@ struct rt_debug_data {
 	unsigned char part_id;
 };
 
+/* rt_regmap_device
+ *
+ * Richtek regmap device. One for each rt_regmap.
+ *
+ */
 struct rt_regmap_device {
 	struct rt_regmap_properties props;
 	struct rt_regmap_fops *rops;
@@ -180,6 +185,7 @@ static struct reg_index_offset find_register_index(
 static int rt_chip_block_write(struct rt_regmap_device *rd, u32 reg,
 				int bytes, const void *src);
 
+/* rt_regmap_cache_sync - sync all cache data to real chip*/
 void rt_regmap_cache_sync(struct rt_regmap_device *rd)
 {
 	int i, rc, num;
@@ -208,6 +214,10 @@ err_cache_sync:
 }
 EXPORT_SYMBOL(rt_regmap_cache_sync);
 
+/* rt_regmap_cache_write_back - write current cache data to chip
+ * @rd: rt_regmap_device pointer.
+ * @reg: register map address
+ */
 void rt_regmap_cache_write_back(struct rt_regmap_device *rd, u32 reg)
 {
 	struct reg_index_offset rio;
@@ -237,6 +247,10 @@ err_cache_chip_write:
 }
 EXPORT_SYMBOL(rt_regmap_cache_write_back);
 
+/* rt_is_reg_volatile - check register map is volatile or not
+ * @rd: rt_regmap_device pointer.
+ * reg: register map address.
+ */
 int rt_is_reg_volatile(struct rt_regmap_device *rd, u32 reg)
 {
 	struct reg_index_offset rio;
@@ -253,6 +267,10 @@ int rt_is_reg_volatile(struct rt_regmap_device *rd, u32 reg)
 }
 EXPORT_SYMBOL(rt_is_reg_volatile);
 
+/* rt_reg_regsize - get register map size for specific register
+ * @rd: rt_regmap_device pointer.
+ * reg: register map address
+ */
 int rt_get_regsize(struct rt_regmap_device *rd, u32 reg)
 {
 	struct reg_index_offset rio;
@@ -609,6 +627,7 @@ static int rt_cache_block_read(struct rt_regmap_device *rd, u32 reg,
 	return 0;
 }
 
+/* rt_regmap_cache_backup - back up all cache register value*/
 void rt_regmap_cache_backup(struct rt_regmap_device *rd)
 {
 	const rt_register_map_t *rm = rd->props.rm;
@@ -623,6 +642,11 @@ void rt_regmap_cache_backup(struct rt_regmap_device *rd)
 }
 EXPORT_SYMBOL(rt_regmap_cache_backup);
 
+/* _rt_regmap_reg_write - write data to specific register map
+ * only support 1, 2, 4 bytes regisetr map
+ * @rd: rt_regmap_device pointer.
+ * @rrd: rt_reg_data pointer.
+ */
 int _rt_regmap_reg_write(struct rt_regmap_device *rd,
 				struct rt_reg_data *rrd)
 {
@@ -692,6 +716,7 @@ int _rt_regmap_reg_write(struct rt_regmap_device *rd,
 }
 EXPORT_SYMBOL(_rt_regmap_reg_write);
 
+/* _rt_asyn_regmap_reg_write - asyn write data to specific register map*/
 int _rt_asyn_regmap_reg_write(struct rt_regmap_device *rd,
 				struct rt_reg_data *rrd)
 {
@@ -764,6 +789,7 @@ err_regmap_write:
 }
 EXPORT_SYMBOL(_rt_asyn_regmap_reg_write);
 
+/* _rt_regmap_update_bits - assign bits specific register map */
 int _rt_regmap_update_bits(struct rt_regmap_device *rd,
 				struct rt_reg_data *rrd)
 {
@@ -893,6 +919,12 @@ err_update_bits:
 }
 EXPORT_SYMBOL(_rt_regmap_update_bits);
 
+/* rt_regmap_block_write - block write data to register
+ * @rd: rt_regmap_device pointer
+ * @reg: register address
+ * bytes: leng for write
+ * src: source data
+ */
 int rt_regmap_block_write(struct rt_regmap_device *rd, u32 reg,
 				int bytes, const void *src)
 {
@@ -905,6 +937,7 @@ int rt_regmap_block_write(struct rt_regmap_device *rd, u32 reg,
 };
 EXPORT_SYMBOL(rt_regmap_block_write);
 
+/* rt_asyn_regmap_block_write - asyn block write*/
 int rt_asyn_regmap_block_write(struct rt_regmap_device *rd, u32 reg,
 					int bytes, const void *src)
 {
@@ -917,6 +950,12 @@ int rt_asyn_regmap_block_write(struct rt_regmap_device *rd, u32 reg,
 };
 EXPORT_SYMBOL(rt_asyn_regmap_block_write);
 
+/* rt_regmap_block_read - block read data form register
+ * @rd: rt_regmap_device pointer
+ * @reg: register address
+ * @bytes: read length
+ * @dst: destination for read data
+ */
 int rt_regmap_block_read(struct rt_regmap_device *rd, u32 reg,
 				int bytes, void *dst)
 {
@@ -929,6 +968,11 @@ int rt_regmap_block_read(struct rt_regmap_device *rd, u32 reg,
 };
 EXPORT_SYMBOL(rt_regmap_block_read);
 
+/* _rt_regmap_reg_read - register read for specific register map
+ * only support 1, 2, 4 bytes register map.
+ * @rd: rt_regmap_device pointer.
+ * @rrd: rt_reg_data pointer.
+ */
 int _rt_regmap_reg_read(struct rt_regmap_device *rd, struct rt_reg_data *rrd)
 {
 	const rt_register_map_t *rm = rd->props.rm;
@@ -1014,6 +1058,7 @@ void rt_cache_clrlasterror(struct rt_regmap_device *rd)
 }
 EXPORT_SYMBOL(rt_cache_clrlasterror);
 
+/* initialize cache data from rt_register */
 int rt_regmap_cache_init(struct rt_regmap_device *rd)
 {
 	int i, j, ret, bytes_num = 0, count = 0;
@@ -1033,7 +1078,7 @@ int rt_regmap_cache_init(struct rt_regmap_device *rd)
 		rd->props.group[0].mode = RT_1BYTE_MODE;
 	}
 
-	
+	/* calculate maxima size for showing on regs debugfs node*/
 	rd->part_size_limit = 0;
 	for (i = 0; i < rd->props.register_num; i++) {
 		if (!rm[i]->cache_data)
@@ -1052,7 +1097,7 @@ int rt_regmap_cache_init(struct rt_regmap_device *rd)
 		goto mem_err;
 	}
 
-	
+	/* reload cache data from real chip */
 	for (i = 0; i < rd->props.register_num; i++) {
 		if (!rm[i]->cache_data) {
 			rm[i]->cache_data = rd->alloc_data + count;
@@ -1067,7 +1112,7 @@ int rt_regmap_cache_init(struct rt_regmap_device *rd)
 		*(rd->cache_flag + i) = 0;
 	}
 
-	
+	/* set 0xff writeable mask for NORMAL and RESERVE type */
 	for (i = 0; i < rd->props.register_num; i++) {
 		if ((rm[i]->reg_type & RT_REG_TYPE_MASK) == RT_NORMAL ||
 		    (rm[i]->reg_type & RT_REG_TYPE_MASK) == RT_RESERVE) {
@@ -1089,6 +1134,7 @@ io_err:
 }
 EXPORT_SYMBOL(rt_regmap_cache_init);
 
+/* rt_regmap_cache_reload - reload cache valuew from real chip*/
 int rt_regmap_cache_reload(struct rt_regmap_device *rd)
 {
 	int i, ret;
@@ -1117,6 +1163,15 @@ io_err:
 }
 EXPORT_SYMBOL(rt_regmap_cache_reload);
 
+/* rt_regmap_add_debubfs - add user own debugfs node
+ * @rd: rt_regmap_devcie pointer.
+ * @name: a pointer to a string containing the name of the file to create.
+ * @mode: the permission that the file should have.
+ * @data: a pointer to something that the caller will want to get to later on.
+ *	The inode.i_private pointer will point this value on the open() call.
+ * @fops: a pointer to a struct file_operations that should be used for
+ *	this file.
+ */
 int rt_regmap_add_debugfs(struct rt_regmap_device *rd, const char *name,
 			  umode_t mode, void *data,
 			  const struct file_operations *fops)
@@ -1127,11 +1182,12 @@ int rt_regmap_add_debugfs(struct rt_regmap_device *rd, const char *name,
 	den = debugfs_create_file(name, mode, rd->rt_den, data, fops);
 	if (!den)
 		return -EINVAL;
-#endif 
+#endif /*CONFIG_DEBUG_FS*/
 	return 0;
 }
 EXPORT_SYMBOL(rt_regmap_add_debugfs);
 
+/* release cache data*/
 static void rt_regmap_cache_release(struct rt_regmap_device *rd)
 {
 	int i;
@@ -1600,6 +1656,7 @@ static const struct file_operations general_ops = {
 	.release = general_release,
 };
 
+/* create general debugfs node */
 static void rt_create_general_debug(struct rt_regmap_device *rd,
 				    struct dentry *dir)
 {
@@ -1765,6 +1822,7 @@ static const struct file_operations eachreg_ops = {
 	.write = eachreg_write,
 };
 
+/* create every register node at debugfs */
 static void rt_create_every_debug(struct rt_regmap_device *rd,
 				  struct dentry *dir)
 {
@@ -1805,7 +1863,7 @@ static void rt_release_every_debug(struct rt_regmap_device *rd)
 	devm_kfree(&rd->dev, rd->rt_reg_file);
 	devm_kfree(&rd->dev, rd->reg_st);
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static void rt_regmap_device_release(struct device *dev)
 {
@@ -1814,13 +1872,14 @@ static void rt_regmap_device_release(struct device *dev)
 	devm_kfree(dev, rd);
 }
 
+/* check the rt_register format is correct */
 static int rt_regmap_check(struct rt_regmap_device *rd)
 {
 	const rt_register_map_t *rm = rd->props.rm;
 	int num = rd->props.register_num;
 	int i;
 
-	
+	/* check name property */
 	if (!rd->props.name) {
 		pr_info("there is no node name for rt-regmap\n");
 		return -EINVAL;
@@ -1830,7 +1889,7 @@ static int rt_regmap_check(struct rt_regmap_device *rd)
 		goto single_byte;
 
 	for (i = 0; i < num; i++) {
-		
+		/* check byte size, 1 byte ~ 24 bytes is valid */
 		if (rm[i]->size < 1 || rm[i]->size > 24) {
 			pr_info("rt register size error at reg 0x%02x\n",
 				rm[i]->addr);
@@ -1839,7 +1898,7 @@ static int rt_regmap_check(struct rt_regmap_device *rd)
 	}
 
 	for (i = 0; i < num - 1; i++) {
-		
+		/* check register sequence */
 		if (rm[i]->addr >= rm[i + 1]->addr) {
 			pr_info("sequence format error at reg 0x%02x\n",
 				rm[i]->addr);
@@ -1848,7 +1907,7 @@ static int rt_regmap_check(struct rt_regmap_device *rd)
 	}
 
 single_byte:
-	
+	/* no default reg_addr and reister_map first addr is not 0x00 */
 	if (!rd->dbg_data.reg_addr && rm[0]->addr) {
 		rd->dbg_data.reg_addr = rm[0]->addr;
 		rd->dbg_data.rio.index = 0;
@@ -1897,6 +1956,13 @@ static int rt_create_simple_map(struct rt_regmap_device *rd)
 	return 0;
 }
 
+/* rt_regmap_device_register
+ * @props: a pointer to rt_regmap_properties for rt_regmap_device
+ * @rops: a pointer to rt_regmap_fops for rt_regmap_device
+ * @parent: a pinter to parent device
+ * @client: a pointer to the slave client of this device
+ * @drvdata: a pointer to the driver data
+ */
 struct rt_regmap_device *rt_regmap_device_register
 			(struct rt_regmap_properties *props,
 			struct rt_regmap_fops *rops,
@@ -1915,7 +1981,7 @@ struct rt_regmap_device *rt_regmap_device_register
 		return NULL;
 	}
 
-	
+	/* create a binary semaphore */
 	sema_init(&rd->semaphore, 1);
 	rd->dev.parent = parent;
 	rd->client = client;
@@ -1926,7 +1992,7 @@ struct rt_regmap_device *rt_regmap_device_register
 	if (props)
 		memcpy(&rd->props, props, sizeof(struct rt_regmap_properties));
 
-	
+	/* check rt_registe_map format */
 	ret = rt_regmap_check(rd);
 	if (ret) {
 		pr_info("rt register map format error\n");
@@ -1952,7 +2018,7 @@ struct rt_regmap_device *rt_regmap_device_register
 		}
 	}
 
-	
+	/* init cache data */
 	ret = rt_regmap_cache_init(rd);
 	if (ret < 0) {
 		pr_info(" rt cache data init fail\n");
@@ -1984,14 +2050,14 @@ struct rt_regmap_device *rt_regmap_device_register
 			rt_create_every_debug(rd, rd->rt_den);
 	} else
 		goto err_debug;
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 	return rd;
 
 #ifdef CONFIG_DEBUG_FS
 err_debug:
 	rt_regmap_cache_release(rd);
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 err_cacheinit:
 	device_unregister(&rd->dev);
 	return NULL;
@@ -1999,6 +2065,7 @@ err_cacheinit:
 }
 EXPORT_SYMBOL(rt_regmap_device_register);
 
+/* rt_regmap_device_unregister - unregister rt_regmap_device*/
 void rt_regmap_device_unregister(struct rt_regmap_device *rd)
 {
 	if (!rd)
@@ -2012,7 +2079,7 @@ void rt_regmap_device_unregister(struct rt_regmap_device *rd)
 	debugfs_remove_recursive(rd->rt_den);
 	if (rd->props.rt_regmap_mode & DBG_MODE_MASK)
 		rt_release_every_debug(rd);
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 	device_unregister(&rd->dev);
 }
 EXPORT_SYMBOL(rt_regmap_device_unregister);

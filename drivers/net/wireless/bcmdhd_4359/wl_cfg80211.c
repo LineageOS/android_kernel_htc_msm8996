@@ -10088,6 +10088,7 @@ wl_notify_connect_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 				u8 *curbssid = wl_read_prof(cfg, ndev, WL_PROF_BSSID);
 				s32 reason = 0;
 				struct ether_addr bssid_dongle;
+				struct ether_addr bssid_null = {{0, 0, 0, 0, 0, 0}};
 
 				if (event == WLC_E_DEAUTH_IND || event == WLC_E_DISASSOC_IND)
 					reason = ntoh32(e->reason);
@@ -10103,15 +10104,30 @@ wl_notify_connect_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 				if (cfg->roam_offload) {
 					if (wldev_ioctl(ndev, WLC_GET_BSSID, &bssid_dongle,
 							sizeof(bssid_dongle), false) == BCME_OK) {
-						curbssid = (u8 *)&bssid_dongle;
+						
+						if (memcmp(&bssid_dongle, &bssid_null,
+									ETHER_ADDR_LEN) != 0) {
+							curbssid = (u8 *)&bssid_dongle;
+						}
 					}
 				}
 				if (memcmp(curbssid, &e->addr, ETHER_ADDR_LEN) != 0) {
-					WL_ERR(("BSSID of event is not the connected BSSID"
-						"(ignore it) cur: " MACDBG " event: " MACDBG"\n",
-						MAC2STRDBG(curbssid),
-						MAC2STRDBG((const u8*)(&e->addr))));
-					return 0;
+					bool fw_assoc_state = TRUE;
+					dhd_pub_t *dhd = (dhd_pub_t *)cfg->pub;
+					fw_assoc_state = dhd_is_associated(dhd, NULL, &err);
+					if (!fw_assoc_state) {
+						WL_ERR(("Even sends up even different BSSID"
+									" cur: " MACDBG " event: " MACDBG"\n",
+									MAC2STRDBG(curbssid),
+									MAC2STRDBG((const u8*)(&e->addr))));
+					} else {
+						WL_ERR(("BSSID of event is not the connected BSSID"
+									"(ignore it) cur: " MACDBG
+									" event: " MACDBG"\n",
+									MAC2STRDBG(curbssid),
+									MAC2STRDBG((const u8*)(&e->addr))));
+						return 0;
+					}
 				}
 				wl_clr_drv_status(cfg, CONNECTED, ndev);
 				if (! wl_get_drv_status(cfg, DISCONNECTING, ndev)) {

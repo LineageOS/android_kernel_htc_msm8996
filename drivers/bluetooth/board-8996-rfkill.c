@@ -30,10 +30,12 @@ extern void msm_hs_uart_gpio_config_ext(int on);
 extern void bluesleep_set_bt_pwr_state(int on);
 #endif
 
+/* BT chip power up and wakeup pins (these define not used)*/
 #define BT_REG_ON    73
 #define BT_WAKE_HOST 117
 #define BT_WAKE_DEV  118
 
+/* UART pins (these define not used)*/
 #define BT_UART_RTSz  44
 #define BT_UART_CTSz  43
 #define BT_UART_RX    42
@@ -42,8 +44,10 @@ extern void bluesleep_set_bt_pwr_state(int on);
 static struct rfkill *bt_rfk;
 static const char bt_name[] = "bcm4359";
 
+/* BT GPIO pins variable */
 static int gpio_bt_reg_on;
 
+/* BT_WAKE_HOST pin control */
 struct pinctrl *bt_pinctrl;
 struct pinctrl_state *bt_wake_host_set_state_on;
 struct pinctrl_state *bt_wake_host_set_state_off;
@@ -58,18 +62,18 @@ static void htc_config_bt_on(void)
 		printk(KERN_INFO "[BT] bt_reg_on:%d !!\n", gpio_bt_reg_on);
 	}
 
-	
-	
-	
+	//sleep clk auto enable since system boot up
+	//htc_wifi_bt_sleep_clk_ctl(CLK_ON, ID_BT);
+	//mdelay(2);
 
-	
+	/* Config UART pins */
 	msm_hs_uart_gpio_config_ext(1);
 
-	
+	/* Host wake setup to I(PU) per data sheet */
 	rc = pinctrl_select_state(bt_pinctrl, bt_wake_host_set_state_on);
 	if (rc) printk("[BT] cannot set BT pinctrl gpio state on: %d\n", rc);
 
-	
+	/* Power up BT controller */
 	rc = gpio_direction_output(gpio_bt_reg_on, 0);
 	if (rc) printk(KERN_INFO "[BT] set REG_ON 0 fail: %d\n", rc);
 	mdelay(5);
@@ -78,7 +82,7 @@ static void htc_config_bt_on(void)
 	mdelay(5);
 
 #ifdef __LPM_BLUESLEEP__
-	
+	/* Notify sleep driver BT state */
 	bluesleep_set_bt_pwr_state(1);
 #endif
 }
@@ -92,21 +96,21 @@ static void htc_config_bt_off(void)
 	}
 
 #ifdef __LPM_BLUESLEEP__
-	
+	/* Notify sleep driver BT state */
 	bluesleep_set_bt_pwr_state(0);
 #endif
 
-	
+	/* Power off BT controller */
 	rc = gpio_direction_output(gpio_bt_reg_on, 0);
 	if (rc) printk(KERN_INFO "[BT] set REG_ON 0 fail: %d\n", rc);
 
-	
+	/* Host wake setup to I(PD) per GPIO table */
 	rc = pinctrl_select_state(bt_pinctrl, bt_wake_host_set_state_off);
 	if (rc) printk("[BT] cannot set BT pinctrl gpio state off: %d\n", rc);
 
 	mdelay(2);
 
-	
+	/* Config UART pins */
 	msm_hs_uart_gpio_config_ext(0);
 
 	printk(KERN_INFO "[BT] == R OFF ==\n");
@@ -129,14 +133,14 @@ static struct rfkill_ops htc_rfkill_ops = {
 static int htc_rfkill_probe(struct platform_device *pdev)
 {
 	int rc = 0;
-	bool default_state = true;  
+	bool default_state = true;  /* off */
 	struct pinctrl_state *set_state;
 
 	printk(KERN_INFO "[BT] == rfkill_probe ==\n");
 
 	bt_export_bd_address();
 
-	
+	// Get bt_reg_pin
 	if (pdev->dev.of_node) {
 		gpio_bt_reg_on = of_get_named_gpio(pdev->dev.of_node,
 							"brcm,bt-regon-gpio", 0);
@@ -153,7 +157,7 @@ static int htc_rfkill_probe(struct platform_device *pdev)
 		}
 	}
 
-	
+	// Init pin control
 	bt_pinctrl = devm_pinctrl_get(&pdev->dev);
 	if (IS_ERR(bt_pinctrl)) {
 		if (PTR_ERR(bt_pinctrl) == -EPROBE_DEFER) {
@@ -167,22 +171,22 @@ static int htc_rfkill_probe(struct platform_device *pdev)
 		set_state = pinctrl_lookup_state(bt_pinctrl, "bt_wake_host_gpio_on");
 		if (IS_ERR(set_state)) {
 			printk("[BT] cannot get BT pinctrl state bt_wake_host_gpio_on\n");
-			
+			//return PTR_ERR(set_state);
 		} else
 			bt_wake_host_set_state_on = set_state;
 
 		set_state = pinctrl_lookup_state(bt_pinctrl, "bt_wake_host_gpio_off");
 		if (IS_ERR(set_state)) {
 			printk("[BT] cannot get BT pinctrl state bt_wake_host_gpio_off\n");
-			
+			//return PTR_ERR(set_state);
 		} else
 			bt_wake_host_set_state_off = set_state;
 
 	}
 
-	
-	
-	
+	/* Sleep clock always on */
+	/* htc_wifi_bt_sleep_clk_ctl(CLK_ON, ID_BT); */
+	//mdelay(2);
 
 	bluetooth_set_power(NULL, default_state);
 
@@ -195,7 +199,7 @@ static int htc_rfkill_probe(struct platform_device *pdev)
 
 	rfkill_set_states(bt_rfk, default_state, false);
 
-	
+	/* userspace cannot take exclusive control */
 
 	rc = rfkill_register(bt_rfk);
 	if (rc)

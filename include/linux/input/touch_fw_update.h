@@ -29,4 +29,4 @@ int register_fw_update(struct touch_fwu_notifier *notifier);
 void unregister_fw_update(void);
 void touch_fw_update_progress(int percentage);
 
-#endif 
+#endif //__TOUCH_FWU_H

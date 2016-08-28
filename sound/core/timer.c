@@ -58,7 +58,7 @@ MODULE_ALIAS("devname:snd/timer");
 
 struct snd_timer_user {
 	struct snd_timer_instance *timeri;
-	int tread;		/* enhanced read with timestamps and events */
+	int tread;		
 	unsigned long ticks;
 	unsigned long overrun;
 	int qhead;
@@ -70,19 +70,16 @@ struct snd_timer_user {
 	spinlock_t qlock;
 	unsigned long last_resolution;
 	unsigned int filter;
-	struct timespec tstamp;		/* trigger tstamp */
+	struct timespec tstamp;		
 	wait_queue_head_t qchange_sleep;
 	struct fasync_struct *fasync;
-	struct mutex tread_sem;
+	struct mutex ioctl_lock;
 };
 
-/* list of timers */
 static LIST_HEAD(snd_timer_list);
 
-/* list of slave instances */
 static LIST_HEAD(snd_timer_slave_list);
 
-/* lock for slave active lists */
 static DEFINE_SPINLOCK(slave_active_lock);
 
 static DEFINE_MUTEX(register_mutex);
@@ -94,10 +91,6 @@ static int snd_timer_dev_disconnect(struct snd_device *device);
 
 static void snd_timer_reschedule(struct snd_timer * timer, unsigned long ticks_left);
 
-/*
- * create a timer instance with the given owner string.
- * when timer is not NULL, increments the module counter
- */
 static struct snd_timer_instance *snd_timer_instance_new(char *owner,
 							 struct snd_timer *timer)
 {
@@ -126,9 +119,6 @@ static struct snd_timer_instance *snd_timer_instance_new(char *owner,
 	return timeri;
 }
 
-/*
- * find a timer instance from the given timer id
- */
 static struct snd_timer *snd_timer_find(struct snd_timer_id *tid)
 {
 	struct snd_timer *timer = NULL;
@@ -171,18 +161,12 @@ static void snd_timer_request(struct snd_timer_id *tid)
 
 #endif
 
-/*
- * look for a master instance matching with the slave id of the given slave.
- * when found, relink the open_link of the slave.
- *
- * call this with register_mutex down.
- */
 static void snd_timer_check_slave(struct snd_timer_instance *slave)
 {
 	struct snd_timer *timer;
 	struct snd_timer_instance *master;
 
-	/* FIXME: it's really dumb to look up all entries.. */
+	
 	list_for_each_entry(timer, &snd_timer_list, device_list) {
 		list_for_each_entry(master, &timer->open_list_head, open_list) {
 			if (slave->slave_class == master->slave_class &&
@@ -199,36 +183,28 @@ static void snd_timer_check_slave(struct snd_timer_instance *slave)
 	}
 }
 
-/*
- * look for slave instances matching with the slave id of the given master.
- * when found, relink the open_link of slaves.
- *
- * call this with register_mutex down.
- */
 static void snd_timer_check_master(struct snd_timer_instance *master)
 {
 	struct snd_timer_instance *slave, *tmp;
 
-	/* check all pending slaves */
+	
 	list_for_each_entry_safe(slave, tmp, &snd_timer_slave_list, open_list) {
 		if (slave->slave_class == master->slave_class &&
 		    slave->slave_id == master->slave_id) {
 			list_move_tail(&slave->open_list, &master->slave_list_head);
 			spin_lock_irq(&slave_active_lock);
+			spin_lock(&master->timer->lock);
 			slave->master = master;
 			slave->timer = master->timer;
 			if (slave->flags & SNDRV_TIMER_IFLG_RUNNING)
 				list_add_tail(&slave->active_list,
 					      &master->slave_active_head);
+			spin_unlock(&master->timer->lock);
 			spin_unlock_irq(&slave_active_lock);
 		}
 	}
 }
 
-/*
- * open a timer instance
- * when opening a master, the slave id must be here given.
- */
 int snd_timer_open(struct snd_timer_instance **ti,
 		   char *owner, struct snd_timer_id *tid,
 		   unsigned int slave_id)
@@ -237,7 +213,7 @@ int snd_timer_open(struct snd_timer_instance **ti,
 	struct snd_timer_instance *timeri = NULL;
 
 	if (tid->dev_class == SNDRV_TIMER_CLASS_SLAVE) {
-		/* open a slave instance */
+		
 		if (tid->dev_sclass <= SNDRV_TIMER_SCLASS_NONE ||
 		    tid->dev_sclass > SNDRV_TIMER_SCLASS_OSS_SEQUENCER) {
 			pr_debug("ALSA: timer: invalid slave class %i\n",
@@ -260,7 +236,7 @@ int snd_timer_open(struct snd_timer_instance **ti,
 		return 0;
 	}
 
-	/* open a master instance */
+	
 	mutex_lock(&register_mutex);
 	timer = snd_timer_find(tid);
 #ifdef CONFIG_MODULES
@@ -302,9 +278,6 @@ int snd_timer_open(struct snd_timer_instance **ti,
 static int _snd_timer_stop(struct snd_timer_instance *timeri,
 			   int keep_flag, int event);
 
-/*
- * close a timer instance
- */
 int snd_timer_close(struct snd_timer_instance *timeri)
 {
 	struct snd_timer *timer = NULL;
@@ -313,11 +286,11 @@ int snd_timer_close(struct snd_timer_instance *timeri)
 	if (snd_BUG_ON(!timeri))
 		return -ENXIO;
 
-	/* force to stop the timer */
+	
 	snd_timer_stop(timeri);
 
 	if (timeri->flags & SNDRV_TIMER_IFLG_SLAVE) {
-		/* wait, until the active callback is finished */
+		
 		spin_lock_irq(&slave_active_lock);
 		while (timeri->flags & SNDRV_TIMER_IFLG_CALLBACK) {
 			spin_unlock_irq(&slave_active_lock);
@@ -332,7 +305,7 @@ int snd_timer_close(struct snd_timer_instance *timeri)
 		timer = timeri->timer;
 		if (snd_BUG_ON(!timer))
 			goto out;
-		/* wait, until the active callback is finished */
+		
 		spin_lock_irq(&timer->lock);
 		while (timeri->flags & SNDRV_TIMER_IFLG_CALLBACK) {
 			spin_unlock_irq(&timer->lock);
@@ -345,16 +318,19 @@ int snd_timer_close(struct snd_timer_instance *timeri)
 		if (timer && list_empty(&timer->open_list_head) &&
 		    timer->hw.close)
 			timer->hw.close(timer);
-		/* remove slave links */
+		
+		spin_lock_irq(&slave_active_lock);
+		spin_lock(&timer->lock);
 		list_for_each_entry_safe(slave, tmp, &timeri->slave_list_head,
 					 open_list) {
-			spin_lock_irq(&slave_active_lock);
-			_snd_timer_stop(slave, 1, SNDRV_TIMER_EVENT_RESOLUTION);
 			list_move_tail(&slave->open_list, &snd_timer_slave_list);
 			slave->master = NULL;
 			slave->timer = NULL;
-			spin_unlock_irq(&slave_active_lock);
+			list_del_init(&slave->ack_list);
+			list_del_init(&slave->active_list);
 		}
+		spin_unlock(&timer->lock);
+		spin_unlock_irq(&slave_active_lock);
 		mutex_unlock(&register_mutex);
 	}
  out:
@@ -424,7 +400,7 @@ static int snd_timer_start1(struct snd_timer *timer, struct snd_timer_instance *
 			goto __start_now;
 		timer->flags |= SNDRV_TIMER_FLG_RESCHED;
 		timeri->flags |= SNDRV_TIMER_IFLG_START;
-		return 1;	/* delayed start */
+		return 1;	
 	} else {
 		timer->sticks = sticks;
 		timer->hw.start(timer);
@@ -441,16 +417,16 @@ static int snd_timer_start_slave(struct snd_timer_instance *timeri)
 
 	spin_lock_irqsave(&slave_active_lock, flags);
 	timeri->flags |= SNDRV_TIMER_IFLG_RUNNING;
-	if (timeri->master)
+	if (timeri->master && timeri->timer) {
+		spin_lock(&timeri->timer->lock);
 		list_add_tail(&timeri->active_list,
 			      &timeri->master->slave_active_head);
+		spin_unlock(&timeri->timer->lock);
+	}
 	spin_unlock_irqrestore(&slave_active_lock, flags);
-	return 1; /* delayed start */
+	return 1; 
 }
 
-/*
- *  start the timer instance
- */
 int snd_timer_start(struct snd_timer_instance *timeri, unsigned int ticks)
 {
 	struct snd_timer *timer;
@@ -489,6 +465,8 @@ static int _snd_timer_stop(struct snd_timer_instance * timeri,
 		if (!keep_flag) {
 			spin_lock_irqsave(&slave_active_lock, flags);
 			timeri->flags &= ~SNDRV_TIMER_IFLG_RUNNING;
+			list_del_init(&timeri->ack_list);
+			list_del_init(&timeri->active_list);
 			spin_unlock_irqrestore(&slave_active_lock, flags);
 		}
 		goto __end;
@@ -521,11 +499,6 @@ static int _snd_timer_stop(struct snd_timer_instance * timeri,
 	return 0;
 }
 
-/*
- * stop the timer instance.
- *
- * do not call this from the timer callback!
- */
 int snd_timer_stop(struct snd_timer_instance *timeri)
 {
 	struct snd_timer *timer;
@@ -545,9 +518,6 @@ int snd_timer_stop(struct snd_timer_instance *timeri)
 	return 0;
 }
 
-/*
- * start again..  the tick is kept.
- */
 int snd_timer_continue(struct snd_timer_instance *timeri)
 {
 	struct snd_timer *timer;
@@ -571,20 +541,11 @@ int snd_timer_continue(struct snd_timer_instance *timeri)
 	return result;
 }
 
-/*
- * pause.. remember the ticks left
- */
 int snd_timer_pause(struct snd_timer_instance * timeri)
 {
 	return _snd_timer_stop(timeri, 0, SNDRV_TIMER_EVENT_PAUSE);
 }
 
-/*
- * reschedule the timer
- *
- * start pending instances and check the scheduling ticks.
- * when the scheduling ticks is changed set CHANGE flag to reprogram the timer.
- */
 static void snd_timer_reschedule(struct snd_timer * timer, unsigned long ticks_left)
 {
 	struct snd_timer_instance *ti;
@@ -612,10 +573,6 @@ static void snd_timer_reschedule(struct snd_timer * timer, unsigned long ticks_l
 	timer->sticks = ticks;
 }
 
-/*
- * timer tasklet
- *
- */
 static void snd_timer_tasklet(unsigned long arg)
 {
 	struct snd_timer *timer = (struct snd_timer *) arg;
@@ -625,12 +582,12 @@ static void snd_timer_tasklet(unsigned long arg)
 	unsigned long flags;
 
 	spin_lock_irqsave(&timer->lock, flags);
-	/* now process all callbacks */
+	
 	while (!list_empty(&timer->sack_list_head)) {
-		p = timer->sack_list_head.next;		/* get first item */
+		p = timer->sack_list_head.next;		
 		ti = list_entry(p, struct snd_timer_instance, ack_list);
 
-		/* remove from ack_list and make empty */
+		
 		list_del_init(p);
 
 		ticks = ti->pticks;
@@ -647,12 +604,6 @@ static void snd_timer_tasklet(unsigned long arg)
 	spin_unlock_irqrestore(&timer->lock, flags);
 }
 
-/*
- * timer interrupt
- *
- * ticks_left is usually equal to timer->sticks.
- *
- */
 void snd_timer_interrupt(struct snd_timer * timer, unsigned long ticks_left)
 {
 	struct snd_timer_instance *ti, *ts, *tmp;
@@ -666,17 +617,12 @@ void snd_timer_interrupt(struct snd_timer * timer, unsigned long ticks_left)
 
 	spin_lock_irqsave(&timer->lock, flags);
 
-	/* remember the current resolution */
+	
 	if (timer->hw.c_resolution)
 		resolution = timer->hw.c_resolution(timer);
 	else
 		resolution = timer->hw.resolution;
 
-	/* loop for all active instances
-	 * Here we cannot use list_for_each_entry because the active_list of a
-	 * processed instance is relinked to done_list_head before the callback
-	 * is called.
-	 */
 	list_for_each_entry_safe(ti, tmp, &timer->active_list_head,
 				 active_list) {
 		if (!(ti->flags & SNDRV_TIMER_IFLG_RUNNING))
@@ -687,7 +633,7 @@ void snd_timer_interrupt(struct snd_timer * timer, unsigned long ticks_left)
 			ti->cticks = 0;
 		else
 			ti->cticks -= ticks_left;
-		if (ti->cticks) /* not expired */
+		if (ti->cticks) 
 			continue;
 		if (ti->flags & SNDRV_TIMER_IFLG_AUTO) {
 			ti->cticks = ti->ticks;
@@ -719,7 +665,7 @@ void snd_timer_interrupt(struct snd_timer * timer, unsigned long ticks_left)
 		}
 		if (!(timer->hw.flags & SNDRV_TIMER_HW_AUTO) ||
 		    (timer->flags & SNDRV_TIMER_FLG_CHANGE)) {
-			/* restart timer */
+			
 			timer->flags &= ~SNDRV_TIMER_FLG_CHANGE;
 			timer->hw.start(timer);
 		}
@@ -727,12 +673,12 @@ void snd_timer_interrupt(struct snd_timer * timer, unsigned long ticks_left)
 		timer->hw.stop(timer);
 	}
 
-	/* now process all fast callbacks */
+	
 	while (!list_empty(&timer->ack_list_head)) {
-		p = timer->ack_list_head.next;		/* get first item */
+		p = timer->ack_list_head.next;		
 		ti = list_entry(p, struct snd_timer_instance, ack_list);
 
-		/* remove from ack_list and make empty */
+		
 		list_del_init(p);
 
 		ticks = ti->pticks;
@@ -746,7 +692,7 @@ void snd_timer_interrupt(struct snd_timer * timer, unsigned long ticks_left)
 		ti->flags &= ~SNDRV_TIMER_IFLG_CALLBACK;
 	}
 
-	/* do we have any slow callbacks? */
+	
 	use_tasklet = !list_empty(&timer->sack_list_head);
 	spin_unlock_irqrestore(&timer->lock, flags);
 
@@ -754,9 +700,6 @@ void snd_timer_interrupt(struct snd_timer * timer, unsigned long ticks_left)
 		tasklet_schedule(&timer->task_queue);
 }
 
-/*
-
- */
 
 int snd_timer_new(struct snd_card *card, char *id, struct snd_timer_id *tid,
 		  struct snd_timer **rtimer)
@@ -867,7 +810,7 @@ static int snd_timer_dev_register(struct snd_device *dev)
 			break;
 		if (timer1->tmr_subdevice < timer->tmr_subdevice)
 			continue;
-		/* conflicts.. */
+		
 		mutex_unlock(&register_mutex);
 		return -EBUSY;
 	}
@@ -915,9 +858,6 @@ void snd_timer_notify(struct snd_timer *timer, int event, struct timespec *tstam
 	spin_unlock_irqrestore(&timer->lock, flags);
 }
 
-/*
- * exported functions for global timers
- */
 int snd_timer_global_new(char *id, int device, struct snd_timer **rtimer)
 {
 	struct snd_timer_id tid;
@@ -944,9 +884,6 @@ int snd_timer_global_register(struct snd_timer *timer)
 	return snd_timer_dev_register(&dev);
 }
 
-/*
- *  System timer
- */
 
 struct snd_timer_system_private {
 	struct timer_list tlist;
@@ -1039,9 +976,6 @@ static int snd_timer_register_system(void)
 }
 
 #ifdef CONFIG_PROC_FS
-/*
- *  Info interface
- */
 
 static void snd_timer_proc_read(struct snd_info_entry *entry,
 				struct snd_info_buffer *buffer)
@@ -1108,14 +1042,11 @@ static void __exit snd_timer_proc_done(void)
 {
 	snd_info_free_entry(snd_timer_proc_entry);
 }
-#else /* !CONFIG_PROC_FS */
+#else 
 #define snd_timer_proc_init()
 #define snd_timer_proc_done()
 #endif
 
-/*
- *  USER SPACE interface
- */
 
 static void snd_timer_user_interrupt(struct snd_timer_instance *timeri,
 				     unsigned long resolution,
@@ -1257,7 +1188,7 @@ static int snd_timer_user_open(struct inode *inode, struct file *file)
 		return -ENOMEM;
 	spin_lock_init(&tu->qlock);
 	init_waitqueue_head(&tu->qchange_sleep);
-	mutex_init(&tu->tread_sem);
+	mutex_init(&tu->ioctl_lock);
 	tu->ticks = 1;
 	tu->queue_size = 128;
 	tu->queue = kmalloc(tu->queue_size * sizeof(struct snd_timer_read),
@@ -1277,8 +1208,10 @@ static int snd_timer_user_release(struct inode *inode, struct file *file)
 	if (file->private_data) {
 		tu = file->private_data;
 		file->private_data = NULL;
+		mutex_lock(&tu->ioctl_lock);
 		if (tu->timeri)
 			snd_timer_close(tu->timeri);
+		mutex_unlock(&tu->ioctl_lock);
 		kfree(tu->queue);
 		kfree(tu->tqueue);
 		kfree(tu);
@@ -1313,7 +1246,7 @@ static int snd_timer_user_next_device(struct snd_timer_id __user *_tid)
 	if (copy_from_user(&id, _tid, sizeof(id)))
 		return -EFAULT;
 	mutex_lock(&register_mutex);
-	if (id.dev_class < 0) {		/* first item */
+	if (id.dev_class < 0) {		
 		if (list_empty(&snd_timer_list))
 			snd_timer_user_zero_id(&id);
 		else {
@@ -1516,7 +1449,6 @@ static int snd_timer_user_tselect(struct file *file,
 	int err = 0;
 
 	tu = file->private_data;
-	mutex_lock(&tu->tread_sem);
 	if (tu->timeri) {
 		snd_timer_close(tu->timeri);
 		tu->timeri = NULL;
@@ -1560,7 +1492,6 @@ static int snd_timer_user_tselect(struct file *file,
 	}
 
       __err:
-      	mutex_unlock(&tu->tread_sem);
 	return err;
 }
 
@@ -1773,7 +1704,7 @@ enum {
 	SNDRV_TIMER_IOCTL_PAUSE_OLD = _IO('T', 0x23),
 };
 
-static long snd_timer_user_ioctl(struct file *file, unsigned int cmd,
+static long __snd_timer_user_ioctl(struct file *file, unsigned int cmd,
 				 unsigned long arg)
 {
 	struct snd_timer_user *tu;
@@ -1790,17 +1721,11 @@ static long snd_timer_user_ioctl(struct file *file, unsigned int cmd,
 	{
 		int xarg;
 
-		mutex_lock(&tu->tread_sem);
-		if (tu->timeri)	{	/* too late */
-			mutex_unlock(&tu->tread_sem);
+		if (tu->timeri)	
 			return -EBUSY;
-		}
-		if (get_user(xarg, p)) {
-			mutex_unlock(&tu->tread_sem);
+		if (get_user(xarg, p))
 			return -EFAULT;
-		}
 		tu->tread = xarg ? 1 : 0;
-		mutex_unlock(&tu->tread_sem);
 		return 0;
 	}
 	case SNDRV_TIMER_IOCTL_GINFO:
@@ -1831,6 +1756,18 @@ static long snd_timer_user_ioctl(struct file *file, unsigned int cmd,
 		return snd_timer_user_pause(file);
 	}
 	return -ENOTTY;
+}
+
+static long snd_timer_user_ioctl(struct file *file, unsigned int cmd,
+				 unsigned long arg)
+{
+	struct snd_timer_user *tu = file->private_data;
+	long ret;
+
+	mutex_lock(&tu->ioctl_lock);
+	ret = __snd_timer_user_ioctl(file, cmd, arg);
+	mutex_unlock(&tu->ioctl_lock);
+	return ret;
 }
 
 static int snd_timer_user_fasync(int fd, struct file * file, int on)
@@ -1942,9 +1879,6 @@ static const struct file_operations snd_timer_f_ops =
 	.fasync = 	snd_timer_user_fasync,
 };
 
-/*
- *  ENTRY functions
- */
 
 static int __init alsa_timer_init(void)
 {
@@ -1969,7 +1903,7 @@ static void __exit alsa_timer_exit(void)
 	struct list_head *p, *n;
 
 	snd_unregister_device(SNDRV_DEVICE_TYPE_TIMER, NULL, 0);
-	/* unregister the system timer */
+	
 	list_for_each_safe(p, n, &snd_timer_list) {
 		struct snd_timer *timer = list_entry(p, struct snd_timer, device_list);
 		snd_timer_free(timer);

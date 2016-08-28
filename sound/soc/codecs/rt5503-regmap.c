@@ -21,7 +21,19 @@
 #include <linux/i2c/rt5503.h>
 
 #ifdef CONFIG_RT_REGMAP
+/* ---------------------------------------------------------------------
+ * Create RT5503 register map
+ *
+ * RT_REG_DECL(_addr, _reg_length, _reg_type, _mask_...)
+ * @ _addr : reigster address
+ * @ _reg_length : register byte length
+ * @ _reg_type : reigster type (RT_NORMAL, RT_VOLATILE, RT_WBITS)
+ * @ _mask : register write bits mask
+ */
 
+/* WBITS will and mask, to check the writable bits */
+/* NORMAL ignore mask */
+/* VOLATILE directly write through */
 RT_REG_DECL(RT5503_REG_CHIPEN, 1, RT_VOLATILE, {});
 RT_REG_DECL(RT5503_REG_DIGVOL, 1, RT_NORMAL_WR_ONCE, {});
 RT_REG_DECL(RT5503_REG_CFG1, 1, RT_NORMAL_WR_ONCE, {});
@@ -373,9 +385,13 @@ int rt5503_calculate_total_size(void)
 	return ret;
 }
 EXPORT_SYMBOL(rt5503_calculate_total_size);
-#endif 
-#endif 
+#endif /* #if RT5503_SIMULATE_DEVICE */
+#endif /* #ifdef CONFIG_RT_REGMAP */
 
+/* ---------------------------------------------------------------------
+ * RT5503 register map related function
+ *
+ */
 struct rt_regmap_device *rt5503_regmap_register(
 	struct rt_regmap_fops *regmap_ops,
 	struct device *parent, void *client, void *drvdata)
@@ -385,6 +401,6 @@ struct rt_regmap_device *rt5503_regmap_register(
 		&rt5503_regmap_props, regmap_ops, parent, client, drvdata);
 #else
 	return 0;
-#endif 
+#endif /* #ifdef CONFIG_RT_REGMAP */
 }
 EXPORT_SYMBOL_GPL(rt5503_regmap_register);

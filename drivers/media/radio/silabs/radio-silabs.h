@@ -23,12 +23,15 @@
 #define FMDINFO(fmt, args...) pr_info("[FM] silabs_radio: " fmt, ##args)
 #define FMDERR(fmt, args...) pr_err("[FM] silabs_radio: " fmt, ##args)
 
+/* For bounds checking. */
 const unsigned char MIN_RDS_STD = 0x00;
 const unsigned char MAX_RDS_STD = 0x02;
 const unsigned char MIN_SRCH_MODE = 0x00;
 const unsigned char MAX_SRCH_MODE = 0x02;
 
+/* Standard buffer size */
 #define STD_BUF_SIZE               (256)
+/* Search direction */
 #define SRCH_DIR_UP                 (1)
 #define SRCH_DIR_DOWN               (0)
 #define WAIT_TIMEOUT_MSEC 2000
@@ -41,6 +44,7 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define CH_SPACING_100 100
 #define CH_SPACING_50 50
 
+/* to distinguish between seek, tune during STC int. */
 #define NO_SEEK_TUNE_PENDING 0
 #define TUNE_PENDING 1
 #define SEEK_PENDING 2
@@ -48,6 +52,7 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define WRAP_ENABLE 1
 #define WRAP_DISABLE 0
 #define VALID_MASK 0x01
+/* it will check whether UPPER band reached or not */
 #define BLTF_MASK 0x80
 #define SAMPLE_RATE_48_KHZ 0xBB80
 #define MIN_DWELL_TIME 0x00
@@ -55,6 +60,10 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define START_SCAN 1
 #define GET_MSB(x)((x >> 8) & 0xFF)
 #define GET_LSB(x)((x) & 0xFF)
+/*
+ * When tuning, we need to divide freq by TUNE_STEP_SIZE
+ * before sending it to chip
+ */
 #define TUNE_STEP_SIZE 10
 
 #define TUNE_PARAM 16
@@ -104,20 +113,23 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define DEFAULT_AF_RSSI_LOW_TH 25
 #define NO_OF_AF_IN_GRP 2
 #define MAX_NO_OF_AF 25
-#define MAX_AF_LIST_SIZE (MAX_NO_OF_AF * 4) 
+#define MAX_AF_LIST_SIZE (MAX_NO_OF_AF * 4) /* 4 bytes per freq */
 #define GET_AF_EVT_LEN(x) (7 + x*4)
 #define GET_AF_LIST_LEN(x) (x*4)
 #define MIN_AF_FREQ_CODE 1
 #define MAX_AF_FREQ_CODE 204
+/* 25 AFs supported for a freq. 224 means 1 AF. 225 means 2 AFs and so on */
 #define NO_AF_CNT_CODE 224
 #define MIN_AF_CNT_CODE 225
 #define MAX_AF_CNT_CODE 249
 #define AF_WAIT_SEC 10
 #define MAX_AF_WAIT_SEC 255
-#define AF_PI_WAIT_TIME 50 
+#define AF_PI_WAIT_TIME 50 /* 50*100msec = 5sec */
+/* freqs are divided by 10. */
 #define SCALE_AF_CODE_TO_FREQ_KHZ(x) (87500 + (x*100))
 
 
+/* commands */
 #define POWER_UP_CMD  0x01
 #define GET_REV_CMD 0x10
 #define POWER_DOWN_CMD 0x11
@@ -136,6 +148,7 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define GPIO_CTL_CMD 0x80
 #define GPIO_SET_CMD 0x81
 
+/* properties */
 #define GPO_IEN_PROP 0x0001
 #define DIGITAL_OUTPUT_FORMAT_PROP 0x0102
 #define DIGITAL_OUTPUT_SAMPLE_RATE_PROP 0x0104
@@ -159,9 +172,11 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 
 #define RX_HARD_MUTE_PROP 0x4001
 
+/* BIT MASKS */
 #define ENABLE_CTS_INT_MASK        (1 << 7)
 #define ENABLE_GPO2_INT_MASK       (1 << 6)
 #define PATCH_ENABLE_MASK          (1 << 5)
+/* to use clock present on daughter card or MSM's */
 #define CLOCK_ENABLE_MASK          (1 << 4)
 #define FUNC_QUERY_LIB_ID_MASK      15
 #define CANCEL_SEEK_MASK           (1 << 1)
@@ -170,9 +185,11 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define SEEK_UP_MASK               (1 << 3)
 
 
+/* BIT MASKS to parse response bytes */
 #define CTS_INT_BIT_MASK           (1 << 7)
 #define ERR_BIT_MASK               (1 << 6)
 #define RSQ_INT_BIT_MASK           (1 << 3)
+/* set RDS repeat int bit along with RDS int bit */
 #define RDS_INT_BIT_MASK           (0x0404)
 #define STC_INT_BIT_MASK            1
 #define RSSI_LOW_TH_INT_BIT_MASK    1
@@ -184,6 +201,7 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 
 #define DCLK_FALLING_EDGE_MASK     (1 << 7)
 
+/* Command lengths */
 #define SET_PROP_CMD_LEN 6
 #define GET_PROP_CMD_LEN 4
 #define GET_INT_STATUS_CMD_LEN 1
@@ -203,6 +221,7 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define AUDIO_OPMODE_ANALOG   0x05
 #define AUDIO_OPMODE_DIGITAL  0xB0
 
+/* ERROR codes */
 #define BAD_CMD  0x10
 #define BAD_ARG1 0x11
 #define BAD_ARG2 0x12
@@ -214,6 +233,7 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define BAD_PROP 0x20
 #define BAD_BOOT_MODE 0x30
 
+/* RDS */
 #define FM_RDS_BUF 100
 #define FM_RDS_STATUS_IN_INTACK     0x01
 #define FM_RDS_STATUS_IN_MTFIFO     0x02
@@ -235,18 +255,21 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define RT_VALIDATE_LIMIT	2
 
 #define APP_GRP_typ_MASK	0x1F
+/*ERT*/
 #define ERT_AID			0x6552
 #define MAX_ERT_SEGMENT		31
 #define MAX_ERT_LEN		256
 #define ERT_OFFSET		3
 #define ERT_FORMAT_DIR_BIT	1
 #define ERT_CNT_PER_BLK		2
+/*RT PLUS*/
 #define DUMMY_CLASS		0
 #define RT_PLUS_LEN_1_TAG	3
 #define RT_ERT_FLAG_BIT		13
 #define RT_PLUS_AID             0x4bd7
 #define RT_ERT_FLAG_OFFSET	1
 #define RT_PLUS_OFFSET		2
+/*TAG1*/
 #define TAG1_MSB_OFFSET		3
 #define TAG1_MSB_MASK		7
 #define TAG1_LSB_OFFSET		13
@@ -255,6 +278,7 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 #define TAG1_POS_LSB_OFFSET	7
 #define TAG1_LEN_OFFSET		1
 #define TAG1_LEN_MASK		0x3F
+/*TAG2*/
 #define TAG2_MSB_OFFSET		5
 #define TAG2_MSB_MASK		9
 #define TAG2_LSB_OFFSET		11
@@ -265,6 +289,7 @@ const unsigned char MAX_SRCH_MODE = 0x02;
 
 #define EXTRACT_BIT(data, bit_pos) ((data >> bit_pos) & 1)
 
+/* FM states */
 enum radio_state_t {
 	FM_OFF,
 	FM_RECV,
@@ -280,6 +305,7 @@ enum emphasis_type {
 	FM_RX_EMP50 = 0x0001
 };
 
+/* 3 valid values: 5 (50 kHz), 10 (100 kHz), and 20 (200 kHz). */
 enum channel_space_type {
 	FM_RX_SPACE_200KHZ = 0x0014,
 	FM_RX_SPACE_100KHZ = 0x000A,
@@ -307,7 +333,7 @@ enum v4l2_cid_private_silabs_fm_t {
 	V4L2_CID_PRIVATE_SILABS_ANTENNA,
 	V4L2_CID_PRIVATE_SILABS_RDSD_BUF,
 	V4L2_CID_PRIVATE_SILABS_PSALL,
-	
+	/*v4l2 Tx controls*/
 	V4L2_CID_PRIVATE_SILABS_TX_SETPSREPEATCOUNT,
 	V4L2_CID_PRIVATE_SILABS_STOP_RDS_TX_PS_NAME,
 	V4L2_CID_PRIVATE_SILABS_STOP_RDS_TX_RT,
@@ -318,7 +344,11 @@ enum v4l2_cid_private_silabs_fm_t {
 	V4L2_CID_PRIVATE_SILABS_RSSI_DELTA,
 	V4L2_CID_PRIVATE_SILABS_HLSI,
 
-	V4L2_CID_PRIVATE_SILABS_SOFT_MUTE,
+	/*
+	* Here we have IOCTl's that are specific to IRIS
+	* (V4L2_CID_PRIVATE_BASE + 0x1E to V4L2_CID_PRIVATE_BASE + 0x28)
+	*/
+	V4L2_CID_PRIVATE_SILABS_SOFT_MUTE,/* 0x800001E*/
 	V4L2_CID_PRIVATE_SILABS_RIVA_ACCS_ADDR,
 	V4L2_CID_PRIVATE_SILABS_RIVA_ACCS_LEN,
 	V4L2_CID_PRIVATE_SILABS_RIVA_PEEK,
@@ -328,16 +358,16 @@ enum v4l2_cid_private_silabs_fm_t {
 	V4L2_CID_PRIVATE_SILABS_SSBI_POKE,
 	V4L2_CID_PRIVATE_SILABS_TX_TONE,
 	V4L2_CID_PRIVATE_SILABS_RDS_GRP_COUNTERS,
-	V4L2_CID_PRIVATE_SILABS_SET_NOTCH_FILTER,
+	V4L2_CID_PRIVATE_SILABS_SET_NOTCH_FILTER,/* 0x8000028 */
 
-	V4L2_CID_PRIVATE_SILABS_SET_AUDIO_PATH,
-	V4L2_CID_PRIVATE_SILABS_DO_CALIBRATION,
-	V4L2_CID_PRIVATE_SILABS_SRCH_ALGORITHM,
-	V4L2_CID_PRIVATE_SILABS_GET_SINR, 
-	V4L2_CID_PRIVATE_SILABS_INTF_LOW_THRESHOLD, 
-	V4L2_CID_PRIVATE_SILABS_INTF_HIGH_THRESHOLD, 
-	V4L2_CID_PRIVATE_SILABS_SINR_THRESHOLD,  
-	V4L2_CID_PRIVATE_SILABS_SINR_SAMPLES,  
+	V4L2_CID_PRIVATE_SILABS_SET_AUDIO_PATH,/* 0x8000029 */
+	V4L2_CID_PRIVATE_SILABS_DO_CALIBRATION,/* 0x800002A : IRIS */
+	V4L2_CID_PRIVATE_SILABS_SRCH_ALGORITHM,/* 0x800002B */
+	V4L2_CID_PRIVATE_SILABS_GET_SINR, /* 0x800002C : IRIS */
+	V4L2_CID_PRIVATE_SILABS_INTF_LOW_THRESHOLD, /* 0x800002D */
+	V4L2_CID_PRIVATE_SILABS_INTF_HIGH_THRESHOLD, /* 0x800002E */
+	V4L2_CID_PRIVATE_SILABS_SINR_THRESHOLD,  /* 0x800002F : IRIS */
+	V4L2_CID_PRIVATE_SILABS_SINR_SAMPLES,  /* 0x8000030 : IRIS */
 	V4L2_CID_PRIVATE_SILABS_SPUR_FREQ,
 	V4L2_CID_PRIVATE_SILABS_SPUR_FREQ_RMSSI,
 	V4L2_CID_PRIVATE_SILABS_SPUR_SELECTION,
@@ -351,8 +381,8 @@ enum v4l2_cid_private_silabs_fm_t {
 	V4L2_CID_PRIVATE_SILABS_SINRFIRSTSTAGE,
 	V4L2_CID_PRIVATE_SILABS_RMSSIFIRSTSTAGE,
 	V4L2_CID_PRIVATE_SILABS_RXREPEATCOUNT,
-	V4L2_CID_PRIVATE_SILABS_RSSI_TH, 
-	V4L2_CID_PRIVATE_SILABS_AF_JUMP_RSSI_TH 
+	V4L2_CID_PRIVATE_SILABS_RSSI_TH, /* 0x800003E */
+	V4L2_CID_PRIVATE_SILABS_AF_JUMP_RSSI_TH /* 0x800003F */
 
 };
 
@@ -414,7 +444,7 @@ enum silabs_interrupts_t {
 struct silabs_fm_recv_conf_req {
 	__u16	emphasis;
 	__u16	ch_spacing;
-	
+	/* limits stored as actual freq / TUNE_STEP_SIZE */
 	__u16	band_low_limit;
 	__u16	band_high_limit;
 };
@@ -427,19 +457,19 @@ struct af_list_ev {
 } __packed;
 
 struct silabs_af_info {
-	
+	/* no. of invalid AFs. */
 	u8 inval_freq_cnt;
-	
+	/* no. of AFs in the list. */
 	u8 cnt;
-	
+	/* actual size of the list */
 	u8 size;
-	
+	/* index of currently tuned station in the AF list. */
 	u8 index;
-	
+	/* PI of the frequency */
 	u16 pi;
-	
+	/* freq to which AF list belongs to. */
 	u32 orig_freq_khz;
-	
+	/* AF list */
 	u32 af_list[MAX_NO_OF_AF];
 };
 
@@ -472,15 +502,15 @@ static inline bool is_valid_srch_mode(int srch_mode)
 }
 
 struct fm_power_vreg_data {
-	
+	/* voltage regulator handle */
 	struct regulator *reg;
-	
+	/* regulator name */
 	const char *name;
-	
+	/* voltage levels to be set */
 	unsigned int low_vol_level;
 	unsigned int high_vol_level;
 	bool set_voltage_sup;
-	
+	/* is this regulator enabled? */
 	bool is_enabled;
 };
 
@@ -499,4 +529,4 @@ enum search_t {
 	SCAN,
 	SCAN_FOR_STRONG,
 };
-#endif 
+#endif /* __RADIO_SILABS_H */

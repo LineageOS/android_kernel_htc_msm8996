@@ -9,6 +9,10 @@
 #include <linux/slab.h>
 #include <linux/alarmtimer.h>
 #include <linux/delay.h>
+#if defined(CONFIG_FB)
+#include <linux/notifier.h>
+#include <linux/fb.h>
+#endif 
 
 static struct htc_battery_info htc_batt_info;
 static struct htc_battery_timer htc_batt_timer;
@@ -846,9 +850,15 @@ void update_htc_chg_src(void)
 #define IBAT_HEALTH_TEMP_WARM_HIGH	450
 #define IBAT_HEALTH_TEMP_WARM_LOW	430
 #define IBAT_HEALTH_TEMP_COOL		100
+#if defined(CONFIG_FB)
+#define STATE_SCREEN_OFF		(1)
+#define IBAT_SCREEN_ON_LIMITED	1000000
+#define IBAT_SCREEN_OFF_LIMITED	1500000
+#endif 
 int update_ibat_setting (void)
 {
-	static bool s_prev_health_warm = false;
+	static bool s_prev_health_warm_42d = false;
+	static bool s_prev_health_warm_45d = false;
 	static bool s_is_over_ibat = false;
 	static bool s_prev_vol_limit = false;
 	static int s_prev_ibat_health = POWER_SUPPLY_HEALTH_GOOD;
@@ -882,7 +892,8 @@ int update_ibat_setting (void)
 		if ((htc_batt_info.rep.batt_vol < 4100) || !s_prev_vol_limit) {
 			s_prev_vol_limit = false;
 			ibat_new =  ibat_max;
-		} else if ((htc_batt_info.rep.batt_vol > 4250) || s_prev_vol_limit) {
+		}
+		if ((htc_batt_info.rep.batt_vol > 4250) || s_prev_vol_limit) {
 			s_prev_vol_limit = true;
 			ibat_new =  2100000;
 		}
@@ -890,7 +901,8 @@ int update_ibat_setting (void)
 		if ((htc_batt_info.rep.batt_vol > 4250) || s_prev_vol_limit) {
 			s_prev_vol_limit = true;
 			ibat_new =  1500000;
-		} else if ((htc_batt_info.rep.batt_vol < 4100) || !s_prev_vol_limit) {
+		}
+		if ((htc_batt_info.rep.batt_vol < 4100) || !s_prev_vol_limit) {
 			s_prev_vol_limit = false;
 			ibat_new =  2100000;
 		}
@@ -900,28 +912,73 @@ int update_ibat_setting (void)
 		}
 	}
 
+#if defined(CONFIG_FB)
+	
+	if ((htc_batt_info.rep.batt_temp >= 420) || s_prev_health_warm_42d)
+		s_prev_health_warm_42d = true;
+	if (((htc_batt_info.rep.batt_temp <= 400) && (htc_batt_info.rep.batt_temp > 100)) ||
+			!s_prev_health_warm_42d){
+		s_prev_health_warm_42d = false;
+		if ((htc_batt_info.rep.batt_vol > 4300) || s_prev_vol_limit)
+			s_prev_vol_limit = true;
+		else if ((htc_batt_info.rep.batt_vol < 4100) || !s_prev_vol_limit)
+			s_prev_vol_limit = false;
+	}
+
+	
+	if ((htc_batt_info.rep.batt_temp >= 450) || s_prev_health_warm_45d)
+		s_prev_health_warm_45d = true;
+	if (((htc_batt_info.rep.batt_temp <= 420) && (htc_batt_info.rep.batt_temp > 100)) ||
+			!s_prev_health_warm_45d)
+		s_prev_health_warm_45d = false;
+
 	
 	if (htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_USB_HVDCP)
 		ibat_hvdcp_limited = IBAT_HVDCP_LIMITED;
 
 	if ((htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_USB_HVDCP) ||
 		(htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_USB_HVDCP_3)){
-		if ((htc_batt_info.rep.batt_temp >= 420) || s_prev_health_warm){
-			s_prev_health_warm = true;
+		if (s_prev_health_warm_42d)
+			ibat_new = ibat_hvdcp_limited;
+		else if (s_prev_vol_limit)
+			ibat_new =  2100000;
+		else
+			ibat_new = ibat_max;
+	}
+
+	
+	if (htc_batt_info.rep.charging_source != POWER_SUPPLY_TYPE_USB_HVDCP_3){
+		if (!(htc_batt_info.state & STATE_SCREEN_OFF) && s_prev_health_warm_42d)
+			ibat_new = IBAT_SCREEN_ON_LIMITED;
+		else if ((htc_batt_info.state & STATE_SCREEN_OFF) && s_prev_health_warm_45d)
+			ibat_new = IBAT_SCREEN_OFF_LIMITED;
+	}
+
+#else
+	
+	if (htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_USB_HVDCP)
+		ibat_hvdcp_limited = IBAT_HVDCP_LIMITED;
+
+	if ((htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_USB_HVDCP) ||
+		(htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_USB_HVDCP_3)){
+		if ((htc_batt_info.rep.batt_temp >= 420) || s_prev_health_warm_42d){
+			s_prev_health_warm_42d = true;
 			ibat_new = ibat_hvdcp_limited;
 		}
 		if (((htc_batt_info.rep.batt_temp <= 400) &&
-			(htc_batt_info.rep.batt_temp > 100)) || !s_prev_health_warm){
-			s_prev_health_warm = false;
+			(htc_batt_info.rep.batt_temp > 100)) || !s_prev_health_warm_42d){
+			s_prev_health_warm_42d = false;
 			if ((htc_batt_info.rep.batt_vol > 4300) || s_prev_vol_limit){
 				s_prev_vol_limit = true;
 				ibat_new =  2100000;
-			}else if ((htc_batt_info.rep.batt_vol < 4100) || !s_prev_vol_limit) {
+			}
+			if ((htc_batt_info.rep.batt_vol < 4100) || !s_prev_vol_limit) {
 				s_prev_vol_limit = false;
 				ibat_new = ibat_max;
 			}
 		}
 	}
+#endif 
 
 	
 	if (g_chg_limit_reason)
@@ -1112,6 +1169,37 @@ endWorker:
 	htc_batt_schedule_batt_info_update();
 }
 
+#if defined(CONFIG_FB)
+static int fb_notifier_callback(struct notifier_block *self,
+                                unsigned long event, void *data)
+{
+        struct fb_event *evdata = data;
+        int *blank;
+
+        if (evdata && evdata->data && event == FB_EVENT_BLANK) {
+                blank = evdata->data;
+                switch (*blank) {
+                        case FB_BLANK_UNBLANK:
+                                htc_batt_info.state &= ~STATE_SCREEN_OFF;
+                                BATT_LOG("%s-> display is On", __func__);
+                                htc_batt_schedule_batt_info_update();
+
+                                break;
+                        case FB_BLANK_POWERDOWN:
+                        case FB_BLANK_HSYNC_SUSPEND:
+                        case FB_BLANK_VSYNC_SUSPEND:
+                        case FB_BLANK_NORMAL:
+                                htc_batt_info.state |= STATE_SCREEN_OFF;
+                                BATT_LOG("%s-> display is Off", __func__);
+                                htc_batt_schedule_batt_info_update();
+                                break;
+                }
+        }
+
+        return 0;
+}
+#endif 
+
 #define VFLOAT_COMP_WARM		0x10	
 #define VFLOAT_COMP_COOL		0x0		
 #define VFLOAT_COMP_NORMAL	0x0		
@@ -1125,6 +1213,7 @@ static void batt_worker(struct work_struct *work)
 	static int s_prev_user_set_chg_curr = 0;
 	static int s_prev_vfloat_comp = -1;
 	static int s_vbus_valid_no_chger_cnt = 0;
+	static struct timespec s_vbus_valid_no_chger_time;
 	static int s_hvdcp_no_chg_cnt = 0;
 	static int s_cc_uah_stored = 0;
 	static int s_prev_level_raw = 0;
@@ -1317,11 +1406,7 @@ static void batt_worker(struct work_struct *work)
 		ibat = get_property(htc_batt_info.batt_psy, POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX);
 		ibat_new = update_ibat_setting();
 
-#ifdef CONFIG_HTC_CHARGER
-		if (ibat != ibat_new && htc_batt_info.rep.is_htcchg_ext_mode == false) {
-#else
 		if (ibat != ibat_new) {
-#endif 
 			BATT_EMBEDDED("set ibat(%d)", ibat_new);
 			set_batt_psy_property(POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX, ibat_new);
 		}
@@ -1463,7 +1548,8 @@ static void batt_worker(struct work_struct *work)
 		"usb_temp=%d,"
 		"usb_overheat=%d,"
 #endif 
-		"level_accu=%d",
+		"level_accu=%d"
+		"batt_state=%d",
 		htc_batt_info.rep.batt_id,
 		htc_batt_info.rep.level,
 		htc_batt_info.rep.level_raw,
@@ -1489,7 +1575,8 @@ static void batt_worker(struct work_struct *work)
 		g_usb_temp,
 		g_usb_overheat? 1 : 0,
 #endif 
-		g_total_level_raw);
+		g_total_level_raw,
+		htc_batt_info.state);
 
 	if(gs_update_PSY){
 		gs_update_PSY = false;
@@ -1497,13 +1584,16 @@ static void batt_worker(struct work_struct *work)
 	}
 
 	if (htc_batt_info.rep.chg_src == POWER_SUPPLY_TYPE_UNKNOWN){
-		if (htc_batt_info.vbus > VBUS_VALID_THRESHOLD)
-			s_vbus_valid_no_chger_cnt++;
-	}
-
-	if (s_vbus_valid_no_chger_cnt >= 2){
+		if ((htc_batt_info.vbus > VBUS_VALID_THRESHOLD) && (s_vbus_valid_no_chger_cnt == 0)){
+			s_vbus_valid_no_chger_cnt = 1;
+			s_vbus_valid_no_chger_time = ktime_to_timespec(ktime_get());
+		}
+	} else
 		s_vbus_valid_no_chger_cnt = 0;
-		if (!is_otg_enabled()){
+
+	if (s_vbus_valid_no_chger_cnt){
+		if (((xtime.tv_sec - s_vbus_valid_no_chger_time.tv_sec) > 60) && !is_otg_enabled()){
+			s_vbus_valid_no_chger_cnt = 0;
 			pr_info("Charger type can't detect, rerun APSD.\n");
 			pmi8994_rerun_apsd();
 		}
@@ -2548,6 +2638,19 @@ static struct notifier_block reboot_consistent_command = {
 	.notifier_call = reboot_consistent_command_call,
 };
 
+#if defined(CONFIG_FB)
+static void htc_battery_fb_register(struct work_struct *work)
+{
+        int ret = 0;
+
+        BATT_LOG("%s in", __func__);
+        htc_batt_info.fb_notif.notifier_call = fb_notifier_callback;
+        ret = fb_register_client(&htc_batt_info.fb_notif);
+        if (ret)
+                BATT_ERR("[warning]:Unable to register fb_notifier: %d\n", ret);
+}
+#endif 
+
 static int htc_battery_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -2574,6 +2677,15 @@ static int htc_battery_probe(struct platform_device *pdev)
 	ret = register_reboot_notifier(&reboot_consistent_command);
 	if (ret)
 		BATT_ERR("can't register reboot notifier, error = %d\n", ret);
+
+#if defined(CONFIG_FB)
+        htc_batt_info.batt_fb_wq = create_singlethread_workqueue("HTC_BATTERY_FB");
+        if (!htc_batt_info.batt_fb_wq) {
+                BATT_ERR("allocate batt_fb_wq failed\n");
+        }
+        INIT_DELAYED_WORK(&htc_batt_info.work_fb, htc_battery_fb_register);
+        queue_delayed_work(htc_batt_info.batt_fb_wq, &htc_batt_info.work_fb, 0);
+#endif 
 
 	htc_battery_probe_process(HTC_BATT_PROBE_DONE);
 

@@ -35,6 +35,19 @@
 int of_batterydata_read_data(struct device_node *container_node,
 				struct bms_battery_data *batt_data,
 				int batt_id_uv);
+/**
+ * of_batterydata_get_best_profile() - Find matching battery data device node
+ * @batterydata_container_node: pointer to the battery-data container device
+ *		node containing the profile nodes.
+ * @psy_name: Name of the power supply which holds the
+ *		POWER_SUPPLY_RESISTANCE_ID value to be used to match
+ *		against the id resistances specified in the corresponding
+ *		battery data profiles.
+ * @batt_type: Battery type which we want to force load the profile.
+ *
+ * This routine returns a device_node pointer to the closest match battery data
+ * from device tree based on the battery id reading.
+ */
 struct device_node *of_batterydata_get_best_profile(
 		struct device_node *batterydata_container_node,
 		const char *psy_name, const char *batt_type);
@@ -51,4 +64,4 @@ static inline struct device_node *of_batterydata_get_best_profile(
 {
 	return -ENXIO;
 }
-#endif 
+#endif /* CONFIG_OF_QPNP */

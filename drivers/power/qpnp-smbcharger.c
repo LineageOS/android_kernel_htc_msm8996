@@ -386,6 +386,9 @@ enum fcc_voters {
 	ESR_PULSE_FCC_VOTER,
 	BATT_TYPE_FCC_VOTER,
 	RESTRICTED_CHG_FCC_VOTER,
+#ifdef CONFIG_HTC_CHARGER
+	HTCCHG_FCC_VOTER,
+#endif 
 	NUM_FCC_VOTER,
 };
 
@@ -2651,6 +2654,22 @@ static int set_fastchg_current_vote_cb(struct device *dev,
 	return 0;
 }
 
+static int htcchg_set_fastchg_current(struct smbchg_chip *chip,
+							int current_ma)
+{
+	int rc = 0;
+
+	pr_smb(PR_STATUS, "htcchg setting FCC to %d\n", current_ma);
+
+	if (current_ma > 0)
+		rc = vote(chip->fcc_votable, HTCCHG_FCC_VOTER, true, current_ma);
+	else
+		rc = vote(chip->fcc_votable, HTCCHG_FCC_VOTER, false, 3000);
+	if (rc < 0)
+		pr_err("Couldn't vote en rc %d\n", rc);
+	return rc;
+}
+
 static int smbchg_set_fastchg_current_user(struct smbchg_chip *chip,
 							int current_ma)
 {
@@ -3835,14 +3854,20 @@ static int smbchg_otg_regulator_enable(struct regulator_dev *rdev)
 	chip->otg_retries = 0;
 	chip->chg_otg_enabled = true;
 	smbchg_icl_loop_disable_check(chip);
+#ifndef CONFIG_HTC_BATT
 	smbchg_otg_pulse_skip_disable(chip, REASON_OTG_ENABLED, true);
+#else
+	smbchg_otg_pulse_skip_disable(chip, REASON_OTG_ENABLED, false);
+#endif 
 
 	
 	if (chip->otg_pinctrl)
 		return rc;
 
+#ifndef CONFIG_HTC_BATT
 	
 	msleep(20);
+#endif 
 	rc = smbchg_masked_write(chip, chip->bat_if_base + CMD_CHG_REG,
 			OTG_EN_BIT, OTG_EN_BIT);
 	if (rc < 0)
@@ -5638,6 +5663,8 @@ static int smbchg_prepare_for_pulsing(struct smbchg_chip *chip)
 		goto handle_removal;
 	}
 
+	set_usb_psy_dp_dm(chip, POWER_SUPPLY_DP_DM_DP0P6_DMF);
+
 	
 	pr_smb(PR_MISC, "Disabling APSD\n");
 	rc = smbchg_sec_masked_write(chip,
@@ -5661,7 +5688,6 @@ static int smbchg_prepare_for_pulsing(struct smbchg_chip *chip)
 	smbchg_sec_masked_write(chip, chip->usb_chgpth_base + USB_AICL_CFG,
 			AICL_EN_BIT, AICL_EN_BIT);
 
-	set_usb_psy_dp_dm(chip, POWER_SUPPLY_DP_DM_DP0P6_DMF);
 	msleep(HVDCP_NOTIFY_MS);
 	if (!is_src_detect_high(chip)) {
 		pr_smb(PR_MISC, "src det low after 2s sleep\n");
@@ -6130,6 +6156,7 @@ static int smbchg_set_htcchg_extension(struct smbchg_chip *chip, int val)
 		if(chip->htcchg_ext_mode != true)
 			break;
 		chip->htcchg_ext_mode = false;
+		htcchg_set_fastchg_current(chip, 0);
 		chip->pulse_cnt = 0;
 		read_usb_type(chip, &usb_type_name, &usb_supply_type);
 		pr_smb(PR_STATUS, "USB type = %d (%s)\n", usb_supply_type, usb_type_name);
@@ -6383,9 +6410,9 @@ static int smbchg_battery_set_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_HTCCHG_FCC:
 		if(val->intval <= 0)
-			smbchg_set_fastchg_current_user(chip, 0);
+			htcchg_set_fastchg_current(chip, 0);
 		else
-			smbchg_set_fastchg_current_user(chip, val->intval);
+			htcchg_set_fastchg_current(chip, val->intval);
 		pr_smb(PR_STATUS, "Effective FCC = %d mA\n", get_effective_result_locked(chip->fcc_votable));
 		break;
 #endif 
@@ -7061,7 +7088,8 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 		aicl_level);
 #endif
 
-	if (!(reg & USBIN_UV_BIT) && !(reg & USBIN_SRC_DET_BIT)) {
+	if (!(reg & USBIN_UV_BIT) && !(reg & USBIN_SRC_DET_BIT) &&
+		!chip->hvdcp_3_det_ignore_uv) {
 		pr_smb(PR_MISC, "setting usb psy dp=f dm=f\n");
 		power_supply_set_dp_dm(chip->usb_psy,
 				POWER_SUPPLY_DP_DM_DPF_DMF);
@@ -9218,6 +9246,16 @@ bool is_otg_enabled(void)
 		return true;
 	else
 		return false;
+}
+
+bool usb_otg_pulse_skip_control(bool disable)
+{
+        if(!the_chip) {
+                pr_err("called before init\n");
+                return false;
+        }
+	smbchg_otg_pulse_skip_disable(the_chip, REASON_OTG_ENABLED, disable);
+	return true;
 }
 
 #define CHG_SFT_RT_STS		BIT(3)

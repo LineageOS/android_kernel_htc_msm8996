@@ -33,7 +33,7 @@
 #include <proto/ethernet.h>
 #include <proto/bcmeth.h>
 #include <proto/bcmevent.h>
-
+#include <proto/802.11.h>
 
 typedef struct {
 	uint event;
@@ -227,3 +227,112 @@ wl_event_to_network_order(wl_event_msg_t * evt)
 	evt->datalen = hton32(evt->datalen);
 	evt->version = hton16(evt->version);
 }
+int
+is_wlc_event_frame_tmp(void *pktdata, uint pktlen, uint16 exp_usr_subtype,
+        bcm_event_msg_u_t *out_event)
+{
+        uint16 len;
+        uint16 subtype;
+        uint16 usr_subtype;
+        bcm_event_t *bcm_event;
+        uint8 *pktend;
+        int err = BCME_OK;
+
+        pktend = (uint8 *)pktdata + pktlen;
+        bcm_event = (bcm_event_t *)pktdata;
+
+        
+        if ((uint8 *)&bcm_event->bcm_hdr < pktend) {
+                uint8 short_subtype = *(uint8 *)&bcm_event->bcm_hdr;
+                if (!(short_subtype & 0x80)) {
+                        err = BCME_NOTFOUND;
+                        goto done;
+                }
+        }
+
+        
+        if (pktlen < OFFSETOF(bcm_event_t, event)) {
+                err = BCME_BADLEN;
+                goto done;
+        }
+
+        
+        len = ntoh16_ua((void *)&bcm_event->bcm_hdr.length);
+        if (((uint8 *)&bcm_event->bcm_hdr.version + len) > pktend) {
+                err = BCME_BADLEN;
+                goto done;
+        }
+
+        
+        subtype = ntoh16_ua((void *)&bcm_event->bcm_hdr.subtype);
+        if (subtype != BCMILCP_SUBTYPE_VENDOR_LONG) {
+                err = BCME_NOTFOUND;
+                goto done;
+        }
+
+        if (bcmp(BRCM_OUI, &bcm_event->bcm_hdr.oui[0], DOT11_OUI_LEN)) {
+                err = BCME_NOTFOUND;
+                goto done;
+        }
+
+        
+        usr_subtype = ntoh16_ua((void *)&bcm_event->bcm_hdr.usr_subtype);
+        switch (usr_subtype) {
+        case BCMILCP_BCM_SUBTYPE_EVENT:
+                if (pktlen < sizeof(bcm_event_t)) {
+                        err = BCME_BADLEN;
+                        goto done;
+                }
+                len = sizeof(bcm_event_t) + ntoh32_ua((void *)&bcm_event->event.datalen);
+                if ((uint8 *)pktdata + len > pktend) {
+                        err = BCME_BADLEN;
+                        goto done;
+                }
+
+                if (exp_usr_subtype && (exp_usr_subtype != usr_subtype)) {
+                        err = BCME_NOTFOUND;
+                        goto done;
+                }
+
+                if (out_event) {
+                        
+                        memcpy(&out_event->event, &bcm_event->event, sizeof(wl_event_msg_t));
+                }
+
+                break;
+#ifdef HEALTH_CHECK
+        case BCMILCP_BCM_SUBTYPE_DNGLEVENT:
+                if (pktlen < sizeof(bcm_dngl_event_t)) {
+                        err = BCME_BADLEN;
+                        goto done;
+                }
+
+                len = sizeof(bcm_dngl_event_t) +
+                        ntoh16_ua((void *)&((bcm_dngl_event_t *)pktdata)->dngl_event.datalen);
+                if ((uint8 *)pktdata + len > pktend) {
+                        err = BCME_BADLEN;
+                        goto done;
+                }
+
+                if (exp_usr_subtype && (exp_usr_subtype != usr_subtype)) {
+                        err = BCME_NOTFOUND;
+                        goto done;
+                }
+
+                if (out_event) {
+                        
+                        memcpy(&out_event->dngl_event, &((bcm_dngl_event_t *)pktdata)->dngl_event,
+                                sizeof(bcm_dngl_event_msg_t));
+                }
+
+                break;
+#endif 
+        default:
+                err = BCME_NOTFOUND;
+                goto done;
+        }
+
+done:
+        return err;
+}
+

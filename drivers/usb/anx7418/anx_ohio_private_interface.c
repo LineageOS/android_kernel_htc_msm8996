@@ -1157,6 +1157,10 @@ void pd_vbus_control_default_func(bool on)
 			pr_info("%s: Disable boost 5v due to abnormal vbus voltage (%d mv)\n", __func__, vbus_mv);
 			dwc3_pd_vbus_ctrl(0);
 		}
+		else {
+			
+			usb_otg_pulse_skip_control(1);
+		}
 
 		status = OhioReadReg(NEW_CC_STATUS);
 		if (((status & 0x0F) == CC1_STATUS_RA) || ((status & 0xF0) == CC2_STATUS_RA)) {

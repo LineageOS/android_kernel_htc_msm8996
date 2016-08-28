@@ -38,7 +38,7 @@ void htc_debug_watchdog_check_pet(unsigned long long timestamp)
 #if defined(CONFIG_HTC_DEBUG_WORKQUEUE)
 			pr_info("%s: Prepare to dump pending works on global workqueue...\n", __func__);
 			workqueue_show_pending_work();
-#endif 
+#endif /* CONFIG_HTC_DEBUG_WORKQUEUE */
 			pr_info("\n ### Show Blocked State ###\n");
 			show_state_filter(TASK_UNINTERRUPTIBLE);
 		}
@@ -50,6 +50,7 @@ void htc_debug_watchdog_update_last_pet(unsigned long long last_pet)
 	htc_debug_watchdog_last_pet = last_pet;
 }
 
+/* TODO: support this funciton with CONFIG_SPARSE_IRQ */
 #if !defined(CONFIG_SPARSE_IRQ)
 static unsigned int last_irqs[NR_IRQS];
 void htc_debug_watchdog_dump_irqs(unsigned int dump)
@@ -69,10 +70,14 @@ void htc_debug_watchdog_dump_irqs(unsigned int dump)
 		last_irqs[n] = kstat_irqs(n);
 	}
 }
-#endif 
+#endif /* !defined(CONFIG_SPARSE_IRQ) */
 
-#endif 
+#endif /* CONFIG_HTC_DEBUG_WATCHDOG */
 
+/* n.b.:
+ * 1. sched_clock is not irq safe
+ * 2. 32 bit: overflows every 4,294,967,296 msecs
+ */
 unsigned long htc_debug_get_sched_clock_ms(void)
 {
 	unsigned long long timestamp;

@@ -21,7 +21,8 @@
 #include <linux/delay.h>
 #include <linux/of_gpio.h>
 #include <linux/input.h>
-#include <linux/qdsp6v2/apr.h> 
+#include <linux/qdsp6v2/apr.h> //HTC_AUD
+/* alsa sound header */
 #include <sound/soc.h>
 #include <sound/tlv.h>
 #include <sound/pcm_params.h>
@@ -46,7 +47,7 @@ static int rt5503_block_read(
 	return ret;
 #else
 	return i2c_smbus_read_i2c_block_data(client, reg, bytes, dest);
-#endif 
+#endif /* #if RT5503_SIMULATE_DEVICE */
 }
 
 static int rt5503_block_write(void *client, u32 reg,
@@ -66,7 +67,7 @@ static int rt5503_block_write(void *client, u32 reg,
 	return ret;
 #else
 	return i2c_smbus_write_i2c_block_data(client, reg, bytes, src);
-#endif 
+#endif /* #if RT5503_SIMULATE_DEVICE */
 }
 
 static struct rt_regmap_fops rt5503_regmap_ops = {
@@ -74,6 +75,7 @@ static struct rt_regmap_fops rt5503_regmap_ops = {
 	.write_device = rt5503_block_write,
 };
 
+/* Global read/write function */
 static int rt5503_reg_block_read(struct i2c_client *i2c, u32 reg,
 			   int bytes, void *data)
 {
@@ -85,7 +87,7 @@ static int rt5503_reg_block_read(struct i2c_client *i2c, u32 reg,
 	down(&chip->io_semaphore);
 	ret = rt5503_block_read(chip->i2c, reg, bytes, data);
 	up(&chip->io_semaphore);
-#endif 
+#endif /* #ifdef CONFIG_RT_REGMAP */
 	return ret;
 }
 
@@ -115,7 +117,7 @@ static int rt5503_update_bits(struct i2c_client *i2c, u32 reg,
 err_bits:
 	up(&chip->io_semaphore);
 	return ret;
-#endif 
+#endif /* #ifdef CONFIG_RT_REGMAP */
 }
 
 static int rt5503_set_bits(struct i2c_client *i2c, u32 reg, u8 mask)
@@ -146,7 +148,7 @@ static unsigned int rt5503_io_read(struct snd_soc_codec *codec,
 	ret = rt5503_block_read(chip->i2c, reg, 1, &data);
 	up(&chip->io_semaphore);
 	return (ret < 0 ? ret : data);
-#endif 
+#endif /* #ifdef CONFIG_RT_REGMAP */
 }
 
 static int rt5503_io_write(struct snd_soc_codec *codec,
@@ -165,7 +167,7 @@ static int rt5503_io_write(struct snd_soc_codec *codec,
 	ret = rt5503_block_write(chip->i2c, reg, 1, &data);
 	up(&chip->io_semaphore);
 	return ret;
-#endif 
+#endif /* #ifdef CONFIG_RT_REGMAP */
 }
 
 static inline int rt5503_power_on(struct rt5503_chip *chip, bool en)
@@ -214,13 +216,13 @@ static int rt5503_codec_probe(struct snd_soc_codec *codec)
 {
 	int ret = 0;
 
-	
+	/* SW_EN, AVDD_SEL, HP_HP */
 	ret = snd_soc_update_bits(codec, RT5503_REG_CHIPEN, 0x31, 0x31);
 	if (ret < 0) {
 		dev_err(codec->dev, "chip io error\n");
 		goto err_out_probe;
 	}
-	
+	/* clear chopper freq */
 	ret = snd_soc_update_bits(codec, RT5503_REG_DACCFG2, 0x07, 0);
 	if (ret < 0) {
 		dev_err(codec->dev, "chip io error\n");
@@ -329,7 +331,7 @@ static int rt5503_codec_resume(struct snd_soc_codec *codec)
 #else
 #define rt5503_codec_suspend NULL
 #define rt5503_codec_resume NULL
-#endif 
+#endif /* #ifdef CONFIG_PM */
 
 static int rt5503_bbcp_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
@@ -458,12 +460,12 @@ static const struct snd_soc_dapm_widget rt5503_dapm_widgets[] = {
 };
 
 static const struct snd_soc_dapm_route rt5503_dapm_routes[] = {
-	
+	/* ADC Path */
 	{ "AIF1ADCDAT", NULL, "ADC"},
 	{ "ADC", NULL, "INP"},
 	{ "ADC", NULL, "INN"},
 	{ "ADC", NULL, "PLL"},
-	
+	/* DAC Path */
 	{ "LDAC", NULL, "AIF1DACDAT"},
 	{ "RDAC", NULL, "AIF1DACDAT"},
 	{ "LDAC", NULL, "PLL"},
@@ -502,7 +504,7 @@ static const struct snd_soc_codec_driver rt5503_codec_drv = {
 	.num_dapm_routes = ARRAY_SIZE(rt5503_dapm_routes),
 
 	.set_bias_level = rt5503_set_bias_level,
-	
+	/* codec io */
 	.read = rt5503_io_read,
 	.write = rt5503_io_write,
 };
@@ -576,7 +578,7 @@ static int rt5503_aif_hw_params(struct snd_pcm_substream *substream,
 {
 	int capture = (substream->stream == SNDRV_PCM_STREAM_CAPTURE);
 	u32 regaddr = 0;
-	
+	/* 0 for sr and bckfs, 1 for audbits */
 	u8 regval[2] = {0};
 	int ret = 0;
 
@@ -770,7 +772,7 @@ static inline void rt5503_report_headset_type(struct rt5503_chip *chip,
 		input_report_switch(chip->input, SW_MICROPHONE_INSERT, 0);
 		input_sync(chip->input);
 	}
-	
+	/* replace the old value */
 	down(&chip->var_semaphore);
 	chip->headset_stat = cur_headset_stat;
 	up(&chip->var_semaphore);
@@ -791,7 +793,7 @@ static void rt5503_hdet_irq_dwork(struct work_struct *work)
 	if (!(cur_headset_in ^ chip->headset_in))
 		goto out_irq_dwork;
 	if (cur_headset_in == chip->pdata->hdet_active_level) {
-		
+		/* turn on pll for micdetadc */
 		ret = rt5503_set_bits(chip->i2c, RT5503_REG_BLOCKEN,
 			RT5503_PLLEN_MASK);
 		if (ret < 0) {
@@ -804,9 +806,9 @@ static void rt5503_hdet_irq_dwork(struct work_struct *work)
 			dev_err(chip->dev, "micbias enable fail\n");
 			goto out_irq_dwork;
 		}
-		
+		/* micbias delay */
 		mdelay(2);
-		
+		/* set mic_is_deb_en = 0, mic_is_en = 1 */
 		ret = rt5503_update_bits(chip->i2c, RT5503_REG_MICCFG1,
 			RT5503_MICISEN_MASK | RT5503_MICISDEBEN_MASK,
 			RT5503_MICISEN_MASK, 1);
@@ -814,7 +816,7 @@ static void rt5503_hdet_irq_dwork(struct work_struct *work)
 			dev_err(chip->dev, "set mic_is function fail\n");
 			goto out_irq_dwork;
 		}
-		
+		/* micdetadc read delay */
 		mdelay(3);
 		ret = rt5503_reg_block_read(chip->i2c, RT5503_REG_MICDETADCOUT, 2,
 			&read_data);
@@ -827,7 +829,7 @@ static void rt5503_hdet_irq_dwork(struct work_struct *work)
 			cur_headset_stat = RT_STEREO_HEADSET;
 		else
 			cur_headset_stat = RT_STEREO_HEADPHONE;
-		
+		/* turn off pll */
 		ret = rt5503_clr_bits(chip->i2c, RT5503_REG_BLOCKEN,
 			RT5503_PLLEN_MASK);
 		if (ret < 0) {
@@ -835,7 +837,7 @@ static void rt5503_hdet_irq_dwork(struct work_struct *work)
 			goto out_irq_dwork;
 		}
 		if (cur_headset_stat == RT_STEREO_HEADPHONE) {
-			
+			/* turn off micbias for headphone, for hs, keep on */
 			ret = rt5503_clr_bits(chip->i2c, RT5503_REG_MICCFG1,
 				RT5503_MICBEN_MASK);
 			if (ret < 0) {
@@ -843,13 +845,13 @@ static void rt5503_hdet_irq_dwork(struct work_struct *work)
 				goto out_irq_dwork;
 			}
 		}
-		
+		/* re-check */
 		ret = (chip->pdata->hdet_active_level ==
 			gpio_get_value(chip->pdata->hdet_gpio)) ? 1 : 0;
 		if (ret != cur_headset_in)
 			goto out_irq_dwork;
 	} else {
-		
+		/* whatever the headset is, just turn off micbias anyway */
 		ret = rt5503_clr_bits(chip->i2c, RT5503_REG_MICCFG1,
 			RT5503_MICBEN_MASK);
 		if (ret < 0) {
@@ -887,7 +889,7 @@ static inline int rt5503_register_input_device(struct rt5503_chip *chip)
 	input->name = "RT5503 Headset Detection";
 	input->phys = dev_name(chip->dev);
 	input->id.bustype = BUS_I2C;
-	
+	/* capability for Headphone and Microhpone event */
 	input_set_capability(input, EV_SW, SW_HEADPHONE_INSERT);
 	input_set_capability(input, EV_SW, SW_MICROPHONE_INSERT);
 	ret = input_register_device(input);
@@ -935,7 +937,7 @@ static int rt5503_handle_pdata(struct rt5503_chip *chip)
 			goto err_request_irq;
 		}
 		device_init_wakeup(chip->dev, true);
-		
+		/* check for the initial state */
 		rt5503_hdet_irq_handler(chip->irq, chip);
 	}
 	return 0;
@@ -951,12 +953,14 @@ err_input:
 
 static inline int rt5503_i2c_initreg(struct rt5503_chip *chip)
 {
-	
+	/* mute the HPL and HPR */
 	return rt5503_set_bits(chip->i2c, RT5503_REG_CFG1, RT5503_MUTE_MASK);
 }
 
 static int rt5503_sw_reset(struct rt5503_chip *chip)
 {
+//HTC_AUD_START
+//TODO: sw_reset has issue...
 #if 1
 	pr_err("%s: skip sw reset...\n", __func__);
 	return 0;
@@ -964,11 +968,11 @@ static int rt5503_sw_reset(struct rt5503_chip *chip)
 	int ret = 0;
 	u8 data = 0;
 
-	
+	/* check revision id */
 	ret = rt5503_block_read(chip->i2c, RT5503_REG_VERID, 1, &data);
 	if (ret < 0)
 		return ret;
-	
+	/* revision A -> 0, else increment by 1 */
 	dev_info(chip->dev, "chip revision -> %d\n", data);
 	if (data <= 0)
 		return ret;
@@ -981,6 +985,7 @@ static int rt5503_sw_reset(struct rt5503_chip *chip)
 	mdelay(30);
 	return ret;
 #endif
+//HTC_AUD_END
 }
 
 static inline int _rt5503_power_on(struct rt5503_chip *chip, bool en)
@@ -1007,7 +1012,7 @@ static int rt5503_parse_dt(struct device *dev, struct rt5503_pdata *pdata)
 {
 	return 0;
 }
-#endif 
+#endif /* #ifdef CONFIG_OF */
 
 static int rt5503_i2c_probe(struct i2c_client *client,
 			    const struct i2c_device_id *id)
@@ -1016,9 +1021,11 @@ static int rt5503_i2c_probe(struct i2c_client *client,
 	struct rt5503_chip *chip;
 	int ret = 0;
 
+//HTC_AUD_START
 	if(apr_get_q6_state() == APR_SUBSYS_DOWN) {
 		return -EPROBE_DEFER;
 	}
+//HTC_AUD_END
 
 	if (client->dev.of_node) {
 		pdata = devm_kzalloc(&client->dev, sizeof(*pdata), GFP_KERNEL);
@@ -1053,7 +1060,7 @@ static int rt5503_i2c_probe(struct i2c_client *client,
 		ret = -ENOMEM;
 		goto err_simulate;
 	}
-#endif 
+#endif /* #if RT5503_SIMULATE_DEVICE */
 
 	sema_init(&chip->io_semaphore, 1);
 #ifdef CONFIG_PM_RUNTIME
@@ -1061,7 +1068,7 @@ static int rt5503_i2c_probe(struct i2c_client *client,
 	pm_runtime_enable(chip->dev);
 #else
 	atomic_set(&chip->power_count, 1);
-#endif 
+#endif /* #ifdef CONFIG_PM_RUNTIME */
 
 	ret = _rt5503_power_on(chip, true);
 	if (ret < 0) {
@@ -1069,14 +1076,14 @@ static int rt5503_i2c_probe(struct i2c_client *client,
 		goto err_pm_init;
 	}
 
-	
+	/* do software reset at default */
 	ret = rt5503_sw_reset(chip);
 	if (ret < 0) {
 		dev_err(chip->dev, "sw_reset fail\n");
 		goto err_sw_reset;
 	}
 
-	
+	/* register RegMAP */
 	chip->rd = rt5503_regmap_register(
 		&rt5503_regmap_ops, &client->dev, (void *)client, chip);
 	if (!chip->rd) {
@@ -1111,7 +1118,7 @@ err_pdata:
 err_initreg:
 #ifdef CONFIG_RT_REGMAP
 	rt_regmap_device_unregister(chip->rd);
-#endif 
+#endif /* #ifdef CONFIG_RT_REGMAP */
 err_regmap:
 err_sw_reset:
 	_rt5503_power_on(chip, false);
@@ -1121,11 +1128,11 @@ err_pm_init:
 	pm_runtime_set_suspended(chip->dev);
 #else
 	atomic_dec(&chip->power_count);
-#endif 
+#endif /* #ifdef CONFIG_PM_RUNTIME */
 #if RT5503_SIMULATE_DEVICE
 	devm_kfree(chip->dev, chip->sim);
 err_simulate:
-#endif 
+#endif /* #if RT5503_SIMULATE_DEVICE */
 	devm_kfree(&client->dev, chip);
 err_parse_dt:
 	if (client->dev.of_node)
@@ -1146,17 +1153,17 @@ static int rt5503_i2c_remove(struct i2c_client *client)
 	rt5503_codec_unregister(chip);
 #ifdef CONFIG_RT_REGMAP
 	rt_regmap_device_unregister(chip->rd);
-#endif 
+#endif /* #ifdef CONFIG_RT_REGMAP */
 #ifdef CONFIG_PM_RUNTIME
 	pm_runtime_disable(chip->dev);
 	pm_runtime_set_suspended(chip->dev);
 #else
 	atomic_set(&chip->power_count, 0);
-#endif 
+#endif /* #ifdef CONFIG_PM_RUNTIME */
 	_rt5503_power_on(chip, false);
 #if RT5503_SIMULATE_DEVICE
 	devm_kfree(chip->dev, chip->sim);
-#endif 
+#endif /* #if RT5503_SIMULATE_DEVICE */
 	devm_kfree(chip->dev, chip->pdata);
 	chip->pdata = client->dev.platform_data = NULL;
 	dev_info(&client->dev, "driver removed\n");
@@ -1196,7 +1203,7 @@ static int rt5503_i2c_runtime_resume(struct device *dev)
 
 static int rt5503_i2c_runtime_idle(struct device *dev)
 {
-	
+	/* dummy function */
 	return 0;
 }
 
@@ -1209,7 +1216,7 @@ static const struct dev_pm_ops rt5503_i2c_pm_ops = {
 #define prt5503_i2c_pm_ops (&rt5503_i2c_pm_ops)
 #else
 #define prt5503_i2c_pm_ops (NULL)
-#endif 
+#endif /* #ifdef CONFIG_PM */
 
 static const struct i2c_device_id rt5503_i2c_id[] = {
 	{RT5503_DEVICE_NAME, 0},
@@ -1223,7 +1230,7 @@ static const struct of_device_id rt5503_match_table[] = {
 	{},
 };
 MODULE_DEVICE_TABLE(of, rt5503_match_table);
-#endif 
+#endif /* #ifdef CONFIG_OF */
 
 static struct i2c_driver rt5503_i2c_driver = {
 	.driver = {

@@ -249,3 +249,5 @@ int pm8996_get_usb_temp(void);
 bool htc_battery_get_discharging_reason(void);
 #endif 
 bool get_ima_error_status(void);
+
+bool usb_otg_pulse_skip_control(bool disable);

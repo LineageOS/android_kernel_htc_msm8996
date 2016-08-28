@@ -134,7 +134,7 @@
 		status = "okay";
 		pm8994_l3: regulator-l3 {
 			regulator-min-microvolt = <1200000>;
-			regulator-max-microvolt = <1200000>;
+			regulator-max-microvolt = <1250000>;
 			qcom,init-voltage = <1200000>;
 			status = "okay";
 		};

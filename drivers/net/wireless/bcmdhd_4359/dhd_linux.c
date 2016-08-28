@@ -4111,9 +4111,7 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 #else
 			skb->mac.raw,
 #endif 
-			len > ETHER_TYPE_LEN ? len - ETHER_TYPE_LEN : 0,
-			&event,
-			&data);
+			len, &event, &data);
 
 			wl_event_to_host_order(&event);
 #if defined(DHD_RX_DUMP) && defined(CUSTOMER_HW_ONE)

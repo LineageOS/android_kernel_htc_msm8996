@@ -78,7 +78,14 @@ typedef BWL_PRE_PACKED_STRUCT struct
 	uint8	ifidx;			
 	uint8	bsscfgidx;		
 } BWL_POST_PACKED_STRUCT wl_event_msg_t;
+typedef union bcm_event_msg_u {
+        wl_event_msg_t          event;
+#ifdef HEALTH_CHECK
+        bcm_dngl_event_msg_t    dngl_event;
+#endif 
 
+        
+} bcm_event_msg_u_t;
 typedef BWL_PRE_PACKED_STRUCT struct bcm_event {
 	struct ether_header eth;
 	bcmeth_hdr_t		bcm_hdr;
@@ -246,7 +253,16 @@ typedef BWL_PRE_PACKED_STRUCT struct bcm_event {
 extern const char *bcmevent_get_name(uint event_type);
 extern void wl_event_to_host_order(wl_event_msg_t * evt);
 extern void wl_event_to_network_order(wl_event_msg_t * evt);
+#ifndef SEC_ENHANCEMENT
+extern int is_wlc_event_frame(void *pktdata, wl_event_msg_t *event,
+        uint pktlen);
+#else
+extern int is_wlc_event_frame(void *pktdata, uint pktlen, uint16 exp_usr_subtype,
+        bcm_event_msg_u_t *out_event);
+#endif
 
+extern int is_wlc_event_frame_tmp(void *pktdata, uint pktlen, uint16 exp_usr_subtype,
+        bcm_event_msg_u_t *out_event);
 void wl_event_to_host_order(wl_event_msg_t * evt);
 void wl_event_to_network_order(wl_event_msg_t * evt);
 

@@ -2218,12 +2218,16 @@ wl_event_process(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata, void **data_ptr,
 {
 	wl_evt_pport_t evt_pport;
 	wl_event_msg_t event;
+	bcm_event_msg_u_t evu;
 
 	
-	int ret = wl_host_event_get_data(pktdata, &event, data_ptr);
+	int ret = wl_host_event_get_data(pktdata, 0xFFFF, &evu);
+
 	if (ret != BCME_OK) {
 		return ret;
 	}
+
+	memcpy(&event, &evu.event, sizeof(wl_event_msg_t));
 
 	
 	wl_event_to_host_order(&event);
@@ -2249,27 +2253,17 @@ wl_event_process(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata, void **data_ptr,
 }
 
 int
-wl_host_event_get_data(void *pktdata, wl_event_msg_t *event, void **data_ptr)
+wl_host_event_get_data(void *pktdata, uint pktlen, bcm_event_msg_u_t *evu)
 {
-	bcm_event_t *pvt_data = (bcm_event_t *)pktdata;
+	int ret;
 
-	if (bcmp(BRCM_OUI, &pvt_data->bcm_hdr.oui[0], DOT11_OUI_LEN)) {
-		DHD_ERROR(("%s: mismatched OUI, bailing\n", __FUNCTION__));
-		return BCME_ERROR;
+	ret = is_wlc_event_frame_tmp(pktdata, pktlen, 0, evu);
+	if (ret != BCME_OK) {
+		DHD_ERROR(("%s: Invalid event frame, err = %d\n",
+			__FUNCTION__, ret));
 	}
 
-	
-	if (ntoh16_ua((void *)&pvt_data->bcm_hdr.usr_subtype) != BCMILCP_BCM_SUBTYPE_EVENT) {
-		DHD_ERROR(("%s: mismatched subtype, bailing\n", __FUNCTION__));
-		return BCME_ERROR;
-	}
-
-	*data_ptr = &pvt_data[1];
-
-	
-	memcpy(event, &pvt_data->event, sizeof(wl_event_msg_t));
-
-	return BCME_OK;
+	return ret;
 }
 
 #if defined(DHD_DEBUG) && defined(WLC_E_ULIST)
@@ -2407,11 +2401,14 @@ int
 wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata, size_t pktlen,
 	wl_event_msg_t *event, void **data_ptr, void *raw_event)
 {
-	bcm_event_t *pvt_data;
+	bcm_event_t *pvt_data = (bcm_event_t *)pktdata;
+	bcm_event_msg_u_t evu;
 	uint8 *event_data;
 	uint32 type, status, datalen;
 	uint16 flags;
 	uint evlen;
+	int ret;
+	uint16 usr_subtype;
 #ifdef DHD_DEBUG
 	uint32 reason;
 #if defined(WLC_E_ULIST)
@@ -2419,24 +2416,27 @@ wl_host_event(dhd_pub_t *dhd_pub, int *ifidx, void *pktdata, size_t pktlen,
 #endif 
 #endif 
 
-	
-	int ret = wl_host_event_get_data(pktdata, event, data_ptr);
+	ret = wl_host_event_get_data(pktdata, pktlen, &evu);
 	if (ret != BCME_OK) {
 		return ret;
 	}
 
-	if (pktlen < sizeof(bcm_event_t)) {
-		return (BCME_ERROR);
-	}
-
-	pvt_data = (bcm_event_t *)pktdata;
-
-	if (ntoh16_ua((void *)&pvt_data->bcm_hdr.subtype) != BCMILCP_SUBTYPE_VENDOR_LONG ||
-		(bcmp(BRCM_OUI, &pvt_data->bcm_hdr.oui[0], DOT11_OUI_LEN)) ||
-		ntoh16_ua((void *)&pvt_data->bcm_hdr.usr_subtype) != BCMILCP_BCM_SUBTYPE_EVENT)
-	{
-		DHD_ERROR(("%s: mismatched bcm_event_t info, bailing out\n", __FUNCTION__));
-		return (BCME_ERROR);
+	usr_subtype = ntoh16_ua((void *)&pvt_data->bcm_hdr.usr_subtype);
+	switch (usr_subtype) {
+	case BCMILCP_BCM_SUBTYPE_EVENT:
+		memcpy(event, &evu.event, sizeof(wl_event_msg_t));
+			*data_ptr = &pvt_data[1];
+			break;
+		case BCMILCP_BCM_SUBTYPE_DNGLEVENT:
+#ifdef DNGL_EVENT_SUPPORT
+			
+			if (dngl_host_event(dhd_pub, pktdata, &evu.dngl_event, pktlen) == BCME_OK) {
+				return BCME_ERROR;
+			}
+#endif 
+			return BCME_NOTFOUND;
+		default:
+			return BCME_NOTFOUND;
 	}
 
 	event_data = *data_ptr;

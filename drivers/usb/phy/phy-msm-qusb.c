@@ -27,6 +27,23 @@
 
 #define PHY_CLK_SCHEME_SEL BIT(0)
 
+#define QUSB2PHY_PLL_PWR_CTL		0x18
+#define REF_BUF_EN			BIT(0)
+#define REXT_EN				BIT(1)
+#define PLL_BYPASSNL			BIT(2)
+#define REXT_TRIM_0			BIT(4)
+
+#define QUSB2PHY_PLL_AUTOPGM_CTL1	0x1C
+#define PLL_RESET_N_CNT_5		0x5
+#define PLL_RESET_N			BIT(4)
+#define PLL_AUTOPGM_EN			BIT(7)
+
+#define QUSB2PHY_PORT_QUICKCHARGE1	0x70
+#define IDP_SRC_EN			BIT(3)
+
+#define QUSB2PHY_PORT_QUICKCHARGE2	0x74
+#define QUSB2PHY_PORT_INT_STATUS	0xF0
+
 #define QUSB2PHY_PLL_STATUS	0x38
 #define QUSB2PHY_PLL_LOCK	BIT(5)
 
@@ -46,6 +63,7 @@
 #define POWER_DOWN			BIT(0)
 
 #define QUSB2PHY_PORT_UTMI_CTRL1	0xC0
+#define SUSPEND_N			BIT(5)
 #define TERM_SELECT			BIT(4)
 #define XCVR_SELECT_FS			BIT(2)
 #define OP_MODE_NON_DRIVE		BIT(0)
@@ -711,6 +729,73 @@ static void qusb_phy_shutdown(struct usb_phy *phy)
 
 	qusb_phy_enable_clocks(qphy, false);
 }
+
+static int qusb_phy_linestate_with_idp_src(struct usb_phy *phy)
+{
+	struct qusb_phy *qphy = container_of(phy, struct qusb_phy, phy);
+	u8 int_status, ret;
+
+	
+	writel_relaxed(CLAMP_N_EN | FREEZIO_N | POWER_DOWN,
+			qphy->base + QUSB2PHY_PORT_POWERDOWN);
+
+	
+	writel_relaxed(TERM_SELECT | XCVR_SELECT_FS | OP_MODE_NON_DRIVE |
+			SUSPEND_N, qphy->base + QUSB2PHY_PORT_UTMI_CTRL1);
+
+	
+	writel_relaxed(UTMI_ULPI_SEL | UTMI_TEST_MUX_SEL,
+			qphy->base + QUSB2PHY_PORT_UTMI_CTRL2);
+
+	writel_relaxed(PLL_RESET_N_CNT_5,
+			qphy->base + QUSB2PHY_PLL_AUTOPGM_CTL1);
+
+	
+	writel_relaxed(CLAMP_N_EN | FREEZIO_N,
+			qphy->base + QUSB2PHY_PORT_POWERDOWN);
+
+	writel_relaxed(REF_BUF_EN | REXT_EN | PLL_BYPASSNL | REXT_TRIM_0,
+			qphy->base + QUSB2PHY_PLL_PWR_CTL);
+
+	usleep_range(5, 1000);
+
+	writel_relaxed(PLL_RESET_N | PLL_RESET_N_CNT_5,
+			qphy->base + QUSB2PHY_PLL_AUTOPGM_CTL1);
+	usleep_range(50, 1000);
+
+	writel_relaxed(0x00, qphy->base + QUSB2PHY_PORT_QUICKCHARGE1);
+	writel_relaxed(0x00, qphy->base + QUSB2PHY_PORT_QUICKCHARGE2);
+
+	
+	writel_relaxed(0x1F, qphy->base + QUSB2PHY_PORT_INTR_CTRL);
+	
+	writel_relaxed(IDP_SRC_EN, qphy->base + QUSB2PHY_PORT_QUICKCHARGE1);
+
+	usleep_range(1000, 2000);
+	int_status = readl_relaxed(qphy->base + QUSB2PHY_PORT_INT_STATUS);
+
+	
+	writel_relaxed(CLAMP_N_EN | FREEZIO_N | POWER_DOWN,
+			qphy->base + QUSB2PHY_PORT_POWERDOWN);  
+
+	writel_relaxed(PLL_AUTOPGM_EN | PLL_RESET_N | PLL_RESET_N_CNT_5,
+			qphy->base + QUSB2PHY_PLL_AUTOPGM_CTL1);
+
+	writel_relaxed(UTMI_ULPI_SEL, qphy->base + QUSB2PHY_PORT_UTMI_CTRL2);
+
+	writel_relaxed(TERM_SELECT, qphy->base + QUSB2PHY_PORT_UTMI_CTRL1);
+
+	writel_relaxed(CLAMP_N_EN | FREEZIO_N,
+			qphy->base + QUSB2PHY_PORT_POWERDOWN);
+
+	int_status = int_status & 0x5;
+
+	ret = (int_status >> 2) | ((int_status & 0x1) << 1);
+	pr_debug("%s: int_status:%x, dpdm:%x\n", __func__, int_status, ret);
+
+	return ret;
+}
+
 static int qusb_phy_set_suspend(struct usb_phy *phy, int suspend)
 {
 	struct qusb_phy *qphy = container_of(phy, struct qusb_phy, phy);
@@ -1073,6 +1158,7 @@ static int qusb_phy_probe(struct platform_device *pdev)
 	qphy->phy.shutdown		= qusb_phy_shutdown;
 	qphy->phy.change_dpdm		= qusb_phy_update_dpdm;
 	qphy->phy.type			= USB_PHY_TYPE_USB2;
+	qphy->phy.dpdm_with_idp_src	= qusb_phy_linestate_with_idp_src;
 
 	if (qphy->qscratch_base) {
 		qphy->phy.notify_connect        = qusb_phy_notify_connect;

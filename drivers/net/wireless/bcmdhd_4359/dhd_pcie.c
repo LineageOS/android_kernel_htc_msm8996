@@ -578,6 +578,12 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 		goto fail;
 	}
 
+	val = OSL_PCI_READ_CONFIG(osh, PCI_SPROM_CONTROL, sizeof(uint32));
+	if (val == 0xffffffff) {
+		DHD_ERROR(("%s : failed to read SPROM control register\n", __FUNCTION__));
+		goto fail;
+	}
+
 	
 	if (!(bus->sih = si_attach((uint)devid, osh, regsva, PCI_BUS, bus,
 	                           &bus->vars, &bus->varsz))) {
@@ -742,7 +748,7 @@ void
 dhdpcie_bus_intr_enable(dhd_bus_t *bus)
 {
 	DHD_TRACE(("enable interrupts\n"));
-	if (bus && bus->sih) {
+	if (bus && bus->sih && !bus->islinkdown) {
 		bus->intdis = FALSE;
 #ifdef CUSTOMER_HW_ONE
 		if (bus && bus->dev && bus->dev->irq) {
@@ -768,7 +774,7 @@ void
 dhdpcie_bus_intr_disable(dhd_bus_t *bus)
 {
 	DHD_TRACE(("%s Enter\n", __FUNCTION__));
-	if (bus && bus->sih) {
+	if (bus && bus->sih && !bus->islinkdown) {
 		if ((bus->sih->buscorerev == 2) || (bus->sih->buscorerev == 6) ||
 			(bus->sih->buscorerev == 4)) {
 			dhpcie_bus_mask_interrupt(bus);
@@ -4753,6 +4759,14 @@ dhdpcie_handle_mb_data(dhd_bus_t *bus)
 {
 	uint32 d2h_mb_data = 0;
 	uint32 zero = 0;
+
+#ifdef CUSTOMER_HW_ONE
+	if (bus->dhd->os_stopped) {
+		DHD_ERROR(("%s: interface stopped.\n", __FUNCTION__));
+		return;
+	}
+#endif
+
 	dhd_bus_cmn_readshared(bus, &d2h_mb_data, D2H_MB_DATA, 0);
 	if (!d2h_mb_data) {
 		DHD_INFO_HW4(("%s: Invalid D2H_MB_DATA: 0x%08x\n",

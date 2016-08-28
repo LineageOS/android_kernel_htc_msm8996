@@ -64,6 +64,11 @@ static void diag_hsic_read_complete(void *ctxt, char *buf, int len,
 	}
 	ch = &diag_hsic[index];
 
+	/*
+	 * Don't pass on the buffer if the channel is closed when a pending read
+	 * completes. Also, actual size can be negative error codes - do not
+	 * pass on the buffer.
+	 */
 	if (!ch->opened || actual_size <= 0)
 		goto fail;
 	err = diag_remote_dev_read_done(ch->dev_id, buf, actual_size);
@@ -178,7 +183,7 @@ static int hsic_open(int id)
 	ch->opened = 1;
 	spin_unlock_irqrestore(&ch->lock, flags);
 	diagmem_init(driver, ch->mempool);
-	
+	/* Notify the bridge that the channel is open */
 	diag_remote_dev_open(ch->dev_id);
 	queue_work(ch->hsic_wq, &(ch->read_work));
 	return 0;
@@ -253,7 +258,7 @@ static void hsic_read_work_fn(struct work_struct *work)
 		}
 	} while (buf);
 
-	
+	/* Read from the HSIC channel continously if the channel is present */
 	if (!err)
 		queue_work(ch->hsic_wq, &ch->read_work);
 }

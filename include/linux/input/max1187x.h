@@ -24,9 +24,12 @@
 #define MAX1187X_KEY    MAX1187X_NAME "_key_0"
 #define MAX1187X_LOG_NAME	"[TP] "
 
-#define MAX_WORDS_COMMAND  9  
-#define MAX_WORDS_REPORT   245  
-#define MAX_WORDS_COMMAND_ALL  (15 * MAX_WORDS_COMMAND)  
+#define MAX_WORDS_COMMAND  9  /* command address space 0x00-0x09 minus header
+				=> 9 command words maximum */
+#define MAX_WORDS_REPORT   245  /* address space 0x00-0xFF minus 0x00-0x09 for
+				commands minus header, maximum 1 report packet*/
+#define MAX_WORDS_COMMAND_ALL  (15 * MAX_WORDS_COMMAND)  /* maximum 15 packets
+				9 payload words each */
 
 #define MAX1187X_NUM_FW_MAPPINGS_MAX    5
 #define MAX1187X_TOUCH_COUNT_MAX        10
@@ -37,7 +40,7 @@
 #define DEBUG_STRING_LEN_MAX 60
 #define MAX_FW_RETRIES 5
 
-#define MAX1187X_PI 205887 
+#define MAX1187X_PI 205887 /* pi multiplied by 2^16 */
 
 #define MAX1187X_TOUCH_CONFIG_MAX		65
 #define MAX1187X_CALIB_TABLE_MAX		74
@@ -194,5 +197,5 @@ struct max1187x_pdata {
 	struct pinctrl_state *gpio_state_suspend;
 };
 
-#endif 
+#endif /* __MAX1187X_H */
 
