@@ -199,7 +199,7 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 		cal_utils_clear_cal_block_q6maps(MAX_AFE_CAL_TYPES,
 			this_afe.cal_data);
 
-		
+		/* Reset the custom topology mode: to resend again to AFE. */
 		mutex_lock(&this_afe.cal_data[AFE_CUST_TOPOLOGY_CAL]->lock);
 		this_afe.set_custom_topology = 1;
 		mutex_unlock(&this_afe.cal_data[AFE_CUST_TOPOLOGY_CAL]->lock);
@@ -210,7 +210,7 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			this_afe.apr = NULL;
 			rtac_set_afe_handle(this_afe.apr);
 		}
-		
+		/* send info to user */
 		if (this_afe.task == NULL)
 			this_afe.task = current;
 		pr_debug("%s: task_name = %s pid = %d\n",
@@ -251,7 +251,7 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			pr_debug("%s:opcode = 0x%x cmd = 0x%x status = 0x%x token=%d\n",
 				__func__, data->opcode,
 				payload[0], payload[1], data->token);
-			
+			/* payload[1] contains the error status for response */
 			if (payload[1] != 0) {
 				atomic_set(&this_afe.status, payload[1]);
 				pr_err("%s: cmd = 0x%x returned error = 0x%x\n",
@@ -550,6 +550,9 @@ int afe_q6_interface_prepare(void)
 	return ret;
 }
 
+/*
+ * afe_apr_send_pkt : returns 0 on success, negative otherwise.
+ */
 static int afe_apr_send_pkt(void *data, wait_queue_head_t *wait)
 {
 	int ret;
@@ -579,7 +582,7 @@ static int afe_apr_send_pkt(void *data, wait_queue_head_t *wait)
 		}
 	} else if (ret == 0) {
 		pr_err("%s: packet not transmitted\n", __func__);
-		
+		/* apr_send_pkt can return 0 when nothing is transmitted */
 		ret = -EINVAL;
 	}
 
@@ -797,7 +800,7 @@ static int afe_spk_ramp_dn_cfg(int port)
 				atomic_read(&this_afe.status));
 		goto fail_cmd;
 	}
-	
+	/* dsp needs atleast 15ms to ramp down pilot tone*/
 	usleep_range(15000, 15010);
 	ret = 0;
 fail_cmd:
@@ -1537,6 +1540,11 @@ static int afe_aanc_port_cfg(void *apr, uint16_t tx_port, uint16_t rx_port)
 	pr_debug("%s: AANC sample rate tx rate: %d rx rate %d\n",
 		__func__, this_afe.aanc_info.aanc_tx_port_sample_rate,
 	       this_afe.aanc_info.aanc_rx_port_sample_rate);
+	/*
+	 * If aanc tx sample rate or rx sample rate is zero, skip aanc
+	 * configuration as AFE resampler will fail for invalid sample
+	 * rates.
+	 */
 	if (!this_afe.aanc_info.aanc_tx_port_sample_rate ||
 	    !this_afe.aanc_info.aanc_rx_port_sample_rate) {
 		return -EINVAL;
@@ -1798,6 +1806,11 @@ int afe_set_config(enum afe_config_type config_type, void *config_data, int arg)
 	return ret;
 }
 
+/*
+ * afe_clear_config - If SSR happens ADSP loses AFE configs, let AFE driver know
+ *		      about the state so client driver can wait until AFE is
+ *		      reconfigured.
+ */
 void afe_clear_config(enum afe_config_type config)
 {
 	clear_bit(config, &afe_configured_cmd);
@@ -2309,17 +2322,17 @@ int afe_tdm_port_start(u16 port_id, struct afe_tdm_port_config *tdm_port,
 		return ret;
 	}
 
-	
+	/* Also send the topology id here: */
 	port_index = afe_get_port_index(port_id);
 	if (!(this_afe.afe_cal_mode[port_index] == AFE_CAL_MODE_NONE)) {
-		
+		/* One time call: only for first time */
 		afe_send_custom_topology();
 		afe_send_port_topology_id(port_id);
 		afe_send_cal(port_id);
 		afe_send_hw_delay(port_id, rate);
 	}
 
-	
+	/* Start SW MAD module */
 	mad_type = afe_port_get_mad_type(port_id);
 	pr_debug("%s: port_id 0x%x, mad_type %d\n", __func__, port_id,
 		 mad_type);
@@ -2404,7 +2417,7 @@ void afe_set_cal_mode(u16 port_id, enum afe_cal_mode afe_cal_mode)
 }
 
 int afe_port_start(u16 port_id, union afe_port_config *afe_config,
-	u32 rate) 
+	u32 rate) /* This function is no blocking */
 {
 	struct afe_audioif_config_command config;
 	int ret = 0;
@@ -2435,7 +2448,7 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 			proxy_afe_instance[port_id & 0x1], port_id);
 
 		if (!afe_close_done[port_id & 0x1]) {
-			
+			/*close pcm dai corresponding to the proxy dai*/
 			afe_close(port_id - 0x10);
 			pcm_afe_instance[port_id & 0x1]++;
 			pr_debug("%s: reconfigure afe port again\n", __func__);
@@ -2466,17 +2479,17 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 	}
 
 	mutex_lock(&this_afe.afe_cmd_lock);
-	
+	/* Also send the topology id here: */
 	port_index = afe_get_port_index(port_id);
 	if (!(this_afe.afe_cal_mode[port_index] == AFE_CAL_MODE_NONE)) {
-		
+		/* One time call: only for first time */
 		afe_send_custom_topology();
 		afe_send_port_topology_id(port_id);
 		afe_send_cal(port_id);
 		afe_send_hw_delay(port_id, rate);
 	}
 
-	
+	/* Start SW MAD module */
 	mad_type = afe_port_get_mad_type(port_id);
 	pr_debug("%s: port_id 0x%x, mad_type %d\n", __func__, port_id,
 		 mad_type);
@@ -2611,6 +2624,15 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 	port_index = afe_get_port_index(port_id);
 	if ((port_index >= 0) && (port_index < AFE_MAX_PORTS)) {
 		this_afe.afe_sample_rates[port_index] = rate;
+		/*
+		 * If afe_port_start() for tx port called before
+		 * rx port, then aanc rx sample rate is zero. So,
+		 * AANC state machine in AFE will not get triggered.
+		 * Make sure to check whether aanc is active during
+		 * afe_port_start() for rx port and if aanc rx
+		 * sample rate is zero, call afe_aanc_start to configure
+		 * aanc with valid sample rates.
+		 */
 		if (this_afe.aanc_info.aanc_active &&
 		    !this_afe.aanc_info.aanc_rx_port_sample_rate) {
 			this_afe.aanc_info.aanc_rx_port_sample_rate =
@@ -2879,8 +2901,8 @@ int afe_open(u16 port_id,
 		pr_err("%s: Q6 interface prepare failed %d\n", __func__, ret);
 		return -EINVAL;
 	}
-	
-	afe_send_custom_topology(); 
+	/* Also send the topology id here: */
+	afe_send_custom_topology(); /* One time call: only for first time  */
 	afe_send_port_topology_id(port_id);
 
 	ret = q6audio_validate_port(port_id);
@@ -3087,7 +3109,7 @@ int afe_loopback_gain(u16 port_id, u16 volume)
 		return -EINVAL;
 	}
 
-	
+	/* RX ports numbers are even .TX ports numbers are odd. */
 	if (port_id % 2 == 0) {
 		pr_err("%s: Failed : afe loopback gain only for TX ports. port_id %d\n",
 				__func__, port_id);
@@ -3588,7 +3610,7 @@ int afe_cmd_memory_map(phys_addr_t dma_addr_p, u32 dma_buf_sz)
 	mregion->mem_pool_id = ADSP_MEMORY_MAP_SHMEM8_4K_POOL;
 	mregion->num_regions = 1;
 	mregion->property_flag = 0x00;
-	
+	/* Todo */
 	index = mregion->hdr.token = IDX_RSVD_2;
 
 	payload = ((u8 *) mmap_region_cmd +
@@ -3801,7 +3823,7 @@ int afe_cmd_memory_unmap(u32 mem_map_handle)
 	mregion.hdr.opcode = AFE_SERVICE_CMD_SHARED_MEM_UNMAP_REGIONS;
 	mregion.mem_map_handle = mem_map_handle;
 
-	
+	/* Todo */
 	index = mregion.hdr.token = IDX_RSVD_2;
 
 	atomic_set(&this_afe.status, 0);
@@ -4449,9 +4471,9 @@ static int afe_sidetone(u16 tx_port_id, u16 rx_port_id, bool enable)
 	cmd_sidetone.hdr.dest_port = 0;
 	cmd_sidetone.hdr.token = index;
 	cmd_sidetone.hdr.opcode = AFE_PORT_CMD_SET_PARAM_V2;
-	
+	/* should it be rx or tx port id ?? , bharath*/
 	cmd_sidetone.param.port_id = tx_port_id;
-	
+	/* size of data param & payload */
 	cmd_sidetone.param.payload_size = (sizeof(cmd_sidetone) -
 			sizeof(struct apr_hdr) -
 			sizeof(struct afe_port_cmd_set_param_v2));
@@ -4640,6 +4662,10 @@ int afe_convert_virtual_to_portid(u16 port_id)
 {
 	int ret;
 
+	/*
+	 * if port_id is virtual, convert to physical..
+	 * if port_id is already physical, return physical
+	 */
 	if (afe_validate_port(port_id) < 0) {
 		if (port_id == RT_PROXY_DAI_001_RX ||
 		    port_id == RT_PROXY_DAI_001_TX ||
@@ -4785,6 +4811,10 @@ int afe_close(int port_id)
 				__func__, ret);
 	}
 
+	/*
+	 * even if ramp down configuration failed it is not serious enough to
+	 * warrant bailaing out.
+	 */
 	if (afe_spk_ramp_dn_cfg(port_id) < 0)
 		pr_err("%s: ramp down configuration failed\n", __func__);
 
@@ -4833,7 +4863,7 @@ int afe_set_digital_codec_core_clock(u16 port_id,
 	clk_cfg.hdr.token = index;
 
 	clk_cfg.hdr.opcode = AFE_PORT_CMD_SET_PARAM_V2;
-	
+	/*default rx port is taken to enable the codec digital clock*/
 	clk_cfg.param.port_id = q6audio_get_port_id(port_id);
 	clk_cfg.param.payload_size = sizeof(clk_cfg) - sizeof(struct apr_hdr)
 						- sizeof(clk_cfg.param);
@@ -5039,7 +5069,7 @@ int afe_set_lpass_clk_cfg(int index, struct afe_clk_set *cfg)
 		ret = -EINVAL;
 		goto fail_cmd;
 	} else {
-		
+		/* set ret to 0 as no timeout happened */
 		ret = 0;
 	}
 	if (atomic_read(&this_afe.status) != 0) {
@@ -5653,7 +5683,7 @@ static int afe_get_cal_fb_spkr_prot(int32_t cal_type, size_t data_size,
 			cal_data->cal_info.status = 0;
 	} else if (this_afe.prot_cfg.mode ==
 				MSM_SPKR_PROT_CALIBRATION_IN_PROGRESS) {
-		
+		/*Call AFE to query the status*/
 		cal_data->cal_info.status = -EINVAL;
 		cal_data->cal_info.r0[SP_V2_SPKR_1] = -1;
 		cal_data->cal_info.r0[SP_V2_SPKR_2] = -1;
@@ -5679,7 +5709,7 @@ static int afe_get_cal_fb_spkr_prot(int32_t cal_type, size_t data_size,
 				cal_data->cal_info.r0[SP_V2_SPKR_2];
 		}
 	} else {
-		
+		/*Indicates calibration data is invalid*/
 		cal_data->cal_info.status = -EINVAL;
 		cal_data->cal_info.r0[SP_V2_SPKR_1] = -1;
 		cal_data->cal_info.r0[SP_V2_SPKR_2] = -1;

@@ -20,6 +20,10 @@
 
 #include "mdss_mdp_wfd.h"
 
+/*
+ * time out value for wfd to wait for any pending frames to finish
+ * assuming 30fps, and max 5 frames in the queue
+ */
 #define WFD_TIMEOUT_IN_MS 150
 
 struct mdss_mdp_wfd *mdss_mdp_wfd_init(struct device *device,

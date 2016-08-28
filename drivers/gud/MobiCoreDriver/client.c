@@ -42,15 +42,15 @@ struct cbuf {
 	struct tee_client	*client;
 	
 	struct list_head	list;
-	
+	/* Number of references kept to this buffer */
 	struct kref		kref;
-	
+	/* virtual Kernel start address */
 	uintptr_t		addr;
-	
+	/* virtual Userspace start address */
 	uintptr_t		uaddr;
-	
+	/* physical start address */
 	phys_addr_t		phys;
-	
+	/* 2^order = number of pages allocated */
 	unsigned int		order;
 	
 	u32			len;
@@ -108,6 +108,8 @@ static int cbuf_map(struct vm_area_struct *vmarea, uintptr_t addr, u32 len,
 	}
 
 	vmarea->vm_flags |= VM_IO;
+
+	/* CPI todo: use io_remap_page_range() to be consistent with VM_IO ? */
 	ret = remap_pfn_range(vmarea, vmarea->vm_start,
 			      page_to_pfn(virt_to_page(addr)),
 			      vmarea->vm_end - vmarea->vm_start,
@@ -126,7 +128,7 @@ struct tee_client *client_create(bool is_from_kernel)
 {
 	struct tee_client *client;
 
-	
+	/* allocate client structure */
 	client = kzalloc(sizeof(*client), GFP_KERNEL);
 	if (!client)
 		return NULL;
@@ -349,6 +351,13 @@ int client_add_session(struct tee_client *client, const struct tee_object *obj,
 	struct tee_mmu *obj_mmu = NULL;
 	int ret = 0;
 
+	/*
+	 * Create session object with temp sid=0 BEFORE session is started,
+	 * otherwise if a GP TA is started and NWd session object allocation
+	 * fails, we cannot handle the potentially delayed GP closing.
+	 * Adding session to list must be done AFTER it is started (once we have
+	 * sid), therefore it cannot be done within session_create().
+	 */
 	session = session_create(client, is_gp, identity);
 	if (IS_ERR(session))
 		return PTR_ERR(session);
@@ -360,7 +369,7 @@ int client_add_session(struct tee_client *client, const struct tee_object *obj,
 		goto err;
 	}
 
-	
+	/* Open session */
 	ret = session_open(session, obj, obj_mmu, tci, len);
 	
 	tee_mmu_delete(obj_mmu);
@@ -375,7 +384,7 @@ int client_add_session(struct tee_client *client, const struct tee_object *obj,
 	mutex_unlock(&client->sessions_lock);
 
 err:
-	
+	/* Close or free session on error */
 	if (ret == -ENODEV) {
 		
 		list_add_tail(&session->list, &client->closing_sessions);
@@ -391,7 +400,7 @@ int client_remove_session(struct tee_client *client, u32 session_id)
 {
 	struct tee_session *session = NULL, *candidate;
 
-	
+	/* Move session from main list to closing list */
 	mutex_lock(&client->sessions_lock);
 	list_for_each_entry(candidate, &client->sessions, list) {
 		if (candidate->mcp_session.id == session_id) {
@@ -405,7 +414,7 @@ int client_remove_session(struct tee_client *client, u32 session_id)
 	if (!session)
 		return -ENXIO;
 
-	
+	/* Close session */
 	return session_close(session);
 }
 
@@ -522,6 +531,9 @@ int client_unmap_session_wsms(struct tee_client *client, u32 session_id,
 	return ret;
 }
 
+/*
+ * This callback is called on remap
+ */
 static void cbuf_vm_open(struct vm_area_struct *vmarea)
 {
 	struct cbuf *cbuf = vmarea->vm_private_data;
@@ -529,6 +541,9 @@ static void cbuf_vm_open(struct vm_area_struct *vmarea)
 	cbuf_get(cbuf);
 }
 
+/*
+ * This callback is called on unmap
+ */
 static void cbuf_vm_close(struct vm_area_struct *vmarea)
 {
 	struct cbuf *cbuf = vmarea->vm_private_data;
@@ -560,7 +575,7 @@ int client_cbuf_create(struct tee_client *client, u32 len, uintptr_t *addr,
 		return -ENOMEM;
 	}
 
-	
+	/* Allocate buffer descriptor structure */
 	cbuf = kzalloc(sizeof(*cbuf), GFP_KERNEL);
 	if (!cbuf)
 		return -ENOMEM;
@@ -576,7 +591,7 @@ int client_cbuf_create(struct tee_client *client, u32 len, uintptr_t *addr,
 		return -ENOMEM;
 	}
 
-	
+	/* Map to user space if applicable */
 	if (!client_is_kernel(client)) {
 		err = cbuf_map(vmarea, cbuf->addr, len, &cbuf->uaddr);
 		if (err) {
@@ -588,7 +603,7 @@ int client_cbuf_create(struct tee_client *client, u32 len, uintptr_t *addr,
 		}
 	}
 
-	
+	/* Init descriptor members */
 	cbuf->client = client;
 	cbuf->phys = virt_to_phys((void *)cbuf->addr);
 	cbuf->len = len;
@@ -596,7 +611,7 @@ int client_cbuf_create(struct tee_client *client, u32 len, uintptr_t *addr,
 	kref_init(&cbuf->kref);
 	INIT_LIST_HEAD(&cbuf->list);
 
-	
+	/* Keep cbuf in VMA private data for refcounting (user-space clients) */
 	if (vmarea) {
 		vmarea->vm_private_data = cbuf;
 		vmarea->vm_ops = &cbuf_vm_ops;
@@ -606,10 +621,10 @@ int client_cbuf_create(struct tee_client *client, u32 len, uintptr_t *addr,
 	if (addr)
 		*addr = cbuf->addr;
 
-	
+	/* Get a token on the client */
 	client_get(client);
 
-	
+	/* Add buffer to list */
 	mutex_lock(&client->cbufs_lock);
 	list_add_tail(&cbuf->list, &client->cbufs);
 	mutex_unlock(&client->cbufs_lock);
@@ -625,12 +640,12 @@ static struct cbuf *cbuf_get_by_addr(struct tee_client *client, uintptr_t addr)
 
 	mutex_lock(&client->cbufs_lock);
 	list_for_each_entry(candidate, &client->cbufs, list) {
-		
+		/* Compare Vs kernel va OR user va depending on client type */
 		uintptr_t start = is_kernel ?
 			candidate->addr : candidate->uaddr;
 		uintptr_t end = start + candidate->len;
 
-		
+		/* Check that (user) cbuf has not been unmapped */
 		if (!start)
 			break;
 

@@ -15,7 +15,7 @@
 #ifndef _MC_MCP_H_
 #define _MC_MCP_H_
 
-#include "mci/mcloadformat.h"		
+#include "mci/mcloadformat.h"		/* struct identity */
 
 struct tee_object {
 	u32	length;		
@@ -23,6 +23,7 @@ struct tee_object {
 	u8	data[];		
 };
 
+/* Structure to hold all mapped buffer data to pass to MCP */
 struct mcp_buffer_map {
 	u64	phys_addr;	
 	u64	secure_va;	
@@ -32,11 +33,11 @@ struct mcp_buffer_map {
 };
 
 struct mcp_session {
-	
+	/* Work descriptor to handle delayed closing, set by upper layer */
 	struct work_struct	close_work;
-	
+	/* Sessions list (protected by mcp sessions_lock) */
 	struct list_head	list;
-	
+	/* Notifications list (protected by mcp notifications_mutex) */
 	struct list_head	notifications_list;
 	
 	struct mutex		notif_wait_lock;	
@@ -51,7 +52,7 @@ struct mcp_session {
 	}			notif_state;
 	
 	struct completion	completion;
-	
+	/* Notification lock */
 	struct mutex		exit_code_lock;
 	
 	s32			exit_code;
@@ -66,22 +67,25 @@ struct mcp_session {
 		MCP_SESSION_CLOSING_GP,
 		MCP_SESSION_CLOSED,
 	}			state;
-	
+	/* This TA is of Global Platform type, set by upper layer */
 	bool			is_gp;
-	
+	/* GP TAs have login information */
 	struct identity		identity;
 };
 
+/* Init for the mcp_session structure */
 void mcp_session_init(struct mcp_session *session, bool is_gp,
 		      const struct identity *identity);
 int mcp_session_waitnotif(struct mcp_session *session, s32 timeout,
 			  bool silent_expiry);
 s32 mcp_session_exitcode(struct mcp_session *mcp_session);
 
+/* SWd suspend/resume */
 int mcp_suspend(void);
 int mcp_resume(void);
 bool mcp_suspended(void);
 
+/* Callback to scheduler registration */
 enum mcp_scheduler_commands {
 	MCP_YIELD,
 	MCP_NSIQ,
@@ -95,6 +99,7 @@ bool mcp_get_idle_timeout(s32 *timeout);
 void mcp_reset_idle_timeout(void);
 void mcp_update_time(void);
 
+/* MCP commands */
 int mcp_get_version(struct mc_version_info *version_info);
 int mcp_load_token(uintptr_t data, const struct mcp_buffer_map *buffer_map);
 int mcp_load_check(const struct tee_object *obj,
@@ -111,6 +116,7 @@ int mcp_multimap(u32 session_id, struct mcp_buffer_map *buffer_maps);
 int mcp_multiunmap(u32 session_id, const struct mcp_buffer_map *buffer_maps);
 int mcp_notify(struct mcp_session *mcp_session);
 
+/* MCP initialisation/cleanup */
 int mcp_init(void);
 void mcp_exit(void);
 int mcp_start(void);

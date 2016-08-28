@@ -38,7 +38,7 @@
 
 struct mc_device_ctx {
 	struct device		*mcd;
-	
+	/* debugfs root */
 	struct dentry		*debug_dir;
 
 	
@@ -46,13 +46,13 @@ struct mc_device_ctx {
 	bool			f_lpae;
 	
 	bool			f_timeout;
-	
+	/* - SWd supports memory extension which allows for bigger TAs */
 	bool			f_mem_ext;
-	
+	/* - SWd supports TA authorisation */
 	bool			f_ta_auth;
-	
+	/* - SWd can map several buffers at once */
 	bool			f_multimap;
-	
+	/* - SWd supports GP client authentication */
 	bool			f_client_login;
 	
 	bool			f_time;
@@ -87,4 +87,4 @@ static inline int kref_read(struct kref *kref)
 	return atomic_read(&kref->refcount);
 }
 
-#endif 
+#endif /* _MC_MAIN_H_ */

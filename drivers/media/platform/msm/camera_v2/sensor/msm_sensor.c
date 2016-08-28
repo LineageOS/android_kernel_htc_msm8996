@@ -1371,6 +1371,9 @@ static void msm_sensor_stop_stream(struct msm_sensor_ctrl_t *s_ctrl)
 static int msm_sensor_get_af_status(struct msm_sensor_ctrl_t *s_ctrl,
 			void __user *argp)
 {
+	/* TO-DO: Need to set AF status register address and expected value
+	We need to check the AF status in the sensor register and
+	set the status in the *status variable accordingly*/
 	return 0;
 }
 
@@ -2450,7 +2453,7 @@ int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 	struct msm_cam_clk_info      *clk_info = NULL;
 	unsigned long mount_pos = 0;
 
-	
+	/* Validate input parameters */
 	if (!s_ctrl) {
 		pr_err("%s:%d failed: invalid params s_ctrl %p\n", __func__,
 			__LINE__, s_ctrl);
@@ -2463,7 +2466,7 @@ int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 		return -EINVAL;
 	}
 
-	
+	/* Initialize cci_client */
 	s_ctrl->sensor_i2c_client->cci_client = kzalloc(sizeof(
 		struct msm_camera_cci_client), GFP_KERNEL);
 	if (!s_ctrl->sensor_i2c_client->cci_client) {
@@ -2475,10 +2478,10 @@ int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 	if (s_ctrl->sensor_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
 		cci_client = s_ctrl->sensor_i2c_client->cci_client;
 
-		
+		/* Get CCI subdev */
 		cci_client->cci_subdev = msm_cci_get_subdev();
 
-		
+		/* Update CCI / I2C function table */
 		if (!s_ctrl->sensor_i2c_client->i2c_func_tbl)
 			s_ctrl->sensor_i2c_client->i2c_func_tbl =
 				&msm_sensor_cci_func_tbl;
@@ -2490,15 +2493,15 @@ int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 		}
 	}
 
-	
+	/* Update function table driven by ioctl */
 	if (!s_ctrl->func_tbl)
 		s_ctrl->func_tbl = &msm_sensor_func_tbl;
 
-	
+	/* Update v4l2 subdev ops table */
 	if (!s_ctrl->sensor_v4l2_subdev_ops)
 		s_ctrl->sensor_v4l2_subdev_ops = &msm_sensor_subdev_ops;
 
-	
+	/* Initialize clock info */
 	clk_info = kzalloc(sizeof(cam_8974_clk_info), GFP_KERNEL);
 	if (!clk_info) {
 		pr_err("%s:%d failed no memory clk_info %p\n", __func__,
@@ -2511,7 +2514,7 @@ int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 	s_ctrl->sensordata->power_info.clk_info_size =
 		ARRAY_SIZE(cam_8974_clk_info);
 
-	
+	/* Update sensor mount angle and position in media entity flag */
 	mount_pos = s_ctrl->sensordata->sensor_info->position << 16;
 	mount_pos = mount_pos | ((s_ctrl->sensordata->sensor_info->
 					sensor_mount_angle / 90) << 8);

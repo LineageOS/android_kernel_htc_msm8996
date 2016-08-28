@@ -30,17 +30,21 @@
 #include "pil-q6v5.h"
 #include "pil-msa.h"
 
+/* Q6 Register Offsets */
 #define QDSP6SS_RST_EVB			0x010
 #define QDSP6SS_DBG_CFG			0x018
 
+/* AXI Halting Registers */
 #define MSS_Q6_HALT_BASE		0x180
 #define MSS_MODEM_HALT_BASE		0x200
 #define MSS_NC_HALT_BASE		0x280
 
+/* RMB Status Register Values */
 #define STATUS_PBL_SUCCESS		0x1
 #define STATUS_XPU_UNLOCKED		0x1
 #define STATUS_XPU_UNLOCKED_SCRIBBLED	0x2
 
+/* PBL/MBA interface registers */
 #define RMB_MBA_IMAGE			0x00
 #define RMB_PBL_STATUS			0x04
 #define RMB_MBA_COMMAND			0x08
@@ -61,6 +65,7 @@
 #define STATUS_AUTH_COMPLETE		0x4
 #define STATUS_MBA_UNLOCKED		0x6
 
+/* External BHS */
 #define EXTERNAL_BHS_ON			BIT(0)
 #define EXTERNAL_BHS_STATUS		BIT(4)
 #define BHS_TIMEOUT_US			50
@@ -76,9 +81,11 @@ module_param(pbl_mba_boot_timeout_ms, int, S_IRUGO | S_IWUSR);
 static int modem_auth_timeout_ms = 10000;
 module_param(modem_auth_timeout_ms, int, S_IRUGO | S_IWUSR);
 
+/* If set to 0xAABADEAD, MBA failures trigger a kernel panic */
 static uint modem_trigger_panic;
 module_param(modem_trigger_panic, uint, S_IRUGO | S_IWUSR);
 
+/* To set the modem debug cookie in DBG_CFG register for debugging */
 static uint modem_dbg_cfg;
 module_param(modem_dbg_cfg, uint, S_IRUGO | S_IWUSR);
 
@@ -228,7 +235,7 @@ static int pil_msa_wait_for_mba_ready(struct q6v5_data *drv)
 	int ret;
 	u32 status;
 
-	
+	/* Wait for PBL completion. */
 	ret = readl_poll_timeout(drv->rmb_base + RMB_PBL_STATUS, status,
 		status != 0, POLL_INTERVAL_US, pbl_mba_boot_timeout_ms * 1000);
 	if (ret) {
@@ -240,7 +247,7 @@ static int pil_msa_wait_for_mba_ready(struct q6v5_data *drv)
 		return -EINVAL;
 	}
 
-	
+	/* Wait for MBA completion. */
 	ret = readl_poll_timeout(drv->rmb_base + RMB_MBA_STATUS, status,
 		status != 0, POLL_INTERVAL_US, pbl_mba_boot_timeout_ms * 1000);
 	if (ret) {
@@ -277,6 +284,10 @@ int pil_mss_shutdown(struct pil_desc *pil)
 	if (drv->axi_halt_nc)
 		pil_q6v5_halt_axi_port(pil, drv->axi_halt_nc);
 
+	/*
+	 * Software workaround to avoid high MX current during LPASS/MSS
+	 * restart.
+	 */
 	if (drv->mx_spike_wa && drv->ahb_clk_vote) {
 		ret = clk_prepare_enable(drv->ahb_clk);
 		if (!ret)
@@ -321,6 +332,8 @@ int __pil_mss_deinit_image(struct pil_desc *pil, bool err_path)
 	if (q6_drv->ahb_clk_vote)
 		clk_disable_unprepare(q6_drv->ahb_clk);
 
+	/* In case of any failure where reclaiming MBA and DP memory
+	 * could not happen, free the memory here */
 	if (drv->q6->mba_dp_virt) {
 		if (pil->subsys_vmid > 0)
 			pil_assign_mem_to_linux(pil, drv->q6->mba_dp_phys,
@@ -390,11 +403,15 @@ static int pil_mss_reset(struct pil_desc *pil)
 	if (drv->mba_dp_phys)
 		start_addr = drv->mba_dp_phys;
 
+	/*
+	 * Bring subsystem out of reset and enable required
+	 * regulators and clocks.
+	 */
 	ret = pil_mss_power_up(drv);
 	if (ret)
 		goto err_power;
 
-	
+	/* Deassert reset to subsystem and wait for propagation */
 	ret = pil_mss_restart_reg(drv, 0);
 	if (ret)
 		goto err_restart;
@@ -406,16 +423,20 @@ static int pil_mss_reset(struct pil_desc *pil)
 	if (modem_dbg_cfg)
 		writel_relaxed(modem_dbg_cfg, drv->reg_base + QDSP6SS_DBG_CFG);
 
-	
+	/* Program Image Address */
 	if (drv->self_auth) {
 		writel_relaxed(start_addr, drv->rmb_base + RMB_MBA_IMAGE);
+		/*
+		 * Ensure write to RMB base occurs before reset
+		 * is released.
+		 */
 		mb();
 	} else {
 		writel_relaxed((start_addr >> 4) & 0x0FFFFFF0,
 				drv->reg_base + QDSP6SS_RST_EVB);
 	}
 
-	
+	/* Program DP Address */
 	if (drv->dp_size) {
 		writel_relaxed(start_addr + SZ_1M, drv->rmb_base +
 			       RMB_PMI_CODE_START);
@@ -432,7 +453,7 @@ static int pil_mss_reset(struct pil_desc *pil)
 	if (ret)
 		goto err_q6v5_reset;
 
-	
+	/* Wait for MBA to start. Check for PBL and MBA errors while waiting. */
 	if (drv->self_auth) {
 		ret = pil_msa_wait_for_mba_ready(drv);
 		if (ret)
@@ -521,16 +542,16 @@ int pil_mss_reset_load_mba(struct pil_desc *pil)
 	dev_info(pil->dev, "Loading MBA and DP (if present) from %pa to %pa\n",
 					&mba_dp_phys, &mba_dp_phys_end);
 
-	
+	/* Load the MBA image into memory */
 	count = fw->size;
 	memcpy(mba_dp_virt, data, count);
-	
+	/* Ensure memcpy of the MBA memory is done before loading the DP */
 	wmb();
 
-	
+	/* Load the DP image into memory */
 	if (drv->mba_dp_size > SZ_1M) {
 		memcpy(mba_dp_virt + SZ_1M, dp_fw->data, dp_fw->size);
-		
+		/* Ensure memcpy is done before powering up modem */
 		wmb();
 	}
 
@@ -583,7 +604,7 @@ static int pil_msa_auth_modem_mdt(struct pil_desc *pil, const u8 *metadata,
 	drv->mba_mem_dev.coherent_dma_mask =
 		DMA_BIT_MASK(sizeof(dma_addr_t) * 8);
 	dma_set_attr(DMA_ATTR_STRONGLY_ORDERED, &attrs);
-	
+	/* Make metadata physically contiguous and 4K aligned. */
 	mdata_virt = dma_alloc_attrs(&drv->mba_mem_dev, size, &mdata_phys,
 					GFP_KERNEL, &attrs);
 	if (!mdata_virt) {
@@ -592,7 +613,7 @@ static int pil_msa_auth_modem_mdt(struct pil_desc *pil, const u8 *metadata,
 		goto fail;
 	}
 	memcpy(mdata_virt, metadata, size);
-	
+	/* wmb() ensures copy completes prior to starting authentication. */
 	wmb();
 
 	if (pil->subsys_vmid > 0) {
@@ -606,10 +627,10 @@ static int pil_msa_auth_modem_mdt(struct pil_desc *pil, const u8 *metadata,
 		}
 	}
 
-	
+	/* Initialize length counter to 0 */
 	writel_relaxed(0, drv->rmb_base + RMB_PMI_CODE_LENGTH);
 
-	
+	/* Pass address of meta-data to the MBA and perform authentication */
 	writel_relaxed(mdata_phys, drv->rmb_base + RMB_PMI_META_DATA);
 	writel_relaxed(CMD_META_DATA_READY, drv->rmb_base + RMB_MBA_COMMAND);
 	ret = readl_poll_timeout(drv->rmb_base + RMB_MBA_STATUS, status,
@@ -666,12 +687,12 @@ static int pil_msa_mba_verify_blob(struct pil_desc *pil, phys_addr_t phy_addr,
 	s32 status;
 	u32 img_length = readl_relaxed(drv->rmb_base + RMB_PMI_CODE_LENGTH);
 
-	
+	/* Begin image authentication */
 	if (img_length == 0) {
 		writel_relaxed(phy_addr, drv->rmb_base + RMB_PMI_CODE_START);
 		writel_relaxed(CMD_LOAD_READY, drv->rmb_base + RMB_MBA_COMMAND);
 	}
-	
+	/* Increment length counter */
 	img_length += size;
 	writel_relaxed(img_length, drv->rmb_base + RMB_PMI_CODE_LENGTH);
 
@@ -692,7 +713,7 @@ static int pil_msa_mba_auth(struct pil_desc *pil)
 	int ret;
 	s32 status;
 
-	
+	/* Wait for all segments to be authenticated or an error to occur */
 	ret = readl_poll_timeout(drv->rmb_base + RMB_MBA_STATUS, status,
 			status == STATUS_AUTH_COMPLETE || status < 0,
 			50, modem_auth_timeout_ms * 1000);
@@ -705,7 +726,7 @@ static int pil_msa_mba_auth(struct pil_desc *pil)
 
 	if (drv->q6) {
 		if (drv->q6->mba_dp_virt) {
-			
+			/* Reclaim MBA and DP (if allocated) memory. */
 			if (pil->subsys_vmid > 0)
 				pil_assign_mem_to_linux(pil,
 					drv->q6->mba_dp_phys,
@@ -725,6 +746,10 @@ static int pil_msa_mba_auth(struct pil_desc *pil)
 	return ret;
 }
 
+/*
+ * To be used only if self-auth is disabled, or if the
+ * MBA image is loaded as segments and not in init_image.
+ */
 struct pil_reset_ops pil_msa_mss_ops = {
 	.proxy_vote = pil_mss_make_proxy_votes,
 	.proxy_unvote = pil_mss_remove_proxy_votes,
@@ -732,6 +757,11 @@ struct pil_reset_ops pil_msa_mss_ops = {
 	.shutdown = pil_mss_shutdown,
 };
 
+/*
+ * To be used if self-auth is enabled and the MBA is to be loaded
+ * in init_image and the modem headers are also to be authenticated
+ * in init_image. Modem segments authenticated in auth_and_reset.
+ */
 struct pil_reset_ops pil_msa_mss_ops_selfauth = {
 	.init_image = pil_msa_mss_reset_mba_load_auth_mdt,
 	.proxy_vote = pil_mss_make_proxy_votes,
@@ -742,6 +772,10 @@ struct pil_reset_ops pil_msa_mss_ops_selfauth = {
 	.shutdown = pil_mss_shutdown,
 };
 
+/*
+ * To be used if the modem headers are to be authenticated
+ * in init_image, and the modem segments in auth_and_reset.
+ */
 struct pil_reset_ops pil_msa_femto_mba_ops = {
 	.init_image = pil_msa_auth_modem_mdt,
 	.verify_blob = pil_msa_mba_verify_blob,

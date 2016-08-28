@@ -175,7 +175,7 @@ static int __init init_memory_dump(void)
 	memdump.table_phys = virt_to_phys(memdump.table);
 #endif
 	memcpy_toio(imem_base, &memdump.table_phys, sizeof(memdump.table_phys));
-	
+	/* Ensure write to imem_base is complete before unmapping */
 	mb();
 	pr_info("MSM Memory Dump base table set up\n");
 

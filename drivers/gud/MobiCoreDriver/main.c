@@ -37,6 +37,7 @@
 
 #include "build_tag.h"
 
+/* Define a MobiCore device structure for use with dev_debug() etc */
 static struct device_driver driver = {
 	.name = "Trustonic"
 };
@@ -108,7 +109,7 @@ ssize_t debug_generic_read(struct file *file, char __user *user_buf,
 			   size_t count, loff_t *ppos,
 			   int (*function)(struct kasnprintf_buf *buf))
 {
-	
+	/* Add/update buffer */
 	if (!file->private_data || !*ppos) {
 		struct kasnprintf_buf *buf, *old_buf;
 		int ret;
@@ -361,18 +362,18 @@ static int mobicore_start(void)
 		
 	case MC_VERSION(1, 2):
 		g_ctx.f_client_login = true;
-		
+		/* Fall through */
 	case MC_VERSION(1, 1):
 		g_ctx.f_multimap = true;
-		
-	case MC_VERSION(1, 0):	
+		/* Fall through */
+	case MC_VERSION(1, 0):	/* 302 */
 		g_ctx.f_mem_ext = true;
 		g_ctx.f_ta_auth = true;
-		
+		/* Fall through */
 	case MC_VERSION(0, 7):
 		g_ctx.f_timeout = true;
-		
-	case MC_VERSION(0, 6):	
+		/* Fall through */
+	case MC_VERSION(0, 6):	/* 301 */
 		break;
 	}
 
@@ -541,13 +542,13 @@ static int mobicore_probe(struct platform_device *pdev)
 #ifdef MOBICORE_COMPONENT_BUILD_TAG
 	mc_dev_info("MobiCore %s\n", MOBICORE_COMPONENT_BUILD_TAG);
 #endif
-	
+	/* Hardware does not support ARM TrustZone -> Cannot continue! */
 	if (!has_security_extensions()) {
 		mc_dev_err("Hardware doesn't support ARM TrustZone!\n");
 		return -ENODEV;
 	}
 
-	
+	/* Running in secure mode -> Cannot load the driver! */
 	if (is_secure_mode()) {
 		mc_dev_err("Running in secure MODE!\n");
 		return -ENODEV;
@@ -614,6 +615,8 @@ fail_fastcall_init:
 	debugfs_remove_recursive(g_ctx.debug_dir);
 	return err;
 }
+
+/* Linux Driver Module Macros */
 
 #ifdef MC_DEVICE_PROPNAME
 

@@ -3633,17 +3633,17 @@ int msm_mmsscc_8996_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Clear the DBG_CLK_DIV bits of the MMSS debug register */
 	regval = readl_relaxed(virt_base + mmss_gcc_dbg_clk.offset);
 	regval &= ~BM(18, 17);
 	writel_relaxed(regval, virt_base + mmss_gcc_dbg_clk.offset);
 
-	
+	/* Disable the AHB DCD */
 	regval = readl_relaxed(virt_base + MMSS_MNOC_DCD_CONFIG_AHB);
 	regval &= ~BIT(31);
 	writel_relaxed(regval, virt_base + MMSS_MNOC_DCD_CONFIG_AHB);
 
-	
+	/* Disable the NoC FSM for mmss_mmagic_cfg_ahb_clk */
 	regval = readl_relaxed(virt_base + mmss_mmagic_cfg_ahb_clk.cbcr_reg);
 	regval &= ~BIT(15);
 	writel_relaxed(regval, virt_base + mmss_mmagic_cfg_ahb_clk.cbcr_reg);
@@ -3724,7 +3724,7 @@ int msm_mmsscc_8996_probe(struct platform_device *pdev)
 	if (rc)
 		return rc;
 
-	
+	/* Register v2/v3 specific clocks */
 	if (is_v2 || is_v3) {
 		rc = of_msm_clock_register(pdev->dev.of_node,
 				msm_clocks_mmsscc_8996_v2,
@@ -3753,6 +3753,7 @@ static struct platform_driver msm_clock_mmss_driver = {
 	},
 };
 
+/* ======== Graphics Clock Controller ======== */
 
 static struct mux_clk gpu_gcc_dbg_clk = {
 	.ops = &mux_reg_ops,

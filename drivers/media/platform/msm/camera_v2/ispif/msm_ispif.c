@@ -226,7 +226,7 @@ static int msm_ispif_reset_hw(struct ispif_device *ispif)
 	struct clk *reset_clk1[ARRAY_SIZE(ispif_8626_reset_clk_info)];
 	ispif->clk_idx = 0;
 
-	
+	/* Turn ON VFE regulators before enabling the vfe clocks */
 	rc = msm_ispif_set_regulators(ispif->vfe_vdd, ispif->vfe_vdd_count, 1);
 	if (rc < 0)
 		return rc;
@@ -245,16 +245,16 @@ static int msm_ispif_reset_hw(struct ispif_device *ispif)
 				__func__, rc);
 			goto reg_disable;
 		} else {
-			
+			/* This is set when device is 8x26 */
 			ispif->clk_idx = 2;
 		}
 	} else {
-		
+		/* This is set when device is 8974 */
 		ispif->clk_idx = 1;
 	}
 
 	atomic_set(&ispif->reset_trig[VFE0], 1);
-	
+	/* initiate reset of ISPIF */
 	msm_camera_io_w(ISPIF_RST_CMD_MASK,
 				ispif->base + ISPIF_RST_CMD_ADDR);
 
@@ -389,7 +389,7 @@ static int msm_ispif_clk_ahb_enable(struct ispif_device *ispif, int enable)
 	int rc = 0;
 
 	if (ispif->csid_version < CSID_VERSION_V30) {
-		
+		/* Older ISPIF versiond don't need ahb clokc */
 		return 0;
 	}
 
@@ -686,7 +686,7 @@ static void msm_ispif_select_clk_mux(struct ispif_device *ispif,
 		break;
 	}
 	CDBG("%s intftype %d data %x\n", __func__, intftype, data);
-	
+	/* ensure clk mux is enabled */
 	mb();
 	return;
 }
@@ -842,28 +842,28 @@ static void msm_ispif_intf_cmd(struct ispif_device *ispif, uint32_t cmd_bits,
 			cid = params->entries[i].cids[k];
 			vc = cid / 4;
 			if (intf_type == RDI2) {
-				
+				/* zero out two bits */
 				ispif->applied_intf_cmd[vfe_intf].intf_cmd1 &=
 					~(0x3 << (vc * 2 + 8));
-				
+				/* set cmd bits */
 				ispif->applied_intf_cmd[vfe_intf].intf_cmd1 |=
 					(cmd_bits << (vc * 2 + 8));
 			} else {
-				
+				/* zero 2 bits */
 				ispif->applied_intf_cmd[vfe_intf].intf_cmd &=
 					~(0x3 << (vc * 2 + intf_type * 8));
-				
+				/* set cmd bits */
 				ispif->applied_intf_cmd[vfe_intf].intf_cmd |=
 					(cmd_bits << (vc * 2 + intf_type * 8));
 			}
 		}
-		
+		/* cmd for PIX0, PIX1, RDI0, RDI1 */
 		if (ispif->applied_intf_cmd[vfe_intf].intf_cmd != 0xFFFFFFFF)
 			msm_camera_io_w_mb(
 				ispif->applied_intf_cmd[vfe_intf].intf_cmd,
 				ispif->base + ISPIF_VFE_m_INTF_CMD_0(vfe_intf));
 
-		
+		/* cmd for RDI2 */
 		if (ispif->applied_intf_cmd[vfe_intf].intf_cmd1 != 0xFFFFFFFF)
 			msm_camera_io_w_mb(
 				ispif->applied_intf_cmd[vfe_intf].intf_cmd1,
@@ -894,7 +894,7 @@ static int msm_ispif_stop_immediately(struct ispif_device *ispif,
 	}
 	msm_ispif_intf_cmd(ispif, ISPIF_INTF_CMD_DISABLE_IMMEDIATELY, params);
 
-	
+	/* after stop the interface we need to unmask the CID enable bits */
 	for (i = 0; i < params->num; i++) {
 		cid_mask = msm_ispif_get_cids_mask_from_cfg(
 			&params->entries[i]);
@@ -961,7 +961,7 @@ static int msm_ispif_restart_frame_boundary(struct ispif_device *ispif,
 		vfe_mask |= (1 << vfe_intf);
 	}
 
-	
+	/* Turn ON regulators before enabling the clocks*/
 	rc = msm_ispif_set_regulators(ispif->vfe_vdd,
 					ispif->vfe_vdd_count, 1);
 	if (rc < 0)
@@ -975,7 +975,7 @@ static int msm_ispif_restart_frame_boundary(struct ispif_device *ispif,
 
 	if (vfe_mask & (1 << VFE0)) {
 		atomic_set(&ispif->reset_trig[VFE0], 1);
-		
+		/* initiate reset of ISPIF */
 		msm_camera_io_w(ISPIF_RST_CMD_MASK_RESTART,
 				ispif->base + ISPIF_RST_CMD_ADDR);
 		timeout = wait_for_completion_timeout(
@@ -1008,7 +1008,7 @@ static int msm_ispif_restart_frame_boundary(struct ispif_device *ispif,
 	if (rc < 0)
 		goto disable_regulator;
 
-	
+	/* Turn OFF regulators after disabling clocks */
 	rc = msm_ispif_set_regulators(ispif->vfe_vdd, ispif->vfe_vdd_count, 0);
 	if (rc < 0)
 		goto end;
@@ -1063,7 +1063,7 @@ disable_clk:
 		ispif_clk_info, ispif->clk,
 		ispif->num_clk, 0);
 disable_regulator:
-	
+	/* Turn OFF regulators */
 	msm_ispif_set_regulators(ispif->vfe_vdd, ispif->vfe_vdd_count, 0);
 end:
 	return rc;
@@ -1143,7 +1143,7 @@ static int msm_ispif_stop_frame_boundary(struct ispif_device *ispif,
 		if (rc < 0)
 			goto end;
 
-		
+		/* disable CIDs in CID_MASK register */
 		msm_ispif_enable_intf_cids(ispif, params->entries[i].intftype,
 			cid_mask, vfe_intf, 0);
 	}
@@ -1343,7 +1343,7 @@ static int msm_ispif_init(struct ispif_device *ispif,
 		return rc;
 	}
 
-	
+	/* can we set to zero? */
 	ispif->applied_intf_cmd[VFE0].intf_cmd  = 0xFFFFFFFF;
 	ispif->applied_intf_cmd[VFE0].intf_cmd1 = 0xFFFFFFFF;
 	ispif->applied_intf_cmd[VFE1].intf_cmd  = 0xFFFFFFFF;
@@ -1428,7 +1428,7 @@ static void msm_ispif_release(struct ispif_device *ispif)
 		return;
 	}
 
-	
+	/* make sure no streaming going on */
 	msm_ispif_reset(ispif);
 	msm_ispif_reset_hw(ispif);
 
@@ -1459,7 +1459,7 @@ static long msm_ispif_cmd(struct v4l2_subdev *sd, void *arg)
 	mutex_lock(&ispif->mutex);
 	switch (pcdata->cfg_type) {
 	case ISPIF_ENABLE_REG_DUMP:
-		ispif->enb_dump_reg = pcdata->reg_dump; 
+		ispif->enb_dump_reg = pcdata->reg_dump; /* save dump config */
 		break;
 	case ISPIF_INIT:
 		rc = msm_ispif_init(ispif, pcdata->csid_version);
@@ -1560,7 +1560,7 @@ static int ispif_open_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 
 	mutex_lock(&ispif->mutex);
 	if (0 == ispif->open_cnt) {
-		
+		/* enable regulator and clocks on first open */
 		rc = msm_ispif_set_regulators(ispif->ispif_vdd,
 					ispif->ispif_vdd_count, 1);
 		if (rc)
@@ -1572,7 +1572,7 @@ static int ispif_open_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 			goto unlock;
 		}
 	}
-	
+	/* mem remap is done in init when the clock is on */
 	ispif->open_cnt++;
 unlock:
 	mutex_unlock(&ispif->mutex);
@@ -1597,7 +1597,7 @@ static int ispif_close_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	ispif->open_cnt--;
 	if (ispif->open_cnt == 0) {
 		msm_ispif_release(ispif);
-		
+		/* disable clocks and regulator on last close */
 		msm_ispif_clk_ahb_enable(ispif, 0);
 		msm_ispif_set_regulators(ispif->ispif_vdd,
 					ispif->ispif_vdd_count, 0);
@@ -1637,9 +1637,9 @@ static int ispif_probe(struct platform_device *pdev)
 		rc = of_property_read_u32((&pdev->dev)->of_node,
 		"qcom,num-isps", &ispif->hw_num_isps);
 		if (rc)
-			
+			/* backward compatibility */
 			ispif->hw_num_isps = 1;
-		
+		/* not an error condition */
 		rc = 0;
 	}
 

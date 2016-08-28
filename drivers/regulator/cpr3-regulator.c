@@ -44,6 +44,7 @@
 #define CPR3_REGULATOR_CORNER_INVALID	(-1)
 #define CPR3_RO_MASK			GENMASK(CPR3_RO_COUNT - 1, 0)
 
+/* CPR3 registers */
 #define CPR3_REG_CPR_CTL			0x4
 #define CPR3_CPR_CTL_LOOP_EN_MASK		BIT(0)
 #define CPR3_CPR_CTL_LOOP_ENABLE		BIT(0)
@@ -63,6 +64,10 @@
 #define CPR3_CPR_STATUS_BUSY_MASK		BIT(0)
 #define CPR3_CPR_STATUS_AGING_MEASUREMENT_MASK	BIT(1)
 
+/*
+ * This register is not present on controllers that support HW closed-loop
+ * except CPR4 APSS controller.
+ */
 #define CPR3_REG_CPR_TIMER_AUTO_CONT		0xC
 
 #define CPR3_REG_CPR_STEP_QUOT			0x14
@@ -138,6 +143,7 @@
 #define CPR3_REG_TARGET_QUOT(thread, ro) \
 					(0x840 + 0x440 * (thread) + 0x4 * (ro))
 
+/* Registers found only on controllers that support HW closed-loop. */
 #define CPR3_REG_PD_THROTTLE		0xE8
 #define CPR3_PD_THROTTLE_DISABLE	0x0
 
@@ -163,6 +169,7 @@
 #define CPR3_LAST_MEASUREMENT_PD_BYPASS_MASK	GENMASK(23, 16)
 #define CPR3_LAST_MEASUREMENT_PD_BYPASS_SHIFT	16
 
+/* CPR4 controller specific registers and bit definitions */
 #define CPR4_REG_SAW_ERROR_STEP_LIMIT		0x7A4
 #define CPR4_SAW_ERROR_STEP_LIMIT_UP_MASK	GENMASK(4, 0)
 #define CPR4_SAW_ERROR_STEP_LIMIT_UP_SHIFT	0
@@ -176,20 +183,50 @@
 #define CPR4_MARGIN_ADJ_CTL_PMIC_STEP_SIZE_MASK		GENMASK(16, 12)
 #define CPR4_MARGIN_ADJ_CTL_PMIC_STEP_SIZE_SHIFT	12
 
+/*
+ * The amount of time to wait for the CPR controller to become idle when
+ * performing an aging measurement.
+ */
 #define CPR3_AGING_MEASUREMENT_TIMEOUT_NS	5000000
 
+/*
+ * The number of individual aging measurements to perform which are then
+ * averaged together in order to determine the final aging adjustment value.
+ */
 #define CPR3_AGING_MEASUREMENT_ITERATIONS	16
 
+/*
+ * Aging measurements for the aged and unaged ring oscillators take place a few
+ * microseconds apart.  If the vdd-supply voltage fluctuates between the two
+ * measurements, then the difference between them will be incorrect.  The
+ * difference could end up too high or too low.  This constant defines the
+ * number of lowest and highest measurements to ignore when averaging.
+ */
 #define CPR3_AGING_MEASUREMENT_FILTER		3
 
+/*
+ * The number of times to attempt the full aging measurement sequence before
+ * declaring a measurement failure.
+ */
 #define CPR3_AGING_RETRY_COUNT			5
 
+/*
+ * The maximum time to wait in microseconds for a CPR register write to
+ * complete.
+ */
 #define CPR3_REGISTER_WRITE_DELAY_US		200
 
 static DEFINE_MUTEX(cpr3_controller_list_mutex);
 static LIST_HEAD(cpr3_controller_list);
 static struct dentry *cpr3_debugfs_base;
 
+/**
+ * cpr3_read() - read four bytes from the memory address specified
+ * @ctrl:		Pointer to the CPR3 controller
+ * @offset:		Offset in bytes from the CPR3 controller's base address
+ *
+ * Return: memory address value
+ */
 static inline u32 cpr3_read(struct cpr3_controller *ctrl, u32 offset)
 {
 	if (!ctrl->cpr_enabled) {
@@ -200,6 +237,14 @@ static inline u32 cpr3_read(struct cpr3_controller *ctrl, u32 offset)
 	return readl_relaxed(ctrl->cpr_ctrl_base + offset);
 }
 
+/**
+ * cpr3_write() - write four bytes to the memory address specified
+ * @ctrl:		Pointer to the CPR3 controller
+ * @offset:		Offset in bytes from the CPR3 controller's base address
+ * @value:		Value to write to the memory address
+ *
+ * Return: none
+ */
 static inline void cpr3_write(struct cpr3_controller *ctrl, u32 offset,
 				u32 value)
 {
@@ -211,6 +256,16 @@ static inline void cpr3_write(struct cpr3_controller *ctrl, u32 offset,
 	writel_relaxed(value, ctrl->cpr_ctrl_base + offset);
 }
 
+/**
+ * cpr3_masked_write() - perform a read-modify-write sequence so that only
+ *		masked bits are modified
+ * @ctrl:		Pointer to the CPR3 controller
+ * @offset:		Offset in bytes from the CPR3 controller's base address
+ * @mask:		Mask identifying the bits that should be modified
+ * @value:		Value to write to the memory address
+ *
+ * Return: none
+ */
 static inline void cpr3_masked_write(struct cpr3_controller *ctrl, u32 offset,
 				u32 mask, u32 value)
 {
@@ -229,6 +284,12 @@ static inline void cpr3_masked_write(struct cpr3_controller *ctrl, u32 offset,
 		writel_relaxed(reg_val, ctrl->cpr_ctrl_base + offset);
 }
 
+/**
+ * cpr3_ctrl_loop_enable() - enable the CPR sensing loop for a given controller
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: none
+ */
 static inline void cpr3_ctrl_loop_enable(struct cpr3_controller *ctrl)
 {
 	if (ctrl->cpr_enabled)
@@ -236,6 +297,13 @@ static inline void cpr3_ctrl_loop_enable(struct cpr3_controller *ctrl)
 			CPR3_CPR_CTL_LOOP_EN_MASK, CPR3_CPR_CTL_LOOP_ENABLE);
 }
 
+/**
+ * cpr3_ctrl_loop_disable() - disable the CPR sensing loop for a given
+ *		controller
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: none
+ */
 static inline void cpr3_ctrl_loop_disable(struct cpr3_controller *ctrl)
 {
 	if (ctrl->cpr_enabled)
@@ -243,6 +311,13 @@ static inline void cpr3_ctrl_loop_disable(struct cpr3_controller *ctrl)
 			CPR3_CPR_CTL_LOOP_EN_MASK, CPR3_CPR_CTL_LOOP_DISABLE);
 }
 
+/**
+ * cpr3_clock_enable() - prepare and enable all clocks used by this CPR3
+ *		controller
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_clock_enable(struct cpr3_controller *ctrl)
 {
 	int rc;
@@ -271,6 +346,13 @@ static int cpr3_clock_enable(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_clock_disable() - disable and unprepare all clocks used by this CPR3
+ *		controller
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: none
+ */
 static void cpr3_clock_disable(struct cpr3_controller *ctrl)
 {
 	clk_disable_unprepare(ctrl->core_clk);
@@ -278,6 +360,12 @@ static void cpr3_clock_disable(struct cpr3_controller *ctrl)
 	clk_disable_unprepare(ctrl->bus_clk);
 }
 
+/**
+ * cpr3_closed_loop_enable() - enable logical CPR closed-loop operation
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_closed_loop_enable(struct cpr3_controller *ctrl)
 {
 	int rc;
@@ -286,9 +374,12 @@ static int cpr3_closed_loop_enable(struct cpr3_controller *ctrl)
 		cpr3_err(ctrl, "cannot enable closed-loop CPR operation because it is disallowed\n");
 		return -EPERM;
 	} else if (ctrl->cpr_enabled) {
-		
+		/* Already enabled */
 		return 0;
 	} else if (ctrl->cpr_suspended) {
+		/*
+		 * CPR must remain disabled as the system is entering suspend.
+		 */
 		return 0;
 	}
 
@@ -304,10 +395,16 @@ static int cpr3_closed_loop_enable(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_closed_loop_disable() - disable logical CPR closed-loop operation
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static inline int cpr3_closed_loop_disable(struct cpr3_controller *ctrl)
 {
 	if (!ctrl->cpr_enabled) {
-		
+		/* Already disabled */
 		return 0;
 	}
 
@@ -318,6 +415,13 @@ static inline int cpr3_closed_loop_disable(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_regulator_get_gcnt() - returns the GCNT register value corresponding
+ *		to the clock rate and sensor time of the CPR3 controller
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: GCNT value
+ */
 static u32 cpr3_regulator_get_gcnt(struct cpr3_controller *ctrl)
 {
 	u64 temp;
@@ -328,11 +432,24 @@ static u32 cpr3_regulator_get_gcnt(struct cpr3_controller *ctrl)
 	remainder = do_div(temp, 1000000000);
 	if (remainder)
 		temp++;
+	/*
+	 * GCNT == 0 corresponds to a single ref clock measurement interval so
+	 * offset GCNT values by 1.
+	 */
 	gcnt = temp - 1;
 
 	return gcnt;
 }
 
+/**
+ * cpr3_regulator_init_thread() - performs hardware initialization of CPR
+ *		thread registers
+ * @thread:		Pointer to the CPR3 thread
+ *
+ * CPR interface/bus clocks must be enabled before calling this function.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_init_thread(struct cpr3_thread *thread)
 {
 	u32 reg;
@@ -348,12 +465,25 @@ static int cpr3_regulator_init_thread(struct cpr3_thread *thread)
 
 	cpr3_write(thread->ctrl, CPR3_REG_THRESH(thread->thread_id), reg);
 
+	/*
+	 * Mask all RO's initially so that unused thread doesn't contribute
+	 * to closed-loop voltage.
+	 */
 	cpr3_write(thread->ctrl, CPR3_REG_RO_MASK(thread->thread_id),
 		CPR3_RO_MASK);
 
 	return 0;
 }
 
+/**
+ * cpr3_regulator_init_cpr4() - performs hardware initialization at the
+ *		controller and thread level required for CPR4 operation.
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * CPR interface/bus clocks must be enabled before calling this function.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_init_cpr4(struct cpr3_controller *ctrl)
 {
 	u32 pmic_step_size = 1;
@@ -377,6 +507,13 @@ static int cpr3_regulator_init_cpr4(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_regulator_init_ctrl() - performs hardware initialization of CPR
+ *		controller registers
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_init_ctrl(struct cpr3_controller *ctrl)
 {
 	int i, j, k, m, rc;
@@ -401,7 +538,7 @@ static int cpr3_regulator_init_ctrl(struct cpr3_controller *ctrl)
 	}
 	ctrl->cpr_enabled = true;
 
-	
+	/* Find all RO's used by any corner of any regulator. */
 	for (i = 0; i < ctrl->thread_count; i++)
 		for (j = 0; j < ctrl->thread[i].vreg_count; j++)
 			for (k = 0; k < ctrl->thread[i].vreg[j].corner_count;
@@ -411,13 +548,13 @@ static int cpr3_regulator_init_ctrl(struct cpr3_controller *ctrl)
 					    target_quot[m])
 						ro_used |= BIT(m);
 
-	
+	/* Configure the GCNT of the RO's that will be used */
 	gcnt = cpr3_regulator_get_gcnt(ctrl);
 	for (i = 0; i < CPR3_RO_COUNT; i++)
 		if (ro_used & BIT(i))
 			cpr3_write(ctrl, CPR3_REG_GCNT(i), gcnt);
 
-	
+	/* Configure the loop delay time */
 	temp = (u64)ctrl->cpr_clock_rate * (u64)ctrl->loop_time;
 	do_div(temp, 1000000000);
 	cont_dly = temp;
@@ -443,7 +580,7 @@ static int cpr3_regulator_init_ctrl(struct cpr3_controller *ctrl)
 		ctrl->cpr_clock_rate, ctrl->sensor_time, ctrl->loop_time,
 		gcnt, cont_dly);
 
-	
+	/* Configure CPR sensor operation */
 	val = (ctrl->idle_clocks << CPR3_CPR_CTL_IDLE_CLOCKS_SHIFT)
 		& CPR3_CPR_CTL_IDLE_CLOCKS_MASK;
 	val |= (ctrl->count_mode << CPR3_CPR_CTL_COUNT_MODE_SHIFT)
@@ -455,7 +592,7 @@ static int cpr3_regulator_init_ctrl(struct cpr3_controller *ctrl)
 	cpr3_debug(ctrl, "idle_clocks=%u, count_mode=%u, count_repeat=%u; CPR_CTL=0x%08X\n",
 		ctrl->idle_clocks, ctrl->count_mode, ctrl->count_repeat, val);
 
-	
+	/* Configure CPR default step quotients */
 	val = (ctrl->step_quot_init_min << CPR3_CPR_STEP_QUOT_MIN_SHIFT)
 		& CPR3_CPR_STEP_QUOT_MIN_MASK;
 	val |= (ctrl->step_quot_init_max << CPR3_CPR_STEP_QUOT_MAX_SHIFT)
@@ -465,12 +602,12 @@ static int cpr3_regulator_init_ctrl(struct cpr3_controller *ctrl)
 	cpr3_debug(ctrl, "step_quot_min=%u, step_quot_max=%u; STEP_QUOT=0x%08X\n",
 		ctrl->step_quot_init_min, ctrl->step_quot_init_max, val);
 
-	
+	/* Configure the CPR sensor ownership */
 	for (i = 0; i < ctrl->sensor_count; i++)
 		cpr3_write(ctrl, CPR3_REG_SENSOR_OWNER(i),
 			   ctrl->sensor_owner[i]);
 
-	
+	/* Configure per-thread registers */
 	for (i = 0; i < ctrl->thread_count; i++) {
 		rc = cpr3_regulator_init_thread(&ctrl->thread[i]);
 		if (rc) {
@@ -522,7 +659,7 @@ static int cpr3_regulator_init_ctrl(struct cpr3_controller *ctrl)
 		}
 	}
 
-	
+	/* Ensure that all register writes complete before disabling clocks. */
 	wmb();
 
 	cpr3_clock_disable(ctrl);
@@ -541,6 +678,13 @@ static int cpr3_regulator_init_ctrl(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_regulator_set_target_quot() - configure the target quotient for each
+ *		RO of the CPR3 thread and set the RO mask
+ * @thread:		Pointer to the CPR3 thread
+ *
+ * Return: none
+ */
 static void cpr3_regulator_set_target_quot(struct cpr3_thread *thread)
 {
 	u32 new_quot, last_quot;
@@ -548,7 +692,7 @@ static void cpr3_regulator_set_target_quot(struct cpr3_thread *thread)
 
 	if (thread->aggr_corner.ro_mask == CPR3_RO_MASK
 	    && thread->last_closed_loop_aggr_corner.ro_mask == CPR3_RO_MASK) {
-		
+		/* Avoid writing target quotients since all RO's are masked. */
 		return;
 	} else if (thread->aggr_corner.ro_mask == CPR3_RO_MASK) {
 		cpr3_write(thread->ctrl, CPR3_REG_RO_MASK(thread->thread_id),
@@ -579,6 +723,16 @@ static void cpr3_regulator_set_target_quot(struct cpr3_thread *thread)
 	return;
 }
 
+/**
+ * cpr3_update_vreg_closed_loop_volt() - update the last known settled
+ *		closed loop voltage for a CPR3 regulator
+ * @vreg:		Pointer to the CPR3 regulator
+ * @vdd_volt:		Last known settled voltage in microvolts for the
+ *			VDD supply
+ * @reg_last_measurement: Value read from the LAST_MEASUREMENT register
+ *
+ * Return: none
+ */
 static void cpr3_update_vreg_closed_loop_volt(struct cpr3_regulator *vreg,
 				int vdd_volt, u32 reg_last_measurement)
 {
@@ -622,7 +776,7 @@ static void cpr3_update_vreg_closed_loop_volt(struct cpr3_regulator *vreg,
 		return;
 	}
 
-	
+	/* CPR clocks are on and HW closed loop is supported */
 	valid = !!(reg_last_measurement & CPR3_LAST_MEASUREMENT_VALID);
 	if (!valid) {
 		cpr3_debug(vreg, "CPR_LAST_VALID_MEASUREMENT=0x%X valid bit not set\n",
@@ -684,6 +838,21 @@ static void cpr3_update_vreg_closed_loop_volt(struct cpr3_regulator *vreg,
 		   reg_last_measurement);
 }
 
+/**
+ * cpr3_regulator_config_ldo_retention() - configure per-regulator LDO retention
+ *		mode
+ * @vreg:		Pointer to the CPR3 regulator to configure
+ * @ref_volt:		Reference voltage used to determine if LDO retention
+ *			mode can be allowed. It corresponds either to the
+ *			aggregated floor voltage or the next VDD supply setpoint
+ *
+ * This function determines if a CPR3 regulator's configuration satisfies safe
+ * operating voltages for LDO retention and uses the regulator_allow_bypass()
+ * interface on the LDO retention regulator to enable or disable such feature
+ * accordingly.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_config_ldo_retention(struct cpr3_regulator *vreg,
 					int ref_volt)
 {
@@ -710,6 +879,20 @@ static int cpr3_regulator_config_ldo_retention(struct cpr3_regulator *vreg,
 	return rc;
 }
 
+/**
+ * cpr3_regulator_config_ldo_mem_acc() - configure the mem-acc regulator
+ *		corner based upon a future LDO regulator voltage setpoint
+ * @vreg:		Pointer to the CPR3 regulator
+ * @new_volt:		New voltage in microvolts that the LDO regulator needs
+ *			to end up at
+ *
+ * This function determines if a new LDO regulator set point will result
+ * in crossing the voltage threshold that requires reconfiguration of
+ * the mem-acc regulator associated with a CPR3 regulator and if so, performs
+ * the correct sequence to select the correct mem-acc corner.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_config_ldo_mem_acc(struct cpr3_regulator *vreg,
 					     int new_volt)
 {
@@ -771,6 +954,18 @@ static int cpr3_regulator_config_ldo_mem_acc(struct cpr3_regulator *vreg,
 	return 0;
 }
 
+/**
+ * cpr3_regulator_set_bhs_mode() - configure the LDO regulator associated with
+ *		a CPR3 regulator to BHS mode
+ * @vreg:		Pointer to the CPR3 regulator
+ * @vdd_volt:		Last known settled voltage in microvolts for the VDD
+ *			supply
+ * @vdd_ceiling_volt:	Last known aggregated ceiling voltage in microvolts for
+ *			the VDD supply
+ *
+ * This function performs the necessary steps to switch an LDO regulator
+ * to BHS mode (LDO bypassed mode).
+ */
 static int cpr3_regulator_set_bhs_mode(struct cpr3_regulator *vreg,
 			       int vdd_volt, int vdd_ceiling_volt)
 {
@@ -809,6 +1004,24 @@ static int cpr3_regulator_set_bhs_mode(struct cpr3_regulator *vreg,
 	return rc;
 }
 
+/**
+ * cpr3_regulator_ldo_apm_prepare() - configure LDO regulators associated
+ *		with each CPR3 regulator of a CPR3 controller in preparation
+ *		for an APM switch.
+ * @ctrl:		Pointer to the CPR3 controller
+ * @new_volt:		New voltage in microvolts that the VDD supply
+ *			needs to end up at
+ * @last_volt:		Last known voltage in microvolts for the VDD supply
+ * @aggr_corner:	Pointer to the CPR3 corner which corresponds to the max
+ *			corner aggregated from all CPR3 threads managed by the
+ *			CPR3 controller
+ *
+ * This function ensures LDO regulator hardware requirements are met before
+ * an APM switch is requested. The function must be called as the last step
+ * before switching the APM mode.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_ldo_apm_prepare(struct cpr3_controller *ctrl,
 				int new_volt, int last_volt,
 				struct cpr3_corner *aggr_corner)
@@ -828,6 +1041,10 @@ static int cpr3_regulator_ldo_apm_prepare(struct cpr3_controller *ctrl,
 	    new_volt >= ctrl->apm_threshold_volt)
 		return 0;
 
+	/*
+	 * Guarantee LDO maximum headroom is not violated when the APM is
+	 * switched to the system-supply source.
+	 */
 	for (i = 0; i < ctrl->thread_count; i++) {
 		for (j = 0; j < ctrl->thread[i].vreg_count; j++) {
 			vreg = &ctrl->thread[i].vreg[j];
@@ -840,6 +1057,12 @@ static int cpr3_regulator_ldo_apm_prepare(struct cpr3_controller *ctrl,
 			    vreg->ldo_regulator_bypass == BHS_MODE)
 				continue;
 
+			/*
+			 * If the new VDD configuration does not satisfy
+			 * requirements for LDO usage, switch the regulator
+			 * to BHS mode. By doing so, the LDO maximum headroom
+			 * does not need to be enforced.
+			 */
 			current_corner = &vreg->corner[vreg->current_corner];
 			ldo_volt = current_corner->open_loop_volt
 				- vreg->ldo_adjust_volt;
@@ -855,6 +1078,10 @@ static int cpr3_regulator_ldo_apm_prepare(struct cpr3_controller *ctrl,
 					 last_volt, aggr_corner->ceiling_volt);
 				if (rc)
 					return rc;
+				/*
+				 * Do not enforce LDO maximum headroom since the
+				 * regulator is now configured to BHS mode.
+				 */
 				continue;
 			}
 
@@ -878,6 +1105,24 @@ static int cpr3_regulator_ldo_apm_prepare(struct cpr3_controller *ctrl,
 	return 0;
 }
 
+/**
+ * cpr3_regulator_config_vreg_ldo() - configure the voltage and bypass state for
+ *		the LDO regulator associated with a single CPR3 regulator.
+ *
+ * @vreg:		Pointer to the CPR3 regulator
+ * @vdd_floor_volt:	Last known aggregated floor voltage in microvolts for
+ *			the VDD supply
+ * @vdd_ceiling_volt:	Last known aggregated ceiling voltage in microvolts for
+ *			the VDD supply
+ * @new_volt:		New voltage in microvolts that VDD supply needs to
+ *			end up at
+ * @last_volt:		Last known voltage in microvolts for the VDD supply
+ *
+ * This function performs all relevant LDO or BHS configurations if an LDO
+ * regulator is specified.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_config_vreg_ldo(struct cpr3_regulator *vreg,
 			  int vdd_floor_volt, int vdd_ceiling_volt,
 			  int new_volt, int last_volt)
@@ -912,7 +1157,7 @@ static int cpr3_regulator_config_vreg_ldo(struct cpr3_regulator *vreg,
 	    bhs_volt >= ctrl->system_supply_max_volt -
 	    vreg->ldo_max_headroom_volt &&
 	    ldo_volt <= vreg->ldo_max_volt) {
-		
+		/* LDO minimum and maximum headrooms satisfied */
 		apm_mode = msm_apm_get_supply(ctrl->apm);
 		if (apm_mode < 0) {
 			cpr3_err(ctrl, "APM get supply failed, rc=%d\n",
@@ -921,6 +1166,15 @@ static int cpr3_regulator_config_vreg_ldo(struct cpr3_regulator *vreg,
 		}
 
 		if (vreg->ldo_regulator_bypass == BHS_MODE) {
+			/*
+			 * BHS to LDO transition. Configure LDO output
+			 * to min(max LDO output, VDD - LDO headroom)
+			 * voltage if APM is on high supply source or
+			 * min(max(system-supply ceiling - LDO max headroom,
+			 * VDD - LDO headroom), max LDO output) if
+			 * APM is on low supply source, then switch
+			 * regulator mode.
+			 */
 			if (apm_mode == ctrl->apm_high_supply)
 				safe_volt = min(vreg->ldo_max_volt, bhs_volt);
 			else
@@ -954,7 +1208,7 @@ static int cpr3_regulator_config_vreg_ldo(struct cpr3_regulator *vreg,
 			vreg->ldo_regulator_bypass = LDO_MODE;
 		}
 
-		
+		/* Configure final LDO output voltage */
 		if (apm_mode == ctrl->apm_high_supply)
 			final_ldo_volt = max(ldo_volt,
 					     vdd_ceiling_volt -
@@ -977,7 +1231,7 @@ static int cpr3_regulator_config_vreg_ldo(struct cpr3_regulator *vreg,
 		}
 	} else {
 		if (vreg->ldo_regulator_bypass == LDO_MODE) {
-			
+			/* LDO to BHS transition */
 			rc = cpr3_regulator_set_bhs_mode(vreg, last_volt,
 							 vdd_ceiling_volt);
 			if (rc)
@@ -988,6 +1242,21 @@ static int cpr3_regulator_config_vreg_ldo(struct cpr3_regulator *vreg,
 	return 0;
 }
 
+/**
+ * cpr3_regulator_config_ldo() - configure the voltage and bypass state for the
+ *		LDO regulator associated with each CPR3 regulator of a CPR3
+ *		controller
+ * @ctrl:		Pointer to the CPR3 controller
+ * @vdd_floor_volt:	Last known aggregated floor voltage in microvolts for
+ *			the VDD supply
+ * @vdd_ceiling_volt:	Last known aggregated ceiling voltage in microvolts for
+ *			the VDD supply
+ * @new_volt:		New voltage in microvolts that VDD supply needs to
+ *			end up at
+ * @last_volt:		Last known voltage in microvolts for the VDD supply
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_config_ldo(struct cpr3_controller *ctrl,
 				int vdd_floor_volt, int vdd_ceiling_volt,
 				int new_volt, int last_volt)
@@ -1013,6 +1282,18 @@ static int cpr3_regulator_config_ldo(struct cpr3_controller *ctrl,
 	return 0;
 }
 
+/**
+ * cpr3_regulator_mem_acc_bhs_used() - determines if mem-acc regulators powered
+ *		through a BHS are associated with the CPR3 controller or any of
+ *		the CPR3 regulators it controls.
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * This function determines if the CPR3 controller or any of its CPR3 regulators
+ * need to manage mem-acc regulators that are currently powered through a BHS
+ * and whose corner selection is based upon a particular voltage threshold.
+ *
+ * Return: true or false
+ */
 static bool cpr3_regulator_mem_acc_bhs_used(struct cpr3_controller *ctrl)
 {
 	struct cpr3_regulator *vreg;
@@ -1039,6 +1320,27 @@ static bool cpr3_regulator_mem_acc_bhs_used(struct cpr3_controller *ctrl)
 	return false;
 }
 
+/**
+ * cpr3_regulator_config_bhs_mem_acc() - configure the mem-acc regulator
+ *		settings for hardware blocks currently powered through the BHS.
+ * @ctrl:		Pointer to the CPR3 controller
+ * @new_volt:		New voltage in microvolts that VDD supply needs to
+ *			end up at
+ * @last_volt:		Pointer to the last known voltage in microvolts for the
+ *			VDD supply
+ * @aggr_corner:	Pointer to the CPR3 corner which corresponds to the max
+ *			corner aggregated from all CPR3 threads managed by the
+ *			CPR3 controller
+ *
+ * This function programs the mem-acc regulator corners for CPR3 regulators
+ * whose LDO regulators are in bypassed state. The function also handles
+ * CPR3 controllers which utilize mem-acc regulators that operate independently
+ * from the LDO hardware and that must be programmed when the VDD supply
+ * crosses a particular voltage threshold.
+ *
+ * Return: 0 on success, errno on failure. If the VDD supply voltage is
+ * modified, last_volt is updated to reflect the new voltage setpoint.
+ */
 static int cpr3_regulator_config_bhs_mem_acc(struct cpr3_controller *ctrl,
 				     int new_volt, int *last_volt,
 				     struct cpr3_corner *aggr_corner)
@@ -1112,6 +1414,26 @@ static int cpr3_regulator_config_bhs_mem_acc(struct cpr3_controller *ctrl,
 	return 0;
 }
 
+/**
+ * cpr3_regulator_switch_apm_mode() - switch the mode of the APM controller
+ *		associated with a given CPR3 controller
+ * @ctrl:		Pointer to the CPR3 controller
+ * @new_volt:		New voltage in microvolts that VDD supply needs to
+ *			end up at
+ * @last_volt:		Pointer to the last known voltage in microvolts for the
+ *			VDD supply
+ * @aggr_corner:	Pointer to the CPR3 corner which corresponds to the max
+ *			corner aggregated from all CPR3 threads managed by the
+ *			CPR3 controller
+ *
+ * This function requests a switch of the APM mode while guaranteeing
+ * any LDO regulator hardware requirements are satisfied. The function must
+ * be called once it is known a new VDD supply setpoint crosses the APM
+ * voltage threshold.
+ *
+ * Return: 0 on success, errno on failure. If the VDD supply voltage is
+ * modified, last_volt is updated to reflect the new voltage setpoint.
+ */
 static int cpr3_regulator_switch_apm_mode(struct cpr3_controller *ctrl,
 					  int new_volt, int *last_volt,
 					  struct cpr3_corner *aggr_corner)
@@ -1142,7 +1464,7 @@ static int cpr3_regulator_switch_apm_mode(struct cpr3_controller *ctrl,
 				? ctrl->apm_high_supply : ctrl->apm_low_supply);
 	if (rc) {
 		cpr3_err(ctrl, "APM switch failed, rc=%d\n", rc);
-		
+		/* Roll back the voltage. */
 		regulator_set_voltage(vdd, orig_last_volt, INT_MAX);
 		*last_volt = orig_last_volt;
 		return rc;
@@ -1150,6 +1472,26 @@ static int cpr3_regulator_switch_apm_mode(struct cpr3_controller *ctrl,
 	return 0;
 }
 
+/**
+ * cpr3_regulator_config_voltage_crossings() - configure APM and mem-acc
+ *		settings depending upon a new VDD supply setpoint
+ *
+ * @ctrl:		Pointer to the CPR3 controller
+ * @new_volt:		New voltage in microvolts that VDD supply needs to
+ *			end up at
+ * @last_volt:		Pointer to the last known voltage in microvolts for the
+ *			VDD supply
+ * @aggr_corner:	Pointer to the CPR3 corner which corresponds to the max
+ *			corner aggregated from all CPR3 threads managed by the
+ *			CPR3 controller
+ *
+ * This function handles the APM and mem-acc regulator reconfiguration if
+ * the new VDD supply voltage will result in crossing their respective voltage
+ * thresholds.
+ *
+ * Return: 0 on success, errno on failure. If the VDD supply voltage is
+ * modified, last_volt is updated to reflect the new voltage setpoint.
+ */
 static int cpr3_regulator_config_voltage_crossings(struct cpr3_controller *ctrl,
 				   int new_volt, int *last_volt,
 				   struct cpr3_corner *aggr_corner)
@@ -1227,6 +1569,16 @@ static int cpr3_regulator_config_voltage_crossings(struct cpr3_controller *ctrl,
 	return 0;
 }
 
+/**
+ * cpr3_regulator_config_mem_acc() - configure the corner of the mem-acc
+ *			regulator associated with the CPR3 controller
+ * @ctrl:		Pointer to the CPR3 controller
+ * @aggr_corner:	Pointer to the CPR3 corner which corresponds to the max
+ *			corner aggregated from all CPR3 threads managed by the
+ *			CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_config_mem_acc(struct cpr3_controller *ctrl,
 					 struct cpr3_corner *aggr_corner)
 {
@@ -1246,6 +1598,26 @@ static int cpr3_regulator_config_mem_acc(struct cpr3_controller *ctrl,
 	return 0;
 }
 
+/**
+ * cpr3_regulator_scale_vdd_voltage() - scale the CPR controlled VDD supply
+ *		voltage to the new level while satisfying any other hardware
+ *		requirements
+ * @ctrl:		Pointer to the CPR3 controller
+ * @new_volt:		New voltage in microvolts that VDD supply needs to end
+ *			up at
+ * @last_volt:		Last known voltage in microvolts for the VDD supply
+ * @aggr_corner:	Pointer to the CPR3 corner which corresponds to the max
+ *			corner aggregated from all CPR3 threads managed by the
+ *			CPR3 controller
+ *
+ * This function scales the CPR controlled VDD supply voltage from its
+ * current level to the new voltage that is specified.  If the supply is
+ * configured to use the APM and the APM threshold is crossed as a result of
+ * the voltage scaling, then this function also stops at the APM threshold,
+ * switches the APM source, and finally sets the final new voltage.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_scale_vdd_voltage(struct cpr3_controller *ctrl,
 				int new_volt, int last_volt,
 				struct cpr3_corner *aggr_corner)
@@ -1254,7 +1626,7 @@ static int cpr3_regulator_scale_vdd_voltage(struct cpr3_controller *ctrl,
 	int rc;
 
 	if (new_volt < last_volt) {
-		
+		/* Decreasing VDD voltage */
 		rc = cpr3_regulator_config_ldo(ctrl, aggr_corner->floor_volt,
 					       ctrl->aggr_corner.ceiling_volt,
 					       new_volt, last_volt);
@@ -1269,7 +1641,7 @@ static int cpr3_regulator_scale_vdd_voltage(struct cpr3_controller *ctrl,
 			return rc;
 
 	} else {
-		
+		/* Increasing VDD voltage */
 		if (ctrl->system_regulator) {
 			rc = regulator_set_voltage(ctrl->system_regulator,
 				aggr_corner->system_volt, INT_MAX);
@@ -1289,6 +1661,12 @@ static int cpr3_regulator_scale_vdd_voltage(struct cpr3_controller *ctrl,
 		return rc;
 	}
 
+	/*
+	 * Subtract a small amount from the min_uV parameter so that the
+	 * set voltage request is not dropped by the framework due to being
+	 * duplicate.  This is needed in order to switch from hardware
+	 * closed-loop to open-loop successfully.
+	 */
 	rc = regulator_set_voltage(vdd, new_volt - (ctrl->cpr_enabled ? 0 : 1),
 				   aggr_corner->ceiling_volt);
 	if (rc) {
@@ -1298,7 +1676,7 @@ static int cpr3_regulator_scale_vdd_voltage(struct cpr3_controller *ctrl,
 	}
 
 	if (new_volt >= last_volt) {
-		
+		/* Increasing VDD voltage */
 		rc = cpr3_regulator_config_ldo(ctrl, aggr_corner->floor_volt,
 					       aggr_corner->ceiling_volt,
 					       new_volt, new_volt);
@@ -1312,7 +1690,7 @@ static int cpr3_regulator_scale_vdd_voltage(struct cpr3_controller *ctrl,
 		if (rc)
 			return rc;
 	} else {
-		
+		/* Decreasing VDD voltage */
 		if (ctrl->system_regulator) {
 			rc = regulator_set_voltage(ctrl->system_regulator,
 				aggr_corner->system_volt, INT_MAX);
@@ -1327,6 +1705,19 @@ static int cpr3_regulator_scale_vdd_voltage(struct cpr3_controller *ctrl,
 	return 0;
 }
 
+/**
+ * cpr3_regulator_get_dynamic_floor_volt() - returns the current dynamic floor
+ *		voltage based upon static configurations and the state of all
+ *		power domains during the last CPR measurement
+ * @ctrl:		Pointer to the CPR3 controller
+ * @reg_last_measurement: Value read from the LAST_MEASUREMENT register
+ *
+ * When using HW closed-loop, the dynamic floor voltage is always returned
+ * regardless of the current state of the power domains.
+ *
+ * Return: dynamic floor voltage in microvolts or 0 if dynamic floor is not
+ *         currently required
+ */
 static int cpr3_regulator_get_dynamic_floor_volt(struct cpr3_controller *ctrl,
 		u32 reg_last_measurement)
 {
@@ -1345,6 +1736,11 @@ static int cpr3_regulator_get_dynamic_floor_volt(struct cpr3_controller *ctrl,
 		 = (reg_last_measurement & CPR3_LAST_MEASUREMENT_PD_BYPASS_MASK)
 			>> CPR3_LAST_MEASUREMENT_PD_BYPASS_SHIFT;
 	} else {
+		/*
+		 * Ensure that the dynamic floor voltage is always used for
+		 * HW closed-loop since the conditions below cannot be evaluated
+		 * after each CPR measurement.
+		 */
 		valid = false;
 		bypass_bits = 0;
 	}
@@ -1369,6 +1765,17 @@ static int cpr3_regulator_get_dynamic_floor_volt(struct cpr3_controller *ctrl,
 	return dynamic_floor_volt;
 }
 
+/**
+ * cpr3_regulator_aggregate_corners() - aggregate two corners together
+ * @aggr_corner:		Pointer to accumulated aggregated corner which
+ *				is both an input and an output
+ * @corner:			Pointer to the corner to be aggregated with
+ *				aggr_corner
+ * @aggr_quot:			Flag indicating that target quotients should be
+ *				aggregated as well.
+ *
+ * Return: none
+ */
 static void cpr3_regulator_aggregate_corners(struct cpr3_corner *aggr_corner,
 			const struct cpr3_corner *corner, bool aggr_quot)
 {
@@ -1398,6 +1805,28 @@ static void cpr3_regulator_aggregate_corners(struct cpr3_corner *aggr_corner,
 	}
 }
 
+/**
+ * cpr3_regulator_update_ctrl_state() - update the state of the CPR controller
+ *		to reflect the corners used by all CPR3 regulators as well as
+ *		the CPR operating mode
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * This function aggregates the CPR parameters for all CPR3 regulators
+ * associated with the VDD supply.  Upon success, it sets the aggregated last
+ * known good voltage.
+ *
+ * The VDD supply voltage will not be physically configured unless this
+ * condition is met by at least one of the regulators of the controller:
+ * regulator->vreg_enabled == true &&
+ * regulator->current_corner != CPR3_REGULATOR_CORNER_INVALID
+ *
+ * CPR registers for the controller and each thread are updated as long as
+ * ctrl->cpr_enabled == true.
+ *
+ * Note, CPR3 controller lock must be held by the caller.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int _cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 {
 	struct cpr3_corner aggr_corner = {};
@@ -1421,7 +1850,7 @@ static int _cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 		reg_last_measurement
 			= cpr3_read(ctrl, CPR3_REG_LAST_MEASUREMENT);
 
-	
+	/* Aggregate the requests of all threads */
 	for (i = 0; i < ctrl->thread_count; i++) {
 		thread = &ctrl->thread[i];
 		thread_valid = false;
@@ -1438,7 +1867,7 @@ static int _cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 			if (!vreg->vreg_enabled
 			    || vreg->current_corner
 					    == CPR3_REGULATOR_CORNER_INVALID) {
-				
+				/* Cannot participate in aggregation. */
 				vreg->aggregated = false;
 				continue;
 			} else {
@@ -1471,10 +1900,27 @@ static int _cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 		}
 	}
 
-	
+	/* No threads are enabled with a valid corner so exit. */
 	if (!valid)
 		return 0;
 
+	/*
+	 * When using CPR hardware closed-loop, the voltage may vary anywhere
+	 * between the floor and ceiling voltage without software notification.
+	 * Therefore, it is required that the floor to ceiling range for the
+	 * aggregated corner not intersect the APM threshold voltage.  Adjust
+	 * the floor to ceiling range if this requirement is violated.
+	 *
+	 * The following algorithm is applied in the case that
+	 * floor < threshold <= ceiling:
+	 *	if open_loop >= threshold - adj, then floor = threshold
+	 *	else ceiling = threshold - step
+	 * where adj = an adjustment factor to ensure sufficient voltage margin
+	 * and step = VDD output step size
+	 *
+	 * The open-loop and last known voltages are also bounded by the new
+	 * floor or ceiling value as needed.
+	 */
 	if (ctrl->use_hw_closed_loop
 	    && aggr_corner.ceiling_volt >= ctrl->apm_threshold_volt
 	    && aggr_corner.floor_volt < ctrl->apm_threshold_volt) {
@@ -1537,12 +1983,12 @@ static int _cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 		return rc;
 	}
 
-	
+	/* Only update registers if CPR is enabled. */
 	if (ctrl->cpr_enabled) {
 		if (ctrl->use_hw_closed_loop) {
-			
+			/* Hardware closed-loop */
 
-			
+			/* Set ceiling and floor limits in hardware */
 			rc = regulator_set_voltage(ctrl->vdd_limit_regulator,
 				aggr_corner.floor_volt,
 				aggr_corner.ceiling_volt);
@@ -1552,8 +1998,12 @@ static int _cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 				return rc;
 			}
 		} else {
-			
+			/* Software closed-loop */
 
+			/*
+			 * Disable UP or DOWN interrupts when at ceiling or
+			 * floor respectively.
+			 */
 			if (new_volt == aggr_corner.floor_volt)
 				aggr_corner.irq_en &= ~CPR3_IRQ_DOWN;
 			if (new_volt == aggr_corner.ceiling_volt)
@@ -1587,9 +2037,17 @@ static int _cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 						CPR3_PD_THROTTLE_DISABLE);
 		}
 
+		/*
+		 * Ensure that all CPR register writes complete before
+		 * re-enabling CPR loop operation.
+		 */
 		wmb();
 	}
 
+	/*
+	 * Only enable the CPR controller if it is possible to set more than
+	 * one vdd-supply voltage.
+	 */
 	if (aggr_corner.ceiling_volt > aggr_corner.floor_volt)
 		cpr3_ctrl_loop_enable(ctrl);
 
@@ -1601,6 +2059,15 @@ static int _cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_regulator_wait_for_idle() - wait for the CPR controller to no longer be
+ *		busy
+ * @ctrl:		Pointer to the CPR3 controller
+ * @max_wait_ns:	Max wait time in nanoseconds
+ *
+ * Return: 0 on success or -ETIMEDOUT if the controller was still busy after
+ *	   the maximum delay time
+ */
 static int cpr3_regulator_wait_for_idle(struct cpr3_controller *ctrl,
 					s64 max_wait_ns)
 {
@@ -1608,6 +2075,10 @@ static int cpr3_regulator_wait_for_idle(struct cpr3_controller *ctrl,
 	s64 time_ns;
 	u32 reg;
 
+	/*
+	 * Ensure that all previous CPR register writes have completed before
+	 * checking the status register.
+	 */
 	mb();
 
 	start = ktime_get();
@@ -1626,11 +2097,30 @@ static int cpr3_regulator_wait_for_idle(struct cpr3_controller *ctrl,
 	return 0;
 }
 
+/**
+ * cmp_int() - int comparison function to be passed into the sort() function
+ *		which leads to ascending sorting
+ * @a:			First int value
+ * @b:			Second int value
+ *
+ * Return: >0 if a > b, 0 if a == b, <0 if a < b
+ */
 static int cmp_int(const void *a, const void *b)
 {
 	return *(int *)a - *(int *)b;
 }
 
+/**
+ * cpr3_regulator_measure_aging() - measure the quotient difference for the
+ *		specified CPR aging sensor
+ * @ctrl:		Pointer to the CPR3 controller
+ * @aging_sensor:	Aging sensor to measure
+ *
+ * Note that vdd-supply must be configured to the aging reference voltage before
+ * calling this function.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_measure_aging(struct cpr3_controller *ctrl,
 				struct cpr3_aging_sensor_info *aging_sensor)
 {
@@ -1650,15 +2140,15 @@ static int cpr3_regulator_measure_aging(struct cpr3_controller *ctrl,
 
 	cpr3_ctrl_loop_disable(ctrl);
 
-	
+	/* Enable up, down, and mid CPR interrupts */
 	irq_restore = cpr3_read(ctrl, CPR3_REG_IRQ_EN);
 	cpr3_write(ctrl, CPR3_REG_IRQ_EN,
 			CPR3_IRQ_UP | CPR3_IRQ_DOWN | CPR3_IRQ_MID);
 
-	
+	/* Ensure that the aging sensor is assigned to CPR thread 0 */
 	cpr3_write(ctrl, CPR3_REG_SENSOR_OWNER(aging_sensor->sensor_id), 0);
 
-	
+	/* Switch from HW to SW closed-loop if necessary */
 	if (ctrl->supports_hw_closed_loop) {
 		if (ctrl->ctrl_type == CPR_CTRL_TYPE_CPR4) {
 			cpr3_masked_write(ctrl, CPR4_REG_MARGIN_ADJ_CTL,
@@ -1670,7 +2160,7 @@ static int cpr3_regulator_measure_aging(struct cpr3_controller *ctrl,
 		}
 	}
 
-	
+	/* Configure the GCNT for RO0 and RO1 that are used for aging */
 	gcnt0_restore = cpr3_read(ctrl, CPR3_REG_GCNT(0));
 	gcnt1_restore = cpr3_read(ctrl, CPR3_REG_GCNT(1));
 	gcnt_ref = cpr3_regulator_get_gcnt(ctrl);
@@ -1678,6 +2168,10 @@ static int cpr3_regulator_measure_aging(struct cpr3_controller *ctrl,
 	cpr3_write(ctrl, CPR3_REG_GCNT(0), gcnt);
 	cpr3_write(ctrl, CPR3_REG_GCNT(1), gcnt);
 
+	/*
+	 * Mask all sensors except for the one to measure and bypass all
+	 * sensors in collapsible domains.
+	 */
 	for (i = 0; i <= ctrl->sensor_count / 32; i++) {
 		mask = GENMASK(min(31, ctrl->sensor_count - i * 32), 0);
 		if (aging_sensor->sensor_id / 32 >= i
@@ -1688,7 +2182,7 @@ static int cpr3_regulator_measure_aging(struct cpr3_controller *ctrl,
 				aging_sensor->bypass_mask[i]);
 	}
 
-	
+	/* Set CPR loop delays to 0 us */
 	if (ctrl->supports_hw_closed_loop
 		&& ctrl->ctrl_type == CPR_CTRL_TYPE_CPR3) {
 		cont_dly_restore = cpr3_read(ctrl, CPR3_REG_CPR_TIMER_MID_CONT);
@@ -1702,7 +2196,7 @@ static int cpr3_regulator_measure_aging(struct cpr3_controller *ctrl,
 		cpr3_write(ctrl, CPR3_REG_CPR_TIMER_AUTO_CONT, 0);
 	}
 
-	
+	/* Set count mode to all-at-once min with no repeat */
 	cpr3_masked_write(ctrl, CPR3_REG_CPR_CTL,
 		CPR3_CPR_CTL_COUNT_MODE_MASK | CPR3_CPR_CTL_COUNT_REPEAT_MASK,
 		CPR3_CPR_CTL_COUNT_MODE_ALL_AT_ONCE_MIN
@@ -1715,14 +2209,14 @@ static int cpr3_regulator_measure_aging(struct cpr3_controller *ctrl,
 	if (rc)
 		goto cleanup;
 
-	
+	/* Set count mode to all-at-once aging */
 	cpr3_masked_write(ctrl, CPR3_REG_CPR_CTL, CPR3_CPR_CTL_COUNT_MODE_MASK,
 			CPR3_CPR_CTL_COUNT_MODE_ALL_AT_ONCE_AGE
 				<< CPR3_CPR_CTL_COUNT_MODE_SHIFT);
 
 	aging_measurement_count = 0;
 	for (i = 0; i < CPR3_AGING_MEASUREMENT_ITERATIONS; i++) {
-		
+		/* Send CONT_NACK */
 		cpr3_write(ctrl, CPR3_REG_CONT_CMD, CPR3_CONT_CMD_NACK);
 
 		rc = cpr3_regulator_wait_for_idle(ctrl,
@@ -1730,12 +2224,12 @@ static int cpr3_regulator_measure_aging(struct cpr3_controller *ctrl,
 		if (rc)
 			goto cleanup;
 
-		
+		/* Check for PAGE_IS_AGE flag in status register */
 		reg = cpr3_read(ctrl, CPR3_REG_CPR_STATUS);
 		is_aging_measurement
 			= reg & CPR3_CPR_STATUS_AGING_MEASUREMENT_MASK;
 
-		
+		/* Read CPR measurement results */
 		result = cpr3_read(ctrl, CPR3_REG_RESULT1(0));
 		quot_min = (result & CPR3_RESULT1_QUOT_MIN_MASK)
 				>> CPR3_RESULT1_QUOT_MIN_SHIFT;
@@ -1746,6 +2240,11 @@ static int cpr3_regulator_measure_aging(struct cpr3_controller *ctrl,
 		sel_max = (result & CPR3_RESULT1_RO_MAX_MASK)
 				>> CPR3_RESULT1_RO_MAX_SHIFT;
 
+		/*
+		 * Scale the quotients so that they are equivalent to the fused
+		 * values.  This accounts for the difference in measurement
+		 * interval times.
+		 */
 		quot_min_scaled = quot_min * (gcnt_ref + 1) / (gcnt + 1);
 		quot_max_scaled = quot_max * (gcnt_ref + 1) / (gcnt + 1);
 
@@ -1845,6 +2344,16 @@ cleanup:
 	return rc;
 }
 
+/**
+ * cpr3_regulator_readjust_quotients() - readjust the target quotients for the
+ *		regulator by removing the old adjustment and adding the new one
+ * @vreg:		Pointer to the CPR3 regulator
+ * @old_adjust_volt:	Old aging adjustment voltage in microvolts
+ * @new_adjust_volt:	New aging adjustment voltage in microvolts
+ *
+ * Also reset the cached closed loop voltage (last_volt) to equal the open-loop
+ * voltage for each corner.
+ */
 static void cpr3_regulator_readjust_quotients(struct cpr3_regulator *vreg,
 		int old_adjust_volt, int new_adjust_volt)
 {
@@ -1887,6 +2396,17 @@ static void cpr3_regulator_readjust_quotients(struct cpr3_regulator *vreg,
 }
 
 
+/**
+ * cpr3_regulator_set_aging_ref_adjustment() - adjust target quotients for the
+ *		regulators managed by this CPR controller to account for aging
+ * @ctrl:		Pointer to the CPR3 controller
+ * @ref_adjust_volt:	New aging reference adjustment voltage in microvolts to
+ *			apply to all regulators managed by this CPR controller
+ *
+ * The existing aging adjustment as defined by ctrl->aging_ref_adjust_volt is
+ * first removed and then the adjustment is applied.  Lastly, the value of
+ * ctrl->aging_ref_adjust_volt is updated to ref_adjust_volt.
+ */
 static void cpr3_regulator_set_aging_ref_adjustment(
 		struct cpr3_controller *ctrl, int ref_adjust_volt)
 {
@@ -1904,6 +2424,13 @@ static void cpr3_regulator_set_aging_ref_adjustment(
 	ctrl->aging_ref_adjust_volt = ref_adjust_volt;
 }
 
+/**
+ * cpr3_regulator_aging_adjust() - adjust the target quotients for regulators
+ *		based on the output of CPR aging sensors
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_aging_adjust(struct cpr3_controller *ctrl)
 {
 	struct cpr3_regulator *vreg;
@@ -1930,7 +2457,7 @@ static int cpr3_regulator_aging_adjust(struct cpr3_controller *ctrl)
 		}
 	}
 
-	
+	/* Verify that none of the aging sensors are currently masked. */
 	for (i = 0; i < ctrl->aging_sensor_count; i++) {
 		id = ctrl->aging_sensor[i].sensor_id;
 		reg = cpr3_read(ctrl, CPR3_REG_SENSOR_MASK_READ(id));
@@ -1948,7 +2475,7 @@ static int cpr3_regulator_aging_adjust(struct cpr3_controller *ctrl)
 		return -ENOMEM;
 	}
 
-	
+	/* Force all regulators to the aging corner */
 	for (i = 0, vreg_count = 0; i < ctrl->thread_count; i++) {
 		for (j = 0; j < ctrl->thread[i].vreg_count; j++, vreg_count++) {
 			vreg = &ctrl->thread[i].vreg[j];
@@ -1963,7 +2490,7 @@ static int cpr3_regulator_aging_adjust(struct cpr3_controller *ctrl)
 		}
 	}
 
-	
+	/* Force one of the regulators to require the aging reference voltage */
 	vreg = &ctrl->thread[0].vreg[0];
 	corner = &vreg->corner[vreg->current_corner];
 	restore_aging_corner = *corner;
@@ -1972,10 +2499,10 @@ static int cpr3_regulator_aging_adjust(struct cpr3_controller *ctrl)
 	corner->open_loop_volt = ctrl->aging_ref_volt;
 	corner->last_volt = ctrl->aging_ref_volt;
 
-	
+	/* Skip last_volt caching */
 	ctrl->last_corner_was_closed_loop = false;
 
-	
+	/* Set the vdd supply voltage to the aging reference voltage */
 	rc = _cpr3_regulator_update_ctrl_state(ctrl);
 	if (rc) {
 		cpr3_err(ctrl, "unable to force vdd-supply to the aging reference voltage=%d uV, rc=%d\n",
@@ -1993,7 +2520,7 @@ static int cpr3_regulator_aging_adjust(struct cpr3_controller *ctrl)
 		}
 	}
 
-	
+	/* Perform aging measurement on all aging sensors */
 	max_aging_volt = 0;
 	for (i = 0; i < ctrl->aging_sensor_count; i++) {
 		for (j = 0; j < CPR3_AGING_RETRY_COUNT; j++) {
@@ -2035,7 +2562,7 @@ cleanup:
 	kfree(restore_current_corner);
 	kfree(restore_vreg_enabled);
 
-	
+	/* Adjust the CPR target quotients according to the aging measurement */
 	if (!rc) {
 		cpr3_regulator_set_aging_ref_adjustment(ctrl, max_aging_volt);
 
@@ -2053,17 +2580,31 @@ cleanup:
 				ctrl->aging_complete_vdd_mode, rc);
 	}
 
-	
+	/* Skip last_volt caching */
 	ctrl->last_corner_was_closed_loop = false;
 
+	/*
+	 * Restore vdd-supply to the voltage before the aging measurement and
+	 * restore the CPR3 controller hardware state.
+	 */
 	rc2 = _cpr3_regulator_update_ctrl_state(ctrl);
 
-	
+	/* Stop last_volt caching on for the next request */
 	ctrl->last_corner_was_closed_loop = false;
 
 	return rc ? rc : rc2;
 }
 
+/**
+ * cpr3_regulator_update_ctrl_state() - update the state of the CPR controller
+ *		to reflect the corners used by all CPR3 regulators as well as
+ *		the CPR operating mode and perform aging adjustments if needed
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Note, CPR3 controller lock must be held by the caller.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 {
 	int rc;
@@ -2075,6 +2616,23 @@ static int cpr3_regulator_update_ctrl_state(struct cpr3_controller *ctrl)
 	return cpr3_regulator_aging_adjust(ctrl);
 }
 
+/**
+ * cpr3_regulator_set_voltage() - set the voltage corner for the CPR3 regulator
+ *			associated with the regulator device
+ * @rdev:		Regulator device pointer for the cpr3-regulator
+ * @corner:		New voltage corner to set (offset by CPR3_CORNER_OFFSET)
+ * @corner_max:		Maximum voltage corner allowed (offset by
+ *			CPR3_CORNER_OFFSET)
+ * @selector:		Pointer which is filled with the selector value for the
+ *			corner
+ *
+ * This function is passed as a callback function into the regulator ops that
+ * are registered for each cpr3-regulator device.  The VDD voltage will not be
+ * physically configured until both this function and cpr3_regulator_enable()
+ * are called.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_set_voltage(struct regulator_dev *rdev,
 		int corner, int corner_max, unsigned *selector)
 {
@@ -2113,6 +2671,16 @@ done:
 	return rc;
 }
 
+/**
+ * cpr3_regulator_get_voltage() - get the voltage corner for the CPR3 regulator
+ *			associated with the regulator device
+ * @rdev:		Regulator device pointer for the cpr3-regulator
+ *
+ * This function is passed as a callback function into the regulator ops that
+ * are registered for each cpr3-regulator device.
+ *
+ * Return: voltage corner value offset by CPR3_CORNER_OFFSET
+ */
 static int cpr3_regulator_get_voltage(struct regulator_dev *rdev)
 {
 	struct cpr3_regulator *vreg = rdev_get_drvdata(rdev);
@@ -2123,6 +2691,17 @@ static int cpr3_regulator_get_voltage(struct regulator_dev *rdev)
 		return vreg->current_corner + CPR3_CORNER_OFFSET;
 }
 
+/**
+ * cpr3_regulator_list_voltage() - return the voltage corner mapped to the
+ *			specified selector
+ * @rdev:		Regulator device pointer for the cpr3-regulator
+ * @selector:		Regulator selector
+ *
+ * This function is passed as a callback function into the regulator ops that
+ * are registered for each cpr3-regulator device.
+ *
+ * Return: voltage corner value offset by CPR3_CORNER_OFFSET
+ */
 static int cpr3_regulator_list_voltage(struct regulator_dev *rdev,
 		unsigned selector)
 {
@@ -2134,6 +2713,17 @@ static int cpr3_regulator_list_voltage(struct regulator_dev *rdev,
 		return 0;
 }
 
+/**
+ * cpr3_regulator_list_corner_voltage() - return the ceiling voltage mapped to
+ *			the specified voltage corner
+ * @rdev:		Regulator device pointer for the cpr3-regulator
+ * @corner:		Voltage corner
+ *
+ * This function is passed as a callback function into the regulator ops that
+ * are registered for each cpr3-regulator device.
+ *
+ * Return: voltage value in microvolts or -EINVAL if the corner is out of range
+ */
 static int cpr3_regulator_list_corner_voltage(struct regulator_dev *rdev,
 		int corner)
 {
@@ -2147,6 +2737,15 @@ static int cpr3_regulator_list_corner_voltage(struct regulator_dev *rdev,
 		return -EINVAL;
 }
 
+/**
+ * cpr3_regulator_is_enabled() - return the enable state of the CPR3 regulator
+ * @rdev:		Regulator device pointer for the cpr3-regulator
+ *
+ * This function is passed as a callback function into the regulator ops that
+ * are registered for each cpr3-regulator device.
+ *
+ * Return: true if regulator is enabled, false if regulator is disabled
+ */
 static int cpr3_regulator_is_enabled(struct regulator_dev *rdev)
 {
 	struct cpr3_regulator *vreg = rdev_get_drvdata(rdev);
@@ -2154,6 +2753,15 @@ static int cpr3_regulator_is_enabled(struct regulator_dev *rdev)
 	return vreg->vreg_enabled;
 }
 
+/**
+ * cpr3_regulator_enable() - enable the CPR3 regulator
+ * @rdev:		Regulator device pointer for the cpr3-regulator
+ *
+ * This function is passed as a callback function into the regulator ops that
+ * are registered for each cpr3-regulator device.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_enable(struct regulator_dev *rdev)
 {
 	struct cpr3_regulator *vreg = rdev_get_drvdata(rdev);
@@ -2205,6 +2813,15 @@ done:
 	return rc;
 }
 
+/**
+ * cpr3_regulator_disable() - disable the CPR3 regulator
+ * @rdev:		Regulator device pointer for the cpr3-regulator
+ *
+ * This function is passed as a callback function into the regulator ops that
+ * are registered for each cpr3-regulator device.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_disable(struct regulator_dev *rdev)
 {
 	struct cpr3_regulator *vreg = rdev_get_drvdata(rdev);
@@ -2224,7 +2841,7 @@ static int cpr3_regulator_disable(struct regulator_dev *rdev)
 			goto done;
 		}
 
-		
+		/* Switch back to BHS for safe operation */
 		rc = cpr3_regulator_set_bhs_mode(vreg, rc,
 				       ctrl->aggr_corner.ceiling_volt);
 		if (rc) {
@@ -2283,6 +2900,13 @@ static struct regulator_ops cpr3_regulator_ops = {
 	.list_corner_voltage	= cpr3_regulator_list_corner_voltage,
 };
 
+/**
+ * cpr3_print_result() - print CPR measurement results to the kernel log for
+ *		debugging purposes
+ * @thread:		Pointer to the CPR3 thread
+ *
+ * Return: None
+ */
 static void cpr3_print_result(struct cpr3_thread *thread)
 {
 	struct cpr3_controller *ctrl = thread->ctrl;
@@ -2333,6 +2957,13 @@ static void cpr3_print_result(struct cpr3_thread *thread)
 		sensor_max);
 }
 
+/**
+ * cpr3_thread_busy() - returns if the specified CPR3 thread is busy taking
+ *		a measurement
+ * @thread:		Pointer to the CPR3 thread
+ *
+ * Return: CPR3 busy status
+ */
 static bool cpr3_thread_busy(struct cpr3_thread *thread)
 {
 	u32 result;
@@ -2342,6 +2973,18 @@ static bool cpr3_thread_busy(struct cpr3_thread *thread)
 	return !!(result & CPR3_RESULT0_BUSY_MASK);
 }
 
+/**
+ * cpr3_irq_handler() - CPR interrupt handler callback function used for
+ *		software closed-loop operation
+ * @irq:		CPR interrupt number
+ * @data:		Private data corresponding to the CPR3 controller
+ *			pointer
+ *
+ * This function increases or decreases the vdd supply voltage based upon the
+ * CPR controller recommendation.
+ *
+ * Return: IRQ_HANDLED
+ */
 static irqreturn_t cpr3_irq_handler(int irq, void *data)
 {
 	struct cpr3_controller *ctrl = data;
@@ -2366,6 +3009,11 @@ static irqreturn_t cpr3_irq_handler(int irq, void *data)
 		goto done;
 	}
 
+	/*
+	 * CPR IRQ status checking and CPR controller disabling must happen
+	 * atomically and without invening delay in order to avoid an interrupt
+	 * storm caused by the handler racing with the CPR controller.
+	 */
 	local_irq_save(flags);
 	preempt_disable();
 
@@ -2374,15 +3022,22 @@ static irqreturn_t cpr3_irq_handler(int irq, void *data)
 	down = status & CPR3_IRQ_DOWN;
 
 	if (!up && !down) {
+		/*
+		 * Toggle the CPR controller off and then back on since the
+		 * hardware and software states are out of sync.  This condition
+		 * occurs after an aging measurement completes as the CPR IRQ
+		 * physically triggers during the aging measurement but the
+		 * handler is stuck waiting on the mutex lock.
+		 */
 		cpr3_ctrl_loop_disable(ctrl);
 
 		local_irq_restore(flags);
 		preempt_enable();
 
-		
+		/* Wait for the loop disable write to complete */
 		mb();
 
-		
+		/* Wait for BUSY=1 and LOOP_EN=0 in CPR controller registers. */
 		for (i = 0; i < CPR3_REGISTER_WRITE_DELAY_US / 10; i++) {
 			cpr_status = cpr3_read(ctrl, CPR3_REG_CPR_STATUS);
 			ctl = cpr3_read(ctrl, CPR3_REG_CPR_CTL);
@@ -2396,14 +3051,14 @@ static irqreturn_t cpr3_irq_handler(int irq, void *data)
 			cpr3_debug(ctrl, "CPR controller not disabled after %d us\n",
 				CPR3_REGISTER_WRITE_DELAY_US);
 
-		
+		/* Clear interrupt status */
 		cpr3_write(ctrl, CPR3_REG_IRQ_CLEAR,
 			CPR3_IRQ_UP | CPR3_IRQ_DOWN);
 
-		
+		/* Wait for the interrupt clearing write to complete */
 		mb();
 
-		
+		/* Wait for IRQ_STATUS register to be cleared. */
 		for (i = 0; i < CPR3_REGISTER_WRITE_DELAY_US / 10; i++) {
 			status = cpr3_read(ctrl, CPR3_REG_IRQ_STATUS);
 			if (!(status & (CPR3_IRQ_UP | CPR3_IRQ_DOWN)))
@@ -2422,7 +3077,7 @@ static irqreturn_t cpr3_irq_handler(int irq, void *data)
 		return IRQ_HANDLED;
 	} else if (up && down) {
 		cpr3_debug(ctrl, "both up and down status bits set\n");
-		
+		/* The up flag takes precedence over the down flag. */
 		down = false;
 	}
 
@@ -2449,7 +3104,7 @@ static irqreturn_t cpr3_irq_handler(int irq, void *data)
 	new_volt = up ? last_volt + ctrl->step_volt
 		      : last_volt - ctrl->step_volt;
 
-	
+	/* Re-enable UP/DOWN interrupt when its opposite is received. */
 	irq_en |= up ? CPR3_IRQ_DOWN : CPR3_IRQ_UP;
 
 	if (new_volt > aggr->ceiling_volt) {
@@ -2464,6 +3119,15 @@ static irqreturn_t cpr3_irq_handler(int irq, void *data)
 	}
 
 	if (down && new_volt < dynamic_floor_volt) {
+		/*
+		 * The vdd-supply voltage should not be decreased below the
+		 * dynamic floor voltage.  However, it is not necessary (and
+		 * counter productive) to force the voltage up to this level
+		 * if it happened to be below it since the closed-loop voltage
+		 * must have gotten there in a safe manner while the power
+		 * domains for the CPR3 regulator imposing the dynamic floor
+		 * were not bypassed.
+		 */
 		new_volt = last_volt;
 		irq_en &= ~CPR3_IRQ_DOWN;
 		cpr3_debug(ctrl, "limiting to dynamic floor=%d uV\n",
@@ -2492,6 +3156,10 @@ static irqreturn_t cpr3_irq_handler(int irq, void *data)
 		}
 		cont = CPR3_CONT_CMD_ACK;
 
+		/*
+		 * Update the closed-loop voltage for all regulators managed
+		 * by this CPR controller.
+		 */
 		for (i = 0; i < ctrl->thread_count; i++) {
 			for (j = 0; j < ctrl->thread[i].vreg_count; j++) {
 				vreg = &ctrl->thread[i].vreg[j];
@@ -2516,16 +3184,28 @@ static irqreturn_t cpr3_irq_handler(int irq, void *data)
 	aggr->last_volt = new_volt;
 
 done:
-	
+	/* Clear interrupt status */
 	cpr3_write(ctrl, CPR3_REG_IRQ_CLEAR, CPR3_IRQ_UP | CPR3_IRQ_DOWN);
 
-	
+	/* ACK or NACK the CPR controller */
 	cpr3_write(ctrl, CPR3_REG_CONT_CMD, cont);
 
 	mutex_unlock(&ctrl->lock);
 	return IRQ_HANDLED;
 }
 
+/**
+ * cpr3_ceiling_irq_handler() - CPR ceiling reached interrupt handler callback
+ *		function used for hardware closed-loop operation
+ * @irq:		CPR ceiling interrupt number
+ * @data:		Private data corresponding to the CPR3 controller
+ *			pointer
+ *
+ * This function disables processor clock throttling and closed-loop operation
+ * when the ceiling voltage is reached.
+ *
+ * Return: IRQ_HANDLED
+ */
 static irqreturn_t cpr3_ceiling_irq_handler(int irq, void *data)
 {
 	struct cpr3_controller *ctrl = data;
@@ -2552,6 +3232,10 @@ static irqreturn_t cpr3_ceiling_irq_handler(int irq, void *data)
 	}
 
 	if (ctrl->ctrl_type == CPR_CTRL_TYPE_CPR3) {
+		/*
+		 * Since the ceiling voltage has been reached, disable processor
+		 * clock throttling as well as CPR closed-loop operation.
+		 */
 		cpr3_write(ctrl, CPR3_REG_PD_THROTTLE,
 				CPR3_PD_THROTTLE_DISABLE);
 		cpr3_ctrl_loop_disable(ctrl);
@@ -2567,6 +3251,16 @@ done:
 	return IRQ_HANDLED;
 }
 
+/**
+ * cpr3_regulator_vreg_register() - register a regulator device for a CPR3
+ *		regulator
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * This function initializes all regulator framework related structures and then
+ * calls regulator_register() for the CPR3 regulator.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_vreg_register(struct cpr3_regulator *vreg)
 {
 	struct regulator_config config = {};
@@ -2646,11 +3340,11 @@ DEFINE_SIMPLE_ATTRIBUTE(fops_int_wo, NULL, debugfs_int_set, "%lld\n");
 static struct dentry *debugfs_create_int(const char *name, umode_t mode,
 				struct dentry *parent, int *value)
 {
-	
+	/* if there are no write bits set, make read only */
 	if (!(mode & S_IWUGO))
 		return debugfs_create_file(name, mode, parent, value,
 					   &fops_int_ro);
-	
+	/* if there are no read bits set, make write only */
 	if (!(mode & S_IRUGO))
 		return debugfs_create_file(name, mode, parent, value,
 					   &fops_int_wo);
@@ -2665,6 +3359,15 @@ static int debugfs_bool_get(void *data, u64 *val)
 }
 DEFINE_SIMPLE_ATTRIBUTE(fops_bool_ro, debugfs_bool_get, NULL, "%lld\n");
 
+/**
+ * cpr3_debug_ldo_mode_allowed_set() - debugfs callback used to change the
+ *		value of the CPR3 regulator ldo_mode_allowed flag
+ * @data:		Pointer to private data which is equal to the CPR3
+ *			regulator pointer
+ * @val:		New value for ldo_mode_allowed
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_debug_ldo_mode_allowed_set(void *data, u64 val)
 {
 	struct cpr3_regulator *vreg = data;
@@ -2687,7 +3390,7 @@ static int cpr3_debug_ldo_mode_allowed_set(void *data, u64 val)
 			goto done;
 		}
 
-		
+		/* Switch back to BHS */
 		rc = cpr3_regulator_set_bhs_mode(vreg, vdd_volt,
 				       ctrl->aggr_corner.ceiling_volt);
 		if (rc) {
@@ -2755,6 +3458,15 @@ static int cpr3_debug_ldo_mode_get(void *data, u64 *val)
 DEFINE_SIMPLE_ATTRIBUTE(cpr3_debug_ldo_mode_fops, cpr3_debug_ldo_mode_get,
 			NULL, "%llu\n");
 
+/**
+ * struct cpr3_debug_corner_info - data structure used by the
+ *		cpr3_debugfs_create_corner_int function
+ * @vreg:		Pointer to the CPR3 regulator
+ * @index:		Pointer to the corner array index
+ * @member_offset:	Offset in bytes from the beginning of struct cpr3_corner
+ *			to the beginning of the value to be read from
+ * @corner:		Pointer to the CPR3 corner array
+ */
 struct cpr3_debug_corner_info {
 	struct cpr3_regulator	*vreg;
 	int			*index;
@@ -2783,6 +3495,25 @@ static int cpr3_debug_corner_int_get(void *data, u64 *val)
 DEFINE_SIMPLE_ATTRIBUTE(cpr3_debug_corner_int_fops, cpr3_debug_corner_int_get,
 			NULL, "%lld\n");
 
+/**
+ * cpr3_debugfs_create_corner_int - create a debugfs file that is used to read
+ *		a signed int value out of a CPR3 regulator's corner array
+ * @vreg:		Pointer to the CPR3 regulator
+ * @name:		Pointer to a string containing the name of the file to
+ *			create
+ * @mode:		The permissions that the file should have
+ * @parent:		Pointer to the parent dentry for this file.  This should
+ *			be a directory dentry if set.  If this parameter is
+ *			%NULL, then the file will be created in the root of the
+ *			debugfs filesystem.
+ * @index:		Pointer to the corner array index
+ * @member_offset:	Offset in bytes from the beginning of struct cpr3_corner
+ *			to the beginning of the value to be read from
+ *
+ * This function creates a file in debugfs with the given name that
+ * contains the value of the int type variable vreg->corner[index].member
+ * where member_offset == offsetof(struct cpr3_corner, member).
+ */
 static struct dentry *cpr3_debugfs_create_corner_int(
 		struct cpr3_regulator *vreg, const char *name, umode_t mode,
 		struct dentry *parent, int *index, size_t member_offset)
@@ -2809,6 +3540,11 @@ static int cpr3_debug_quot_open(struct inode *inode, struct file *file)
 	u32 *quot;
 	char *buf;
 
+	/*
+	 * Max size:
+	 *  - 10 digits + ' ' or '\n' = 11 bytes per number
+	 *  - terminating '\0'
+	 */
 	size = CPR3_RO_COUNT * 11;
 	buf = kzalloc(size + 1, GFP_KERNEL);
 	if (!buf)
@@ -2851,6 +3587,15 @@ static const struct file_operations cpr3_debug_quot_fops = {
 	.llseek  = no_llseek,
 };
 
+/**
+ * cpr3_regulator_debugfs_corner_add() - add debugfs files to expose
+ *		configuration data for the CPR corner
+ * @vreg:		Pointer to the CPR3 regulator
+ * @corner_dir:		Pointer to the parent corner dentry for the new files
+ * @index:		Pointer to the corner array index
+ *
+ * Return: none
+ */
 static void cpr3_regulator_debugfs_corner_add(struct cpr3_regulator *vreg,
 		struct dentry *corner_dir, int *index)
 {
@@ -2902,6 +3647,15 @@ static void cpr3_regulator_debugfs_corner_add(struct cpr3_regulator *vreg,
 	}
 }
 
+/**
+ * cpr3_debug_corner_index_set() - debugfs callback used to change the
+ *		value of the CPR3 regulator debug_corner index
+ * @data:		Pointer to private data which is equal to the CPR3
+ *			regulator pointer
+ * @val:		New value for debug_corner
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_debug_corner_index_set(void *data, u64 val)
 {
 	struct cpr3_regulator *vreg = data;
@@ -2964,6 +3718,14 @@ DEFINE_SIMPLE_ATTRIBUTE(cpr3_debug_current_corner_index_fops,
 			cpr3_debug_current_corner_index_get,
 			NULL, "%llu\n");
 
+/**
+ * cpr3_regulator_debugfs_vreg_add() - add debugfs files to expose configuration
+ *		data for the CPR3 regulator
+ * @vreg:		Pointer to the CPR3 regulator
+ * @thread_dir		CPR3 thread debugfs directory handle
+ *
+ * Return: none
+ */
 static void cpr3_regulator_debugfs_vreg_add(struct cpr3_regulator *vreg,
 				struct dentry *thread_dir)
 {
@@ -3231,6 +3993,16 @@ static void cpr3_regulator_debugfs_thread_add(struct cpr3_thread *thread)
 		cpr3_regulator_debugfs_vreg_add(&thread->vreg[i], thread_dir);
 }
 
+/**
+ * cpr3_debug_closed_loop_enable_set() - debugfs callback used to change the
+ *		value of the CPR controller cpr_allowed_sw flag which enables or
+ *		disables closed-loop operation
+ * @data:		Pointer to private data which is equal to the CPR
+ *			controller pointer
+ * @val:		New value for cpr_allowed_sw
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_debug_closed_loop_enable_set(void *data, u64 val)
 {
 	struct cpr3_controller *ctrl = data;
@@ -3302,6 +4074,17 @@ DEFINE_SIMPLE_ATTRIBUTE(cpr3_debug_closed_loop_enable_fops,
 			cpr3_debug_closed_loop_enable_set,
 			"%llu\n");
 
+/**
+ * cpr3_debug_hw_closed_loop_enable_set() - debugfs callback used to change the
+ *		value of the CPR controller use_hw_closed_loop flag which
+ *		switches between software closed-loop and hardware closed-loop
+ *		operation
+ * @data:		Pointer to private data which is equal to the CPR
+ *			controller pointer
+ * @val:		New value for use_hw_closed_loop
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_debug_hw_closed_loop_enable_set(void *data, u64 val)
 {
 	struct cpr3_controller *ctrl = data;
@@ -3321,7 +4104,7 @@ static int cpr3_debug_hw_closed_loop_enable_set(void *data, u64 val)
 
 	cpr_enabled = ctrl->cpr_enabled;
 
-	
+	/* Ensure that CPR clocks are enabled before writing to registers. */
 	if (!cpr_enabled) {
 		rc = cpr3_clock_enable(ctrl);
 		if (rc) {
@@ -3347,7 +4130,7 @@ static int cpr3_debug_hw_closed_loop_enable_set(void *data, u64 val)
 			: CPR3_HW_CLOSED_LOOP_DISABLE);
 	}
 
-	
+	/* Turn off CPR clocks if they were off before this function call. */
 	if (!cpr_enabled) {
 		cpr3_clock_disable(ctrl);
 		ctrl->cpr_enabled = false;
@@ -3382,6 +4165,13 @@ static int cpr3_debug_hw_closed_loop_enable_set(void *data, u64 val)
 		}
 	}
 
+	/*
+	 * Due to APM and mem-acc floor restriction constraints, the closed-loop
+	 * voltage may be different when using software closed-loop vs hardware
+	 * closed-loop.  Therefore, reset the cached closed-loop voltage for all
+	 * corners to the corresponding open-loop voltage when switching between
+	 * SW and HW closed-loop mode.
+	 */
 	for (i = 0; i < ctrl->thread_count; i++) {
 		for (j = 0; j < ctrl->thread[i].vreg_count; j++) {
 			vreg = &ctrl->thread[i].vreg[j];
@@ -3391,7 +4181,7 @@ static int cpr3_debug_hw_closed_loop_enable_set(void *data, u64 val)
 		}
 	}
 
-	
+	/* Skip last_volt caching */
 	ctrl->last_corner_was_closed_loop = false;
 
 	rc = cpr3_regulator_update_ctrl_state(ctrl);
@@ -3434,6 +4224,15 @@ DEFINE_SIMPLE_ATTRIBUTE(cpr3_debug_hw_closed_loop_enable_fops,
 			cpr3_debug_hw_closed_loop_enable_set,
 			"%llu\n");
 
+/**
+ * cpr3_debug_trigger_aging_measurement_set() - debugfs callback used to trigger
+ *		another CPR measurement
+ * @data:		Pointer to private data which is equal to the CPR
+ *			controller pointer
+ * @val:		Unused
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_debug_trigger_aging_measurement_set(void *data, u64 val)
 {
 	struct cpr3_controller *ctrl = data;
@@ -3464,12 +4263,19 @@ DEFINE_SIMPLE_ATTRIBUTE(cpr3_debug_trigger_aging_measurement_fops,
 			cpr3_debug_trigger_aging_measurement_set,
 			"%llu\n");
 
+/**
+ * cpr3_regulator_debugfs_ctrl_add() - add debugfs files to expose configuration
+ *		data for the CPR controller
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: none
+ */
 static void cpr3_regulator_debugfs_ctrl_add(struct cpr3_controller *ctrl)
 {
 	struct dentry *temp, *aggr_dir;
 	int i;
 
-	
+	/* Add cpr3-regulator base directory if it isn't present already. */
 	if (cpr3_debugfs_base == NULL) {
 		cpr3_debugfs_base = debugfs_create_dir("cpr3-regulator", NULL);
 		if (IS_ERR_OR_NULL(cpr3_debugfs_base)) {
@@ -3589,6 +4395,16 @@ static void cpr3_regulator_debugfs_ctrl_add(struct cpr3_controller *ctrl)
 		cpr3_regulator_debugfs_thread_add(&ctrl->thread[i]);
 }
 
+/**
+ * cpr3_regulator_debugfs_ctrl_remove() - remove debugfs files for the CPR
+ *		controller
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Note, this function must be called after the controller has been removed from
+ * cpr3_controller_list and while the cpr3_controller_list_mutex lock is held.
+ *
+ * Return: none
+ */
 static void cpr3_regulator_debugfs_ctrl_remove(struct cpr3_controller *ctrl)
 {
 	if (list_empty(&cpr3_controller_list)) {
@@ -3599,9 +4415,16 @@ static void cpr3_regulator_debugfs_ctrl_remove(struct cpr3_controller *ctrl)
 	}
 }
 
+/**
+ * cpr3_regulator_init_ctrl_data() - performs initialization of CPR controller
+ *					elements
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_init_ctrl_data(struct cpr3_controller *ctrl)
 {
-	
+	/* Read the initial vdd voltage from hardware. */
 	ctrl->aggr_corner.last_volt
 		= regulator_get_voltage(ctrl->vdd_regulator);
 	if (ctrl->aggr_corner.last_volt < 0) {
@@ -3614,6 +4437,13 @@ static int cpr3_regulator_init_ctrl_data(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_regulator_init_vreg_data() - performs initialization of common CPR3
+ *		regulator elements and validate aging configurations
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_init_vreg_data(struct cpr3_regulator *vreg)
 {
 	int i, j;
@@ -3644,6 +4474,13 @@ static int cpr3_regulator_init_vreg_data(struct cpr3_regulator *vreg)
 	return 0;
 }
 
+/**
+ * cpr3_regulator_suspend() - perform common required CPR3 power down steps
+ *		before the system enters suspend
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_regulator_suspend(struct cpr3_controller *ctrl)
 {
 	int rc;
@@ -3662,6 +4499,13 @@ int cpr3_regulator_suspend(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_regulator_resume() - perform common required CPR3 power up steps after
+ *		the system resumes from suspend
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_regulator_resume(struct cpr3_controller *ctrl)
 {
 	int rc;
@@ -3678,6 +4522,13 @@ int cpr3_regulator_resume(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_regulator_validate_controller() - verify the data passed in via the
+ *		cpr3_controller data structure
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_regulator_validate_controller(struct cpr3_controller *ctrl)
 {
 	int i;
@@ -3710,6 +4561,14 @@ static int cpr3_regulator_validate_controller(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_regulator_register() - register the regulators for a CPR3 controller and
+ *		perform CPR hardware initialization
+ * @pdev:		Platform device pointer for the CPR3 controller
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_regulator_register(struct platform_device *pdev,
 			struct cpr3_controller *ctrl)
 {
@@ -3780,6 +4639,10 @@ int cpr3_regulator_register(struct platform_device *pdev,
 		}
 	}
 
+	/*
+	 * Add the maximum possible aging voltage margin until it is possible
+	 * to perform an aging measurement.
+	 */
 	if (ctrl->aging_required)
 		cpr3_regulator_set_aging_ref_adjustment(ctrl, INT_MAX);
 
@@ -3790,7 +4653,7 @@ int cpr3_regulator_register(struct platform_device *pdev,
 		return rc;
 	}
 
-	
+	/* Register regulator devices for all threads. */
 	for (i = 0; i < ctrl->thread_count; i++) {
 		for (j = 0; j < ctrl->thread[i].vreg_count; j++) {
 			rc = cpr3_regulator_vreg_register(
@@ -3839,6 +4702,13 @@ free_regulators:
 	return rc;
 }
 
+/**
+ * cpr3_regulator_unregister() - unregister the regulators for a CPR3 controller
+ *		and perform CPR hardware shutdown
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_regulator_unregister(struct cpr3_controller *ctrl)
 {
 	int i, j;

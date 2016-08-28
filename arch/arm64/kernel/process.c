@@ -61,17 +61,27 @@ void soft_restart(unsigned long addr)
 {
 	setup_mm_for_reboot();
 	cpu_soft_restart(virt_to_phys(cpu_reset), addr);
-	
+	/* Should never get here */
 	BUG();
 }
 
+/*
+ * Function pointers to optional machine specific functions
+ */
 void (*pm_power_off)(void);
 EXPORT_SYMBOL_GPL(pm_power_off);
 
 void (*arm_pm_restart)(enum reboot_mode reboot_mode, const char *cmd);
 
+/*
+ * This is our default idle handler.
+ */
 void arch_cpu_idle(void)
 {
+	/*
+	 * This should do all the clock switching and wait for interrupt
+	 * tricks
+	 */
 	cpu_do_idle();
 	local_irq_enable();
 }
@@ -93,11 +103,25 @@ void arch_cpu_idle_dead(void)
 }
 #endif
 
+/*
+ * Called by kexec, immediately prior to machine_kexec().
+ *
+ * This must completely disable all secondary CPUs; simply causing those CPUs
+ * to execute e.g. a RAM-based pin loop is not sufficient. This allows the
+ * kexec'd kernel to use any and all RAM as it sees fit, without having to
+ * avoid any code or data used by any SW CPU pin loop. The CPU hotplug
+ * functionality embodied in disable_nonboot_cpus() to achieve this.
+ */
 void machine_shutdown(void)
 {
 	disable_nonboot_cpus();
 }
 
+/*
+ * Halting simply requires that the secondary CPUs stop performing any
+ * activity (executing tasks, handling interrupts). smp_send_stop()
+ * achieves this.
+ */
 void machine_halt(void)
 {
 	local_irq_disable();
@@ -105,6 +129,12 @@ void machine_halt(void)
 	while (1);
 }
 
+/*
+ * Power-off simply requires that the secondary CPUs stop performing any
+ * activity (executing tasks, handling interrupts). smp_send_stop()
+ * achieves this. When the system power is turned off, it will take all CPUs
+ * with it.
+ */
 void machine_power_off(void)
 {
 	local_irq_disable();
@@ -113,6 +143,17 @@ void machine_power_off(void)
 		pm_power_off();
 }
 
+/*
+ * Restart requires that the secondary CPUs stop performing any activity
+ * while the primary CPU resets the system. Systems with a single CPU can
+ * use soft_restart() as their machine descriptor's .restart hook, since that
+ * will cause the only available CPU to reset. Systems with multiple CPUs must
+ * provide a HW restart implementation, to ensure that all CPUs reset at once.
+ * This is required so that any code running after reset on the primary CPU
+ * doesn't have to co-ordinate with other CPUs to ensure they aren't still
+ * executing pre-reset code, and using RAM that the primary CPU's code wishes
+ * to use. Implementing such co-ordination would be essentially impossible.
+ */
 void machine_restart(char *cmd)
 {
 	extern char *saved_command_line;
@@ -129,27 +170,45 @@ void machine_restart(char *cmd)
 	else
 		do_kernel_restart(cmd);
 
+	/*
+	 * Whoops - the architecture was unable to reboot.
+	 */
 	printk("Reboot failed -- System halted\n");
 	while (1);
 }
 
+/*
+ * dump a block of kernel memory from around the given address
+ */
 static void show_data(unsigned long addr, int nbytes, const char *name)
 {
 	int	i, j;
 	int	nlines;
 	u32	*p;
 
+	/*
+	 * don't attempt to dump non-kernel addresses or
+	 * values that are probably just small negative numbers
+	 */
 	if (addr < PAGE_OFFSET || addr > -256UL)
 		return;
 
 	printk("\n%s: %#lx:\n", name, addr);
 
+	/*
+	 * round address down to a 32 bit boundary
+	 * and always dump a multiple of 32 bytes
+	 */
 	p = (u32 *)(addr & ~(sizeof(u32) - 1));
 	nbytes += (addr & (sizeof(u32) - 1));
 	nlines = (nbytes + 31) / 32;
 
 
 	for (i = 0; i < nlines; i++) {
+		/*
+		 * just display low 16 bits of address to keep
+		 * each line of the dump < 80 characters
+		 */
 		printk("%04lx ", (unsigned long)p & 0xffff);
 		for (j = 0; j < 8; j++) {
 			u32	data;
@@ -213,6 +272,9 @@ void show_regs(struct pt_regs * regs)
 	__show_regs(regs);
 }
 
+/*
+ * Free current thread data structures etc..
+ */
 void exit_thread(void)
 {
 }
@@ -224,6 +286,11 @@ static void tls_thread_flush(void)
 	if (is_compat_task()) {
 		current->thread.tp_value = 0;
 
+		/*
+		 * We need to ensure ordering between the shadow state and the
+		 * hardware state, so that we don't corrupt the hardware state
+		 * with a stale shadow state during context switch.
+		 */
 		barrier();
 		asm ("msr tpidrro_el0, xzr");
 	}
@@ -265,14 +332,22 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 			if (stack_start)
 				childregs->compat_sp = stack_start;
 		} else {
+			/*
+			 * Read the current TLS pointer from tpidr_el0 as it may be
+			 * out-of-sync with the saved value.
+			 */
 			asm("mrs %0, tpidr_el0" : "=r" (tls));
 			if (stack_start) {
-				
+				/* 16-byte aligned stack mandatory on AArch64 */
 				if (stack_start & 15)
 					return -EINVAL;
 				childregs->sp = stack_start;
 			}
 		}
+		/*
+		 * If a TLS pointer was passed to clone (4th argument), use it
+		 * for the new thread.
+		 */
 		if (clone_flags & CLONE_SETTLS)
 			tls = childregs->regs[3];
 	} else {
@@ -313,6 +388,9 @@ static void tls_thread_switch(struct task_struct *next)
 	: : "r" (tpidr), "r" (tpidrro));
 }
 
+/*
+ * Thread switching.
+ */
 struct task_struct *__switch_to(struct task_struct *prev,
 				struct task_struct *next)
 {
@@ -323,9 +401,13 @@ struct task_struct *__switch_to(struct task_struct *prev,
 	hw_breakpoint_thread_switch(next);
 	contextidr_thread_switch(next);
 
+	/*
+	 * Complete any pending TLB or cache maintenance on this CPU in case
+	 * the thread migrates to a different CPU.
+	 */
 	dsb(ish);
 
-	
+	/* the actual thread switch */
 	last = cpu_switch_to(prev, next);
 
 	return last;

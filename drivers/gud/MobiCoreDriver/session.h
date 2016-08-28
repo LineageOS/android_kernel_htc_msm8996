@@ -26,17 +26,17 @@ struct mc_ioctl_buffer;
 struct tee_session {
 	
 	struct mutex		close_lock;
-	
+	/* MCP session descriptor (MUST BE FIRST) */
 	struct mcp_session	mcp_session;
 	
 	struct tee_client	*client;
 	
 	struct kref		kref;
-	
+	/* The list entry to attach to session list of owner */
 	struct list_head	list;
-	
+	/* Session WSMs lock */
 	struct mutex		wsms_lock;
-	
+	/* List of WSMs for a session */
 	struct list_head	wsms;
 };
 
@@ -63,4 +63,4 @@ int session_waitnotif(struct tee_session *session, s32 timeout,
 int session_debug_structs(struct kasnprintf_buf *buf,
 			  struct tee_session *session, bool is_closing);
 
-#endif 
+#endif /* _SESSION_H_ */

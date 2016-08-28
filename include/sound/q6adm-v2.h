@@ -54,6 +54,7 @@ enum {
 #define MAX_COPPS_PER_PORT 0x8
 #define ADM_MAX_CHANNELS 8
 
+/* multiple copp per stream. */
 struct route_payload {
 	unsigned int copp_idx[MAX_COPPS_PER_PORT];
 	unsigned int port_id[MAX_COPPS_PER_PORT];

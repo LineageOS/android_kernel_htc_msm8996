@@ -21,6 +21,7 @@
 #include "mdss_cec_core.h"
 #include "mdss_fb.h"
 
+/* standard cec buf size + 1 byte specific to driver */
 #define CEC_BUF_SIZE    (MAX_CEC_FRAME_SIZE + 1)
 #define MAX_SWITCH_NAME_SIZE        5
 #define MSM_DBA_MAX_PCLK 148500
@@ -206,11 +207,11 @@ static ssize_t mdss_dba_utils_sysfs_wta_hpd(struct device *dev,
 		return count;
 	}
 
-	
+	/* power on downstream device */
 	if (udata->ops.power_on)
 		udata->ops.power_on(udata->dba_data, true, 0);
 
-	
+	/* check if cable is connected to bridge chip */
 	if (udata->ops.check_hpd)
 		udata->ops.check_hpd(udata->dba_data, 0);
 
@@ -335,7 +336,7 @@ static void mdss_dba_utils_dba_cb(void *data, enum msm_dba_callback_event event)
 			}
 		}
 
-		
+		/* prepare cec msg */
 		msg.recvr_id   = udata->cec_buf[0] & 0x0F;
 		msg.sender_id  = (udata->cec_buf[0] & 0xF0) >> 4;
 		msg.opcode     = udata->cec_buf[1];
@@ -415,7 +416,7 @@ static int mdss_dba_utils_init_switch_dev(struct mdss_dba_utils_data *udata,
 		goto end;
 	}
 
-	
+	/* create switch device to update display modules */
 	udata->sdev_display.name = "hdmi";
 	rc = switch_dev_register(&udata->sdev_display);
 	if (rc) {
@@ -425,7 +426,7 @@ static int mdss_dba_utils_init_switch_dev(struct mdss_dba_utils_data *udata,
 
 	udata->display_switch_registered = true;
 
-	
+	/* create switch device to update audio modules */
 	udata->sdev_audio.name = "hdmi_audio";
 	ret = switch_dev_register(&udata->sdev_audio);
 	if (ret) {
@@ -477,6 +478,16 @@ static int mdss_dba_get_vic_panel_info(struct mdss_dba_utils_data *udata,
 	return vic;
 }
 
+/**
+ * mdss_dba_utils_video_on() - Allow clients to switch on the video
+ * @data: DBA utils instance which was allocated during registration
+ * @pinfo: detailed panel information like x, y, porch values etc
+ *
+ * This API is used to power on the video on device registered
+ * with DBA.
+ *
+ * Return: returns the result of the video on call on device.
+ */
 int mdss_dba_utils_video_on(void *data, struct mdss_panel_info *pinfo)
 {
 	struct mdss_dba_utils_data *ud = data;
@@ -501,7 +512,7 @@ int mdss_dba_utils_video_on(void *data, struct mdss_panel_info *pinfo)
 	video_cfg.pclk_khz = (unsigned long)pinfo->clk_rate / 1000;
 	video_cfg.hdmi_mode = hdmi_edid_get_sink_mode(ud->edid_data);
 
-	
+	/* Calculate number of DSI lanes configured */
 	video_cfg.num_of_input_lanes = 0;
 	if (pinfo->mipi.data_lane0)
 		video_cfg.num_of_input_lanes++;
@@ -512,7 +523,7 @@ int mdss_dba_utils_video_on(void *data, struct mdss_panel_info *pinfo)
 	if (pinfo->mipi.data_lane3)
 		video_cfg.num_of_input_lanes++;
 
-	
+	/* Get scan information from EDID */
 	video_cfg.vic = mdss_dba_get_vic_panel_info(ud, pinfo);
 	ud->current_vic = video_cfg.vic;
 	video_cfg.scaninfo = hdmi_edid_get_sink_scaninfo(ud->edid_data,
@@ -524,6 +535,15 @@ end:
 	return ret;
 }
 
+/**
+ * mdss_dba_utils_video_off() - Allow clients to switch off the video
+ * @data: DBA utils instance which was allocated during registration
+ *
+ * This API is used to power off the video on device registered
+ * with DBA.
+ *
+ * Return: returns the result of the video off call on device.
+ */
 int mdss_dba_utils_video_off(void *data)
 {
 	struct mdss_dba_utils_data *ud = data;
@@ -541,6 +561,14 @@ end:
 	return ret;
 }
 
+/**
+ * mdss_dba_utils_hdcp_enable() - Allow clients to switch on HDCP.
+ * @data: DBA utils instance which was allocated during registration
+ * @enable: flag to enable or disable HDCP authentication
+ *
+ * This API is used to start the HDCP authentication process with the
+ * device registered with DBA.
+ */
 void mdss_dba_utils_hdcp_enable(void *data, bool enable)
 {
 	struct mdss_dba_utils_data *ud = data;
@@ -554,6 +582,19 @@ void mdss_dba_utils_hdcp_enable(void *data, bool enable)
 		ud->ops.hdcp_enable(ud->dba_data, enable, enable, 0);
 }
 
+/**
+ * mdss_dba_utils_init() - Allow clients to register with DBA utils
+ * @uid: Initialization data for registration.
+ *
+ * This API lets the client to register with DBA Utils module.
+ * This allocate utils' instance and register with DBA (Display
+ * Bridge Abstract). Creates sysfs nodes and switch nodes to interact
+ * with other modules. Also registers with EDID parser to parse
+ * the EDID buffer.
+ *
+ * Return: Instance of DBA utils which needs to be sent as parameter
+ * when calling DBA utils APIs.
+ */
 void *mdss_dba_utils_init(struct mdss_dba_utils_init_data *uid)
 {
 	struct hdmi_edid_init_data edid_init_data;
@@ -578,14 +619,14 @@ void *mdss_dba_utils_init(struct mdss_dba_utils_init_data *uid)
 	memset(&edid_init_data, 0, sizeof(edid_init_data));
 	memset(&info, 0, sizeof(info));
 
-	
+	/* initialize DBA registration data */
 	strlcpy(info.client_name, uid->client_name, MSM_DBA_CLIENT_NAME_LEN);
 	strlcpy(info.chip_name, uid->chip_name, MSM_DBA_CHIP_NAME_MAX_LEN);
 	info.instance_id = uid->instance_id;
 	info.cb = mdss_dba_utils_dba_cb;
 	info.cb_data = udata;
 
-	
+	/* register client with DBA and get device's ops*/
 	if (IS_ENABLED(CONFIG_MSM_DBA)) {
 		udata->dba_data = msm_dba_register_client(&info, &udata->ops);
 		if (IS_ERR_OR_NULL(udata->dba_data)) {
@@ -599,31 +640,31 @@ void *mdss_dba_utils_init(struct mdss_dba_utils_init_data *uid)
 		goto error;
 	}
 
-	
+	/* create sysfs nodes for other modules to intract with utils */
 	ret = mdss_dba_utils_sysfs_create(uid->kobj);
 	if (ret) {
 		pr_err("sysfs creation failed\n");
 		goto error;
 	}
 
-	
+	/* keep init data for future use */
 	udata->kobj = uid->kobj;
 	udata->pinfo = uid->pinfo;
 
-	
+	/* register display and audio switch devices */
 	ret = mdss_dba_utils_init_switch_dev(udata, uid->fb_node);
 	if (ret) {
 		pr_err("switch dev registration failed\n");
 		goto error;
 	}
 
-	
+	/* Initialize EDID feature */
 	edid_init_data.kobj = uid->kobj;
 	edid_init_data.ds_data->ds_registered = true;
 	edid_init_data.ds_data->ds_max_clk = MSM_DBA_MAX_PCLK;
 	edid_init_data.max_pclk_khz = MSM_DBA_MAX_PCLK;
 
-	
+	/* register with edid module for parsing edid buffer */
 	udata->edid_data = hdmi_edid_init(&edid_init_data);
 	if (!udata->edid_data) {
 		pr_err("edid parser init failed\n");
@@ -631,20 +672,20 @@ void *mdss_dba_utils_init(struct mdss_dba_utils_init_data *uid)
 		goto error;
 	}
 
-	
+	/* update edid data to retrieve it back in edid parser */
 	if (uid->pinfo)
 		uid->pinfo->edid_data = udata->edid_data;
 
-	
+	/* get edid buffer from edid parser */
 	udata->edid_buf = edid_init_data.buf;
 	udata->edid_buf_size = edid_init_data.buf_size;
 
-	
+	/* Initialize cec abstract layer and get callbacks */
 	udata->cops.send_msg = mdss_dba_utils_send_cec_msg;
 	udata->cops.enable   = mdss_dba_utils_cec_enable;
 	udata->cops.data     = udata;
 
-	
+	/* initialize cec abstraction module */
 	cec_abst_init_data.kobj = uid->kobj;
 	cec_abst_init_data.ops  = &udata->cops;
 	cec_abst_init_data.cbs  = &udata->ccbs;
@@ -656,11 +697,17 @@ void *mdss_dba_utils_init(struct mdss_dba_utils_init_data *uid)
 		goto error;
 	}
 
-	
+	/* update cec data to retrieve it back in cec abstract module */
 	if (uid->pinfo) {
 		uid->pinfo->is_cec_supported = true;
 		uid->pinfo->cec_data = udata->cec_abst_data;
 
+		/*
+		 * TODO: Currently there is no support from HAL to send
+		 * HPD events to driver for usecase where bridge chip
+		 * is used as primary panel. Once support is added remove
+		 * this explicit calls to bridge chip driver.
+		 */
 		if (!uid->pinfo->is_pluggable) {
 			if (udata->ops.power_on)
 				udata->ops.power_on(udata->dba_data, true, 0);
@@ -676,6 +723,13 @@ error:
 	return ERR_PTR(ret);
 }
 
+/**
+ * mdss_dba_utils_deinit() - Allow clients to de-register with DBA utils
+ * @data: DBA utils data that was allocated during registration.
+ *
+ * This API will release all the resources allocated during registration
+ * and delete the DBA utils instance.
+ */
 void mdss_dba_utils_deinit(void *data)
 {
 	struct mdss_dba_utils_data *udata = data;

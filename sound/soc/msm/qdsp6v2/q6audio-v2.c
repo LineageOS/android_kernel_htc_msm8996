@@ -439,6 +439,9 @@ int q6audio_convert_virtual_to_portid(u16 port_id)
 {
 	int ret;
 
+	/* if port_id is virtual, convert to physical..
+	 * if port_id is already physical, return physical
+	 */
 	if (q6audio_validate_port(port_id) < 0) {
 		if (port_id == RT_PROXY_DAI_001_RX ||
 			port_id == RT_PROXY_DAI_001_TX ||

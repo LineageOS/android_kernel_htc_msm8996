@@ -28,4 +28,4 @@ void tee_mmu_buffer(const struct tee_mmu *mmu, struct mcp_buffer_map *map);
 int tee_mmu_debug_structs(struct kasnprintf_buf *buf,
 			  const struct tee_mmu *mmu);
 
-#endif 
+#endif /* _TBASE_MEM_H_ */

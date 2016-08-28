@@ -16,21 +16,21 @@
 #define _CLIENT_H_
 
 #include <linux/list.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* TASK_COMM_LEN */
 
 struct tee_object;
 
 struct tee_client {
 	
 	pid_t			pid;
-	
+	/* Command for task*/
 	char			comm[TASK_COMM_LEN];
-	
+	/* Number of references kept to this object */
 	struct kref		kref;
-	
+	/* List of contiguous buffers allocated by mcMallocWsm for the client */
 	struct list_head	cbufs;
-	struct mutex		cbufs_lock;	
-	
+	struct mutex		cbufs_lock;	/* lock for the cbufs list */
+	/* List of tbase TA sessions opened by this client */
 	struct list_head	sessions;
 	struct list_head	closing_sessions;
 	struct mutex		sessions_lock;	
@@ -87,4 +87,4 @@ void client_init(void);
 
 int clients_debug_structs(struct kasnprintf_buf *buf);
 
-#endif 
+#endif /* _CLIENT_H_ */

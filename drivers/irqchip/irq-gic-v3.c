@@ -70,6 +70,7 @@ static DEFINE_RAW_SPINLOCK(irq_controller_lock);
 #define gic_data_rdist_rd_base()	(gic_data_rdist()->rd_base)
 #define gic_data_rdist_sgi_base()	(gic_data_rdist_rd_base() + SZ_64K)
 
+/* Our default, arbitrary priority value. Linux only uses one anyway. */
 #define DEFAULT_PMR_VALUE	0xf0
 
 static inline unsigned int gic_irq(struct irq_data *d)
@@ -84,10 +85,10 @@ static inline int gic_irq_in_rdist(struct irq_data *d)
 
 static inline void __iomem *gic_dist_base(struct irq_data *d)
 {
-	if (gic_irq_in_rdist(d))	
+	if (gic_irq_in_rdist(d))	/* SGI+PPI -> SGI_base for this CPU */
 		return gic_data_rdist_sgi_base();
 
-	if (d->hwirq <= 1023)		
+	if (d->hwirq <= 1023)		/* SPI -> dist_base */
 		return gic_data.dist_base;
 
 	return NULL;
@@ -95,7 +96,7 @@ static inline void __iomem *gic_dist_base(struct irq_data *d)
 
 static void gic_do_wait_for_rwp(void __iomem *base)
 {
-	u32 count = 1000000;	
+	u32 count = 1000000;	/* 1s! */
 
 	while (readl_relaxed(base + GICD_CTLR) & GICD_CTLR_RWP) {
 		count--;
@@ -108,16 +109,19 @@ static void gic_do_wait_for_rwp(void __iomem *base)
 	};
 }
 
+/* Wait for completion of a distributor change */
 static void gic_dist_wait_for_rwp(void)
 {
 	gic_do_wait_for_rwp(gic_data.dist_base);
 }
 
+/* Wait for completion of a redistributor change */
 static void gic_redist_wait_for_rwp(void)
 {
 	gic_do_wait_for_rwp(gic_data_rdist_rd_base());
 }
 
+/* Low level accessors */
 static u64 __maybe_unused gic_read_iar(void)
 {
 	u64 irqstat;
@@ -163,6 +167,13 @@ static void gic_enable_sre(void)
 	asm volatile("msr_s " __stringify(ICC_SRE_EL1) ", %0" : : "r" (val));
 	isb();
 
+	/*
+	 * Need to check that the SRE bit has actually been set. If
+	 * not, it means that SRE is disabled at EL2. We're going to
+	 * die painfully, and there is nothing we can do about it.
+	 *
+	 * Kindly inform the luser.
+	 */
 	asm volatile("mrs_s %0, " __stringify(ICC_SRE_EL1) : "=r" (val));
 	if (!(val & ICC_SRE_EL1_SRE))
 		pr_err("GIC: unable to set SRE (disabled at EL2), panic ahead\n");
@@ -171,23 +182,23 @@ static void gic_enable_sre(void)
 static void gic_enable_redist(bool enable)
 {
 	void __iomem *rbase;
-	u32 count = 1000000;	
+	u32 count = 1000000;	/* 1s! */
 	u32 val;
 
 	rbase = gic_data_rdist_rd_base();
 
 	val = readl_relaxed(rbase + GICR_WAKER);
 	if (enable)
-		
+		/* Wake up this CPU redistributor */
 		val &= ~GICR_WAKER_ProcessorSleep;
 	else
 		val |= GICR_WAKER_ProcessorSleep;
 	writel_relaxed(val, rbase + GICR_WAKER);
 
-	if (!enable) {		
+	if (!enable) {		/* Check that GICR_WAKER is writeable */
 		val = readl_relaxed(rbase + GICR_WAKER);
 		if (!(val & GICR_WAKER_ProcessorSleep))
-			return;	
+			return;	/* No PM support in this redistributor */
 	}
 
 	while (count--) {
@@ -202,6 +213,9 @@ static void gic_enable_redist(bool enable)
 				   enable ? "wakeup" : "sleep");
 }
 
+/*
+ * Routines to disable, enable, EOI and route interrupts
+ */
 static void gic_poke_irq(struct irq_data *d, u32 offset)
 {
 	u32 mask = 1 << (gic_irq(d) % 32);
@@ -237,7 +251,7 @@ static void gic_unmask_irq(struct irq_data *d)
 
 static void gic_disable_irq(struct irq_data *d)
 {
-	
+	/* don't lazy-disable PPIs */
 	if (gic_irq(d) < 32)
 		gic_mask_irq(d);
 	if (gic_arch_extn.irq_disable)
@@ -258,7 +272,7 @@ static int gic_set_type(struct irq_data *d, unsigned int type)
 	void (*rwp_wait)(void);
 	void __iomem *base;
 
-	
+	/* Interrupt configuration for SGIs can't be changed */
 	if (irq < 16)
 		return -EINVAL;
 
@@ -286,7 +300,7 @@ static int gic_retrigger(struct irq_data *d)
 	if (gic_arch_extn.irq_retrigger)
 		return gic_arch_extn.irq_retrigger(d);
 
-	
+	/* the genirq layer expects 0 if we can't retrigger in hardware */
 	return 0;
 }
 
@@ -327,9 +341,9 @@ static int gic_suspend_one(struct gic_chip_data *gic)
 	for (i = 0; i * 32 < gic->irq_nr; i++) {
 		gic->enabled_irqs[i]
 			= readl_relaxed(base + GICD_ISENABLER + i * 4);
-		
+		/* disable all of them */
 		writel_relaxed(0xffffffff, base + GICD_ICENABLER + i * 4);
-		
+		/* enable the wakeup set */
 		writel_relaxed(gic->wakeup_irqs[i],
 			base + GICD_ISENABLER + i * 4);
 	}
@@ -378,9 +392,9 @@ static void gic_resume_one(struct gic_chip_data *gic)
 	gic_show_resume_irq(gic);
 
 	for (i = 0; i * 32 < gic->irq_nr; i++) {
-		
+		/* disable all of them */
 		writel_relaxed(0xffffffff, base + GICD_ICENABLER + i * 4);
-		
+		/* enable the enabled set */
 		writel_relaxed(gic->enabled_irqs[i],
 			base + GICD_ISENABLER + i * 4);
 	}
@@ -461,16 +475,20 @@ static void __init gic_dist_init(void)
 	u64 affinity;
 	void __iomem *base = gic_data.dist_base;
 
-	
+	/* Disable the distributor */
 	writel_relaxed(0, base + GICD_CTLR);
 	gic_dist_wait_for_rwp();
 
 	gic_dist_config(base, gic_data.irq_nr, gic_dist_wait_for_rwp);
 
-	
+	/* Enable distributor with ARE, Group1 */
 	writel_relaxed(GICD_CTLR_ARE_NS | GICD_CTLR_ENABLE_G1A | GICD_CTLR_ENABLE_G1,
 		       base + GICD_CTLR);
 
+	/*
+	 * Set all global interrupts to the boot CPU only. ARE must be
+	 * enabled.
+	 */
 	affinity = gic_mpidr_to_affinity(cpu_logical_map(smp_processor_id()));
 	for (i = 32; i < gic_data.irq_nr; i++)
 		writeq_relaxed(affinity, base + GICD_IROUTER + i * 8);
@@ -483,6 +501,10 @@ static int gic_populate_rdist(void)
 	u32 aff;
 	int i;
 
+	/*
+	 * Convert affinity to a 32bit value that can be matched to
+	 * GICR_TYPER bits [63:32].
+	 */
 	aff = (MPIDR_AFFINITY_LEVEL(mpidr, 3) << 24 |
 	       MPIDR_AFFINITY_LEVEL(mpidr, 2) << 16 |
 	       MPIDR_AFFINITY_LEVEL(mpidr, 1) << 8 |
@@ -494,7 +516,7 @@ static int gic_populate_rdist(void)
 
 		reg = readl_relaxed(ptr + GICR_PIDR2) & GIC_PIDR2_ARCH_MASK;
 		if (reg != GIC_PIDR2_ARCH_GICv3 &&
-		    reg != GIC_PIDR2_ARCH_GICv4) { 
+		    reg != GIC_PIDR2_ARCH_GICv4) { /* We're in trouble... */
 			pr_warn("No redistributor present @%p\n", ptr);
 			break;
 		}
@@ -515,14 +537,14 @@ static int gic_populate_rdist(void)
 			if (gic_data.redist_stride) {
 				ptr += gic_data.redist_stride;
 			} else {
-				ptr += SZ_64K * 2; 
+				ptr += SZ_64K * 2; /* Skip RD_base + SGI_base */
 				if (typer & GICR_TYPER_VLPIS)
-					ptr += SZ_64K * 2; 
+					ptr += SZ_64K * 2; /* Skip VLPI_base + reserved page */
 			}
 		} while (!(typer & GICR_TYPER_LAST));
 	}
 
-	
+	/* We couldn't even deal with ourselves... */
 	WARN(true, "CPU%d: mpidr %llx has no re-distributor!\n",
 	     smp_processor_id(), (unsigned long long)mpidr);
 	return -ENODEV;
@@ -530,16 +552,16 @@ static int gic_populate_rdist(void)
 
 static void gic_cpu_sys_reg_init(void)
 {
-	
+	/* Enable system registers */
 	gic_enable_sre();
 
-	
+	/* Set priority mask register */
 	gic_write_pmr(DEFAULT_PMR_VALUE);
 
-	
+	/* EOI deactivates interrupt too (mode 0) */
 	gic_write_ctlr(ICC_CTLR_EL1_EOImode_drop_dir);
 
-	
+	/* ... and let's hit the road... */
 	gic_write_grpen1(1);
 }
 
@@ -552,7 +574,7 @@ static void gic_cpu_init(void)
 {
 	void __iomem *rbase;
 
-	
+	/* Register ourselves with the rest of the world */
 	if (gic_populate_rdist())
 		return;
 
@@ -562,12 +584,12 @@ static void gic_cpu_init(void)
 
 	gic_cpu_config(rbase, gic_redist_wait_for_rwp);
 
-	
+	/* Give LPIs a spin */
 	if (IS_ENABLED(CONFIG_ARM_GIC_V3_ITS) && gic_dist_supports_lpis() &&
 					!IS_ENABLED(CONFIG_ARM_GIC_V3_ACL))
 		its_cpu_init();
 
-	
+	/* initialise system registers */
 	gic_cpu_sys_reg_init();
 }
 
@@ -593,6 +615,10 @@ static int gic_secondary_init(struct notifier_block *nfb,
 	return NOTIFY_OK;
 }
 
+/*
+ * Notifier for enabling the GIC CPU interface. Set an arbitrarily high
+ * priority because the GIC needs to be up before the ARM generic timers.
+ */
 static struct notifier_block gic_cpu_notifier = {
 	.notifier_call = gic_secondary_init,
 	.priority = 100,
@@ -606,6 +632,10 @@ static u16 gic_compute_target_list(int *base_cpu, const struct cpumask *mask,
 	u16 tlist = 0;
 
 	while (cpu < nr_cpu_ids) {
+		/*
+		 * If we ever get a cluster of more than 16 CPUs, just
+		 * scream and skip that CPU.
+		 */
 		if (WARN_ON((mpidr & 0xff) >= 16))
 			goto out;
 
@@ -648,6 +678,10 @@ static void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
 	if (WARN_ON(irq >= 16))
 		return;
 
+	/*
+	 * Ensure that stores to Normal memory are visible to the
+	 * other CPUs before issuing the IPI.
+	 */
 	smp_wmb();
 
 	for_each_cpu_mask(cpu, *mask) {
@@ -658,7 +692,7 @@ static void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
 		gic_send_sgi(cluster_id, tlist, irq);
 	}
 
-	
+	/* Force the above writes to ICC_SGI1R_EL1 to be executed */
 	isb();
 }
 
@@ -679,7 +713,7 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 	if (gic_irq_in_rdist(d))
 		return -EINVAL;
 
-	
+	/* If interrupt was enabled, disable it first */
 	enabled = gic_peek_irq(d, GICD_ISENABLER);
 	if (enabled)
 		gic_mask_irq(d);
@@ -689,6 +723,10 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 
 	writeq_relaxed(val, reg);
 
+	/*
+	 * If the interrupt was enabled, enabled it again. Otherwise,
+	 * just wait for the distributor to have digested our changes.
+	 */
 	if (enabled)
 		gic_unmask_irq(d);
 	else
@@ -709,7 +747,7 @@ int gic_set_wake(struct irq_data *d, unsigned int on)
 	unsigned int gicirq = gic_irq(d);
 	struct gic_chip_data *gic_data = irq_data_get_irq_chip_data(d);
 
-	
+	/* per-cpu interrupts cannot be wakeup interrupts */
 	WARN_ON(gicirq < 32);
 
 	reg_offset = gicirq / 32;
@@ -760,7 +798,7 @@ static void gic_cpu_pm_init(void)
 
 #else
 static inline void gic_cpu_pm_init(void) { }
-#endif 
+#endif /* CONFIG_CPU_PM */
 
 struct irq_chip gic_chip = {
 	.name			= "GICv3",
@@ -779,30 +817,30 @@ struct irq_chip gic_chip = {
 static int gic_irq_domain_map(struct irq_domain *d, unsigned int irq,
 			      irq_hw_number_t hw)
 {
-	
+	/* SGIs are private to the core kernel */
 	if (hw < 16)
 		return -EPERM;
-	
+	/* Nothing here */
 	if (hw >= gic_data.irq_nr && hw < 8192)
 		return -EPERM;
-	
+	/* Off limits */
 	if (hw >= GIC_ID_NR)
 		return -EPERM;
 
-	
+	/* PPIs */
 	if (hw < 32) {
 		irq_set_percpu_devid(irq);
 		irq_domain_set_info(d, irq, hw, &gic_chip, d->host_data,
 				    handle_percpu_devid_irq, NULL, NULL);
 		set_irq_flags(irq, IRQF_VALID | IRQF_NOAUTOEN);
 	}
-	
+	/* SPIs */
 	if (hw >= 32 && hw < gic_data.irq_nr) {
 		irq_domain_set_info(d, irq, hw, &gic_chip, d->host_data,
 				    handle_fasteoi_irq, NULL, NULL);
 		set_irq_flags(irq, IRQF_VALID | IRQF_PROBE);
 	}
-	
+	/* LPIs */
 	if (hw >= 8192 && hw < GIC_ID_NR) {
 		if (!gic_dist_supports_lpis())
 			return -EPERM;
@@ -825,13 +863,13 @@ static int gic_irq_domain_xlate(struct irq_domain *d,
 		return -EINVAL;
 
 	switch(intspec[0]) {
-	case 0:			
+	case 0:			/* SPI */
 		*out_hwirq = intspec[1] + 32;
 		break;
-	case 1:			
+	case 1:			/* PPI */
 		*out_hwirq = intspec[1] + 16;
 		break;
-	case GIC_IRQ_TYPE_LPI:	
+	case GIC_IRQ_TYPE_LPI:	/* LPI */
 		*out_hwirq = intspec[1];
 		break;
 	default:
@@ -938,6 +976,10 @@ static int __init gic_of_init(struct device_node *node, struct device_node *pare
 	gic_data.nr_redist_regions = nr_redist_regions;
 	gic_data.redist_stride = redist_stride;
 
+	/*
+	 * Find out how many interrupts are supported.
+	 * The GIC only supports up to 1020 interrupt sources (SGI+PPI+SPI)
+	 */
 	typer = readl_relaxed(gic_data.dist_base + GICD_TYPER);
 	gic_data.rdists.id_bits = GICD_TYPER_ID_BITS(typer);
 	gic_irqs = GICD_TYPER_IRQS(typer);

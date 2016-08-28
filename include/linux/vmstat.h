@@ -11,6 +11,15 @@
 extern int sysctl_stat_interval;
 
 #ifdef CONFIG_VM_EVENT_COUNTERS
+/*
+ * Light weight per cpu counter implementation.
+ *
+ * Counters should only be incremented and no critical kernel component
+ * should rely on the counter values.
+ *
+ * Counters are handled completely inline. On many platforms the code
+ * generated will simply be the increment of a global address.
+ */
 
 struct vm_event_state {
 	unsigned long event[NR_VM_EVENT_ITEMS];
@@ -18,6 +27,10 @@ struct vm_event_state {
 
 DECLARE_PER_CPU(struct vm_event_state, vm_event_states);
 
+/*
+ * vm counters are allowed to be racy. Use raw_cpu_ops to avoid the
+ * local_irq_disable overhead.
+ */
 static inline void __count_vm_event(enum vm_event_item item)
 {
 	raw_cpu_inc(vm_event_states.event[item]);
@@ -48,6 +61,7 @@ extern void vm_event_report_meminfo(struct seq_file *m);
 
 #else
 
+/* Disable counters */
 static inline void count_vm_event(enum vm_event_item item)
 {
 }
@@ -83,7 +97,7 @@ static void vm_event_report_meminfo(struct seq_file *m)
 #else
 #define count_vm_numa_event(x) do {} while (0)
 #define count_vm_numa_events(x, y) do { (void)(y); } while (0)
-#endif 
+#endif /* CONFIG_NUMA_BALANCING */
 
 #ifdef CONFIG_DEBUG_TLBFLUSH
 #define count_vm_tlb_event(x)	   count_vm_event(x)
@@ -103,6 +117,9 @@ static void vm_event_report_meminfo(struct seq_file *m)
 		__count_vm_events(item##_NORMAL - ZONE_NORMAL + \
 		zone_idx(zone), delta)
 
+/*
+ * Zone based page accounting with per cpu differentials.
+ */
 extern atomic_long_t vm_stat[NR_VM_ZONE_STAT_ITEMS];
 
 static inline void zone_page_state_add(long x, struct zone *zone,
@@ -133,6 +150,12 @@ static inline unsigned long zone_page_state(struct zone *zone,
 	return x;
 }
 
+/*
+ * More accurate version that also considers the currently pending
+ * deltas. For that we need to loop over all cpus to find the current
+ * deltas. There is no synchronization so the result cannot be
+ * exactly accurate either.
+ */
 static inline unsigned long zone_page_state_snapshot(struct zone *zone,
 					enum zone_stat_item item)
 {
@@ -170,6 +193,11 @@ static inline unsigned long global_page_state_snapshot(enum zone_stat_item item)
 }
 
 #ifdef CONFIG_NUMA
+/*
+ * Determine the per node value of a stat item. This function
+ * is called frequently in a NUMA machine, so try to be as
+ * frugal as possible.
+ */
 static inline unsigned long node_page_state(int node,
 				 enum zone_stat_item item)
 {
@@ -196,7 +224,7 @@ extern void zone_statistics(struct zone *, struct zone *, gfp_t gfp);
 #define node_page_state(node, item) global_page_state(item)
 #define zone_statistics(_zl, _z, gfp) do { } while (0)
 
-#endif 
+#endif /* CONFIG_NUMA */
 
 #define add_zone_page_state(__z, __i, __d) mod_zone_page_state(__z, __i, __d)
 #define sub_zone_page_state(__z, __i, __d) mod_zone_page_state(__z, __i, -(__d))
@@ -224,8 +252,12 @@ int calculate_pressure_threshold(struct zone *zone);
 int calculate_normal_threshold(struct zone *zone);
 void set_pgdat_percpu_threshold(pg_data_t *pgdat,
 				int (*calculate_pressure)(struct zone *));
-#else 
+#else /* CONFIG_SMP */
 
+/*
+ * We do not maintain differentials in a single processor configuration.
+ * The functions directly modify the zone and global counters.
+ */
 static inline void __mod_zone_page_state(struct zone *zone,
 			enum zone_stat_item item, int delta)
 {
@@ -256,6 +288,10 @@ static inline void __dec_zone_page_state(struct page *page,
 	__dec_zone_state(page_zone(page), item);
 }
 
+/*
+ * We only use atomic operations to update counters. So there is no need to
+ * disable interrupts.
+ */
 #define inc_zone_page_state __inc_zone_page_state
 #define dec_zone_page_state __dec_zone_page_state
 #define mod_zone_page_state __mod_zone_page_state
@@ -271,7 +307,7 @@ static inline void cpu_vm_stats_fold(int cpu) { }
 
 static inline void drain_zonestat(struct zone *zone,
 			struct per_cpu_pageset *pset) { }
-#endif		
+#endif		/* CONFIG_SMP */
 
 static inline void __mod_zone_freepage_state(struct zone *zone, int nr_pages,
 					     int migratetype)
@@ -283,4 +319,4 @@ static inline void __mod_zone_freepage_state(struct zone *zone, int nr_pages,
 
 extern const char * const vmstat_text[];
 
-#endif 
+#endif /* _LINUX_VMSTAT_H */

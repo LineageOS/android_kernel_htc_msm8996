@@ -49,7 +49,7 @@ static int regmap_swr_gather_write(void *context,
 	}
 	reg_addr = *(u16 *)reg;
 	val_bytes = map->format.val_bytes;
-	
+	/* val_len = val_bytes * val_count */
 	for (i = 0; i < (val_len / val_bytes); i++) {
 		value = (u8 *)val + (val_bytes * i);
 		ret = swr_write(swr, swr->dev_num, (reg_addr + i), value);

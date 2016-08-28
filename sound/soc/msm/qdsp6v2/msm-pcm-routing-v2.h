@@ -134,6 +134,11 @@
 #define LPASS_BE_QUAT_TDM_RX_7 "QUAT_TDM_RX_7"
 #define LPASS_BE_QUAT_TDM_TX_7 "QUAT_TDM_TX_7"
 
+/* For multimedia front-ends, asm session is allocated dynamically.
+ * Hence, asm session/multimedia front-end mapping has to be maintained.
+ * Due to this reason, additional multimedia front-end must be placed before
+ * non-multimedia front-ends.
+ */
 
 enum {
 	MSM_FRONTEND_DAI_MULTIMEDIA1 = 0,
@@ -329,10 +334,13 @@ struct msm_pcm_routing_evt {
 };
 
 struct msm_pcm_routing_bdai_data {
-	u16 port_id; 
-	u8 active; 
-	unsigned long fe_sessions; 
-	u64 port_sessions; 
+	u16 port_id; /* AFE port ID */
+	u8 active; /* track if this backend is enabled */
+	unsigned long fe_sessions; /* Front-end sessions */
+	u64 port_sessions; /* track Tx BE ports -> Rx BE
+			    * number of BE should not exceed
+			    * the size of this field
+			    */
 	unsigned int  sample_rate;
 	unsigned int  channel;
 	unsigned int  format;
@@ -341,8 +349,8 @@ struct msm_pcm_routing_bdai_data {
 };
 
 struct msm_pcm_routing_fdai_data {
-	u16 be_srate; 
-	int strm_id; 
+	u16 be_srate; /* track prior backend sample rate for flushing purpose */
+	int strm_id; /* ASM stream ID */
 	int perf_mode;
 	struct msm_pcm_routing_evt event_info;
 };

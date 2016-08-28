@@ -38,7 +38,7 @@
 struct camera_v4l2_private {
 	struct v4l2_fh fh;
 	unsigned int stream_id;
-	unsigned int is_vb2_valid; 
+	unsigned int is_vb2_valid; /*0 if no vb2 buffers on stream, else 1*/
 	struct vb2_queue vb2_q;
 };
 
@@ -50,7 +50,7 @@ static void camera_pack_event(struct file *filep, int evt_id,
 	struct msm_video_device *pvdev = video_drvdata(filep);
 	struct camera_v4l2_private *sp = fh_to_private(filep->private_data);
 
-	
+	/* always MSM_CAMERA_V4L2_EVENT_TYPE */
 	event->type = MSM_CAMERA_V4L2_EVENT_TYPE;
 	event->id = evt_id;
 	event_data->command = command;
@@ -90,7 +90,7 @@ static int camera_v4l2_querycap(struct file *filep, void *fh,
 	int rc;
 	struct v4l2_event event;
 
-	
+	/* can use cap->driver to make differentiation */
 	camera_pack_event(filep, MSM_CAMERA_GET_PARM,
 		MSM_CAMERA_PRIV_QUERY_CAP, -1, &event);
 
@@ -350,6 +350,8 @@ static int camera_v4l2_s_fmt_vid_cap_mplane(struct file *filep, void *fh,
 
 		pr_debug("%s: num planes :%c\n", __func__,
 					user_fmt->num_planes);
+		/*num_planes need to bound checked, otherwise for loop
+		can execute forever */
 		if (WARN_ON(user_fmt->num_planes > VIDEO_MAX_PLANES))
 			return -EINVAL;
 		for (i = 0; i < user_fmt->num_planes; i++)
@@ -384,7 +386,7 @@ static int camera_v4l2_try_fmt_vid_cap_mplane(struct file *filep, void *fh,
 static int camera_v4l2_g_parm(struct file *filep, void *fh,
 	struct v4l2_streamparm *a)
 {
-	
+	/* TODO */
 	return 0;
 }
 
@@ -413,7 +415,7 @@ static int camera_v4l2_s_parm(struct file *filep, void *fh,
 	if (rc < 0)
 		goto error;
 
-	
+	/* use stream_id as stream index */
 	parm->parm.capture.extendedmode = sp->stream_id;
 
 	return rc;
@@ -463,11 +465,11 @@ static const struct v4l2_ioctl_ops camera_v4l2_ioctl_ops = {
 	.vidioc_s_fmt_vid_cap_mplane = camera_v4l2_s_fmt_vid_cap_mplane,
 	.vidioc_try_fmt_vid_cap_mplane = camera_v4l2_try_fmt_vid_cap_mplane,
 
-	
+	/* Stream type-dependent parameter ioctls */
 	.vidioc_g_parm = camera_v4l2_g_parm,
 	.vidioc_s_parm = camera_v4l2_s_parm,
 
-	
+	/* event subscribe/unsubscribe */
 	.vidioc_subscribe_event = camera_v4l2_subscribe_event,
 	.vidioc_unsubscribe_event = camera_v4l2_unsubscribe_event,
 };
@@ -486,7 +488,7 @@ static int camera_v4l2_fh_open(struct file *filep)
 
 	filep->private_data = &sp->fh;
 
-	
+	/* stream_id = open id */
 	stream_id = atomic_read(&pvdev->opened);
 	sp->stream_id = find_first_zero_bit(
 		(const unsigned long *)&stream_id, MSM_CAMERA_STREAM_CNT_BITS);
@@ -518,7 +520,7 @@ static int camera_v4l2_vb2_q_init(struct file *filep)
 
 	memset(q, 0, sizeof(struct vb2_queue));
 
-	
+	/* free up this buffer when stream is done */
 	q->drv_priv =
 		kzalloc(sizeof(struct msm_v4l2_format_data), GFP_KERNEL);
 	if (!q->drv_priv) {
@@ -529,7 +531,7 @@ static int camera_v4l2_vb2_q_init(struct file *filep)
 	q->mem_ops = msm_vb2_get_q_mem_ops();
 	q->ops = msm_vb2_get_q_ops();
 
-	
+	/* default queue type */
 	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	q->io_modes = VB2_USERPTR;
 	q->io_flags = 0;
@@ -563,7 +565,7 @@ static int camera_v4l2_open(struct file *filep)
 
 	opn_idx = atomic_read(&pvdev->opened);
 	idx = opn_idx;
-	
+	/* every stream has a vb2 queue */
 	rc = camera_v4l2_vb2_q_init(filep);
 	if (rc < 0) {
 		pr_err("%s : vb2 queue init fails Line %d rc %d\n",
@@ -574,7 +576,7 @@ static int camera_v4l2_open(struct file *filep)
 	if (!atomic_read(&pvdev->opened)) {
 		pm_stay_awake(&pvdev->vdev->dev);
 
-		
+		/* create a new session when first opened */
 		rc = msm_create_session(pvdev->vdev->num, pvdev->vdev);
 		if (rc < 0) {
 			pr_err("%s : session creation failed Line %d rc %d\n",
@@ -800,7 +802,7 @@ int camera_init_v4l2(struct device *dev, unsigned int *session)
 	if (WARN_ON(rc < 0))
 		goto video_register_fail;
 #if defined(CONFIG_MEDIA_CONTROLLER)
-	
+	/* FIXME: How to get rid of this messy? */
 	pvdev->vdev->entity.name = video_device_node_name(pvdev->vdev);
 #endif
 

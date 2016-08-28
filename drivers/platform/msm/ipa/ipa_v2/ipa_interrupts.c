@@ -121,7 +121,7 @@ static int handle_interrupt(int irq_num, bool isr_context)
 		break;
 	}
 
-	
+	/* Force defer processing if in ISR context. */
 	if (interrupt_info.deferred_flag || isr_context) {
 		work_data = kzalloc(sizeof(struct ipa_interrupt_work_wrap),
 				GFP_ATOMIC);
@@ -161,10 +161,12 @@ static void ipa_process_interrupts(bool isr_context)
 	en = ipa_read_reg(ipa_ctx->mmio, IPA_IRQ_EN_EE_n_ADDR(ipa_ee));
 	reg = ipa_read_reg(ipa_ctx->mmio, IPA_IRQ_STTS_EE_n_ADDR(ipa_ee));
 	while (en & reg) {
+		/* Clear interrupt before processing to avoid
+		   clearing unhandled interrupts */
 		ipa_write_reg(ipa_ctx->mmio,
 				IPA_IRQ_CLR_EE_n_ADDR(ipa_ee), reg);
 
-		
+		/* Process the interrupts */
 		bmsk = 1;
 		for (i = 0; i < IPA_IRQ_NUM_MAX; i++) {
 			if (en & reg & bmsk)
@@ -172,6 +174,8 @@ static void ipa_process_interrupts(bool isr_context)
 			bmsk = bmsk << 1;
 		}
 
+		/* Check pending interrupts that may have
+		   been raised since last read */
 		reg = ipa_read_reg(ipa_ctx->mmio,
 				IPA_IRQ_STTS_EE_n_ADDR(ipa_ee));
 	}
@@ -190,7 +194,7 @@ static irqreturn_t ipa_isr(int irq, void *ctxt)
 {
 	unsigned long flags;
 
-	
+	/* defer interrupt handling in case IPA is not clocked on */
 	if (ipa_active_clients_trylock(&flags) == 0) {
 		IPADBG("defer interrupt processing\n");
 		queue_work(ipa_ctx->power_mgmt_wq, &ipa_interrupt_defer_work);
@@ -209,6 +213,17 @@ bail:
 	ipa_active_clients_trylock_unlock(&flags);
 	return IRQ_HANDLED;
 }
+/**
+* ipa2_add_interrupt_handler() - Adds handler to an interrupt type
+* @interrupt:		Interrupt type
+* @handler:		The handler to be added
+* @deferred_flag:	whether the handler processing should be deferred in
+*			a workqueue
+* @private_data:	the client's private data
+*
+* Adds handler to an interrupt type and enable the specific bit
+* in IRQ_EN register, associated interrupt in IRQ_STTS register will be enabled
+*/
 int ipa2_add_interrupt_handler(enum ipa_irq_type interrupt,
 		ipa_irq_handler_t handler,
 		bool deferred_flag,
@@ -246,6 +261,12 @@ int ipa2_add_interrupt_handler(enum ipa_irq_type interrupt,
 	return 0;
 }
 
+/**
+* ipa2_remove_interrupt_handler() - Removes handler to an interrupt type
+* @interrupt:		Interrupt type
+*
+* Removes the handler and disable the specific bit in IRQ_EN register
+*/
 int ipa2_remove_interrupt_handler(enum ipa_irq_type interrupt)
 {
 	u32 val;
@@ -279,6 +300,17 @@ int ipa2_remove_interrupt_handler(enum ipa_irq_type interrupt)
 	return 0;
 }
 
+/**
+* ipa_interrupts_init() - Initialize the IPA interrupts framework
+* @ipa_irq:	The interrupt number to allocate
+* @ee:		Execution environment
+* @ipa_dev:	The basic device structure representing the IPA driver
+*
+* - Initialize the ipa_interrupt_to_cb array
+* - Clear interrupts status
+* - Register the ipa interrupt handler - ipa_isr
+* - Enable apps processor wakeup by IPA interrupts
+*/
 int ipa_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev)
 {
 	int idx;
@@ -300,7 +332,7 @@ int ipa_interrupts_init(u32 ipa_irq, u32 ee, struct device *ipa_dev)
 		return -ENOMEM;
 	}
 
-	
+	/*Clearing interrupts status*/
 	ipa_write_reg(ipa_ctx->mmio, IPA_IRQ_CLR_EE_n_ADDR(ipa_ee), reg);
 
 	res = request_irq(ipa_irq, (irq_handler_t) ipa_isr,

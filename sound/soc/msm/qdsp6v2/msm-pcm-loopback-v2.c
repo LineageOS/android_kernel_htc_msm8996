@@ -178,14 +178,14 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 				dev_err(rtd->platform->dev,
 					"Error %d setting volume", ret);
 		}
-		
+		/* Set to largest negative value */
 		asm_mtmx_strtr_window.window_lsw = 0x00000000;
 		asm_mtmx_strtr_window.window_msw = 0x80000000;
 		param_id = ASM_SESSION_MTMX_STRTR_PARAM_RENDER_WINDOW_START_V2;
 		q6asm_send_mtmx_strtr_window(pcm->audio_client,
 					     &asm_mtmx_strtr_window,
 					     param_id);
-		
+		/* Set to largest positive value */
 		asm_mtmx_strtr_window.window_lsw = 0xffffffff;
 		asm_mtmx_strtr_window.window_msw = 0x7fffffff;
 		param_id = ASM_SESSION_MTMX_STRTR_PARAM_RENDER_WINDOW_END_V2;

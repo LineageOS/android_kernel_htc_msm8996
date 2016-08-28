@@ -20,4 +20,4 @@ int mc_switch_core(__u32 core_num);
 
 __u32 mc_active_core(void);
 
-#endif 
+#endif /* _MC_LINUX_API_H_ */

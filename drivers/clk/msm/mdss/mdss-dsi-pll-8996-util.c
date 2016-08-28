@@ -103,15 +103,23 @@ int post_n1_div_set_div(struct div_clk *clk, int div)
 	pdb = (struct dsi_pll_db *)pll->priv;
 	pout = &pdb->out;
 
+	/*
+	 * vco rate = bit_clk * postdiv * n1div
+	 * vco range from 1300 to 2600 Mhz
+	 * postdiv = 1
+	 * n1div = 1 to 15
+	 * n1div = roundup(1300Mhz / bit_clk)
+	 * support bit_clk above 86.67Mhz
+	 */
 
-	
-	pout->pll_postdiv = 1;	
+	/* this is for vco/bit clock */
+	pout->pll_postdiv = 1;	/* fixed, divided by 1 */
 	pout->pll_n1div  = div;
 
 	pr_debug("ndx=%d div=%d postdiv=%x n1div=%x\n",
 			pll->index, div, pout->pll_postdiv, pout->pll_n1div);
 
-	
+	/* registers commited at pll_db_commit_8996() */
 
 	return 0;
 }
@@ -131,6 +139,11 @@ int post_n1_div_get_div(struct div_clk *clk)
 		return rc;
 	}
 
+	/*
+	 * postdiv = 1/2/4/8
+	 * n1div = 1 - 15
+	 * fot the time being, assume postdiv = 1
+	 */
 
 	div = MDSS_PLL_REG_R(pll->pll_base, DSIPHY_CMN_CLK_CFG0);
 	div &= 0xF;
@@ -159,20 +172,20 @@ int n2_div_set_div(struct div_clk *clk, int div)
 	pdb = (struct dsi_pll_db *)pll->priv;
 	pout = &pdb->out;
 
-	
+	/* this is for pixel clock */
 	n2div = MDSS_PLL_REG_R(pll->pll_base, DSIPHY_CMN_CLK_CFG0);
-	n2div &= ~0xf0;	
+	n2div &= ~0xf0;	/* bits 4 to 7 */
 	n2div |= (div << 4);
 	MDSS_PLL_REG_W(pll->pll_base, DSIPHY_CMN_CLK_CFG0, n2div);
 
-	
+	/* commit slave if split display is enabled */
 	slave = pll->slave;
 	if (slave)
 		MDSS_PLL_REG_W(slave->pll_base, DSIPHY_CMN_CLK_CFG0, n2div);
 
 	pout->pll_n2div = div;
 
-	
+	/* set dsiclk_sel=1 so that n2div *= 2 */
 	MDSS_PLL_REG_W(pll->pll_base, DSIPHY_CMN_CLK_CFG1, 1);
 	pr_debug("ndx=%d div=%d n2div=%x\n", pll->index, div, n2div);
 
@@ -233,7 +246,7 @@ static bool pll_is_pll_locked_8996(struct mdss_pll_resources *pll)
 	u32 status;
 	bool pll_locked;
 
-	
+	/* poll for PLL ready status */
 	if (readl_poll_timeout_atomic((pll->pll_base +
 			DSIPHY_PLL_RESET_SM_READY_STATUS),
 			status,
@@ -285,6 +298,10 @@ int dsi_pll_enable_seq_8996(struct mdss_pll_resources *pll)
 
 	dsi_pll_start_8996(pll->pll_base);
 
+	/*
+	 * both DSIPHY_PLL_CLKBUFLR_EN and DSIPHY_CMN_GLBL_TEST_CTRL
+	 * enabled at mdss_dsi_8996_phy_config()
+	 */
 
 	if (!pll_is_pll_locked_8996(pll)) {
 		pr_err("DSI PLL ndx=%d lock failed\n", pll->index);
@@ -305,7 +322,7 @@ static int dsi_pll_enable(struct clk *c)
 	struct dsi_pll_vco_clk *vco = to_vco_clk(c);
 	struct mdss_pll_resources *pll = vco->priv;
 
-	
+	/* Try all enable sequences until one succeeds */
 	for (i = 0; i < vco->pll_en_seq_cnt; i++) {
 		rc = vco->pll_enable_seqs[i](pll);
 		pr_debug("DSI PLL %s after sequence #%d\n",
@@ -350,41 +367,41 @@ static void dsi_pll_disable(struct clk *c)
 static void mdss_dsi_pll_8996_input_init(struct mdss_pll_resources *pll,
 					struct dsi_pll_db *pdb)
 {
-	pdb->in.fref = 19200000;	
-	pdb->in.fdata = 0;		
-	pdb->in.dsiclk_sel = 1;		
-	pdb->in.ssc_en = pll->ssc_en;		
-	pdb->in.ldo_en = 0;		
+	pdb->in.fref = 19200000;	/* 19.2 Mhz*/
+	pdb->in.fdata = 0;		/* bit clock rate */
+	pdb->in.dsiclk_sel = 1;		/* 1, reg: 0x0014 */
+	pdb->in.ssc_en = pll->ssc_en;		/* 1, reg: 0x0494, bit 0 */
+	pdb->in.ldo_en = 0;		/* 0,  reg: 0x004c, bit 0 */
 
-	
-	pdb->in.refclk_dbler_en = 0;	
-	pdb->in.vco_measure_time = 5;	
-	pdb->in.kvco_measure_time = 5;	
-	pdb->in.bandgap_timer = 4;	
-	pdb->in.pll_wakeup_timer = 5;	
-	pdb->in.plllock_cnt = 1;	
-	pdb->in.plllock_rng = 0;	
-	pdb->in.ssc_center = pll->ssc_center;
-	pdb->in.ssc_adj_period = 37;	
+	/* fixed  input */
+	pdb->in.refclk_dbler_en = 0;	/* 0, reg: 0x04c0, bit 1 */
+	pdb->in.vco_measure_time = 5;	/* 5, unknown */
+	pdb->in.kvco_measure_time = 5;	/* 5, unknown */
+	pdb->in.bandgap_timer = 4;	/* 4, reg: 0x0430, bit 3 - 5 */
+	pdb->in.pll_wakeup_timer = 5;	/* 5, reg: 0x043c, bit 0 - 2 */
+	pdb->in.plllock_cnt = 1;	/* 1, reg: 0x0488, bit 1 - 2 */
+	pdb->in.plllock_rng = 0;	/* 0, reg: 0x0488, bit 3 - 4 */
+	pdb->in.ssc_center = pll->ssc_center;/* 0, reg: 0x0494, bit 1 */
+	pdb->in.ssc_adj_period = 37;	/* 37, reg: 0x498, bit 0 - 9 */
 	pdb->in.ssc_spread = pll->ssc_ppm / 1000;
 	pdb->in.ssc_freq = pll->ssc_freq;
 
-	pdb->in.pll_ie_trim = 4;	
-	pdb->in.pll_ip_trim = 4;	
-	pdb->in.pll_cpcset_cur = 1;	
-	pdb->in.pll_cpmset_cur = 1;	
-	pdb->in.pll_icpmset = 4;	
-	pdb->in.pll_icpcset = 4;	
-	pdb->in.pll_icpmset_p = 0;	
-	pdb->in.pll_icpmset_m = 0;	
-	pdb->in.pll_icpcset_p = 0;	
-	pdb->in.pll_icpcset_m = 0;	
-	pdb->in.pll_lpf_res1 = 3;	
-	pdb->in.pll_lpf_cap1 = 11;	
-	pdb->in.pll_lpf_cap2 = 14;	
+	pdb->in.pll_ie_trim = 4;	/* 4, reg: 0x0400 */
+	pdb->in.pll_ip_trim = 4;	/* 4, reg: 0x0404 */
+	pdb->in.pll_cpcset_cur = 1;	/* 1, reg: 0x04f0, bit 0 - 2 */
+	pdb->in.pll_cpmset_cur = 1;	/* 1, reg: 0x04f0, bit 3 - 5 */
+	pdb->in.pll_icpmset = 4;	/* 4, reg: 0x04fc, bit 3 - 5 */
+	pdb->in.pll_icpcset = 4;	/* 4, reg: 0x04fc, bit 0 - 2 */
+	pdb->in.pll_icpmset_p = 0;	/* 0, reg: 0x04f4, bit 0 - 2 */
+	pdb->in.pll_icpmset_m = 0;	/* 0, reg: 0x04f4, bit 3 - 5 */
+	pdb->in.pll_icpcset_p = 0;	/* 0, reg: 0x04f8, bit 0 - 2 */
+	pdb->in.pll_icpcset_m = 0;	/* 0, reg: 0x04f8, bit 3 - 5 */
+	pdb->in.pll_lpf_res1 = 3;	/* 3, reg: 0x0504, bit 0 - 3 */
+	pdb->in.pll_lpf_cap1 = 11;	/* 11, reg: 0x0500, bit 0 - 3 */
+	pdb->in.pll_lpf_cap2 = 14;	/* 14, reg: 0x0500, bit 4 - 7 */
 	pdb->in.pll_iptat_trim = 7;
-	pdb->in.pll_c3ctrl = 2;		
-	pdb->in.pll_r3ctrl = 1;		
+	pdb->in.pll_c3ctrl = 2;		/* 2 */
+	pdb->in.pll_r3ctrl = 1;		/* 1 */
 }
 
 static void pll_8996_ssc_calc(struct mdss_pll_resources *pll,
@@ -423,7 +440,7 @@ static void pll_8996_ssc_calc(struct mdss_pll_resources *pll,
 
 	pr_debug("%s: step_size=%lld\n", __func__, step_size);
 
-	step_size &= 0x0ffff;	
+	step_size &= 0x0ffff;	/* take lower 16 bits */
 
 	pdb->out.ssc_step_size = step_size;
 }
@@ -496,18 +513,18 @@ static void pll_8996_calc_vco_count(struct dsi_pll_db *pdb,
 
 	data = fref * pin->vco_measure_time;
 	do_div(data, 1000000);
-	data &= 0x03ff;	
+	data &= 0x03ff;	/* 10 bits */
 	data -= 2;
 	pout->pll_vco_div_ref = data;
 
-	data = (unsigned long)vco_clk_rate / 1000000;	
+	data = (unsigned long)vco_clk_rate / 1000000;	/* unit is Mhz */
 	data *= pin->vco_measure_time;
 	do_div(data, 10);
-	pout->pll_vco_count = data; 
+	pout->pll_vco_count = data; /* reg: 0x0474, 0x0478 */
 
 	data = fref * pin->kvco_measure_time;
 	do_div(data, 1000000);
-	data &= 0x03ff;	
+	data &= 0x03ff;	/* 10 bits */
 	data -= 1;
 	pout->pll_kvco_div_ref = data;
 
@@ -555,10 +572,10 @@ static void pll_db_commit_ssc(struct mdss_pll_resources *pll,
 
 	data = (pin->ssc_center & 0x01);
 	data <<= 1;
-	data |= 0x01; 
+	data |= 0x01; /* enable */
 	MDSS_PLL_REG_W(pll_base, DSIPHY_PLL_SSC_EN_CENTER, data);
 
-	wmb();	
+	wmb();	/* make sure register committed */
 }
 
 static void pll_db_commit_common(struct mdss_pll_resources *pll,
@@ -569,11 +586,11 @@ static void pll_db_commit_common(struct mdss_pll_resources *pll,
 	struct dsi_pll_output *pout = &pdb->out;
 	char data;
 
-	
+	/* confgiure the non frequency dependent pll registers */
 	data = 0;
 	MDSS_PLL_REG_W(pll_base, DSIPHY_PLL_SYSCLK_EN_RESET, data);
 
-	
+	/* DSIPHY_PLL_CLKBUFLR_EN updated at dsi phy */
 
 	data = pout->pll_txclk_en;
 	MDSS_PLL_REG_W(pll_base, DSIPHY_PLL_TXCLK_EN, data);
@@ -643,25 +660,25 @@ static void pll_db_commit_8996(struct mdss_pll_resources *pll,
 
 	pll_db_commit_common(pll, pdb);
 
-	
-	
+	/* de assert pll start and apply pll sw reset */
+	/* stop pll */
 	MDSS_PLL_REG_W(pll_base, DSIPHY_CMN_PLL_CNTRL, 0);
 
-	
+	/* pll sw reset */
 	MDSS_PLL_REG_W(pll_base, DSIPHY_CMN_CTRL_1, 0x20);
-	wmb();	
+	wmb();	/* make sure register committed */
 	udelay(10);
 
 	MDSS_PLL_REG_W(pll_base, DSIPHY_CMN_CTRL_1, 0);
-	wmb();	
+	wmb();	/* make sure register committed */
 
-	data = pdb->in.dsiclk_sel; 
+	data = pdb->in.dsiclk_sel; /* set dsiclk_sel = 1  */
 	MDSS_PLL_REG_W(pll_base, DSIPHY_CMN_CLK_CFG1, data);
 
-	data = 0xff; 
+	data = 0xff; /* data, clk, pll normal operation */
 	MDSS_PLL_REG_W(pll_base, DSIPHY_CMN_CTRL_0, data);
 
-	
+	/* confgiure the frequency dependent pll registers */
 	data = pout->dec_start;
 	MDSS_PLL_REG_W(pll_base, DSIPHY_PLL_DEC_START, data);
 
@@ -702,6 +719,13 @@ static void pll_db_commit_8996(struct mdss_pll_resources *pll,
 	data &= 0x03;
 	MDSS_PLL_REG_W(pll_base, DSIPHY_PLL_KVCO_COUNT2, data);
 
+	/*
+	 * tx_band = pll_postdiv
+	 * 0: divided by 1 <== for now
+	 * 1: divided by 2
+	 * 2: divided by 4
+	 * 3: divided by 8
+	 */
 	data = (((pout->pll_postdiv - 1) << 4) | pdb->in.pll_lpf_res1);
 	MDSS_PLL_REG_W(pll_base, DSIPHY_PLL_PLL_LPF2_POSTDIV, data);
 
@@ -711,9 +735,14 @@ static void pll_db_commit_8996(struct mdss_pll_resources *pll,
 	if (pll->ssc_en)
 		pll_db_commit_ssc(pll, pdb);
 
-	wmb();	
+	wmb();	/* make sure register committed */
 }
 
+/*
+ * pll_source_finding:
+ * Both GLBL_TEST_CTRL and CLKBUFLR_EN are configured
+ * at mdss_dsi_8996_phy_config()
+ */
 static int pll_source_finding(struct mdss_pll_resources *pll)
 {
 	u32 clk_buf_en;
@@ -817,12 +846,12 @@ int pll_vco_set_rate_8996(struct clk *c, unsigned long rate)
 	pll_8996_calc_vco_count(pdb, pll->vco_current_rate,
 					pll->vco_ref_clk_rate);
 
-	
+	/* commit slave if split display is enabled */
 	slave = pll->slave;
 	if (slave)
 		pll_db_commit_8996(slave, pdb);
 
-	
+	/* commit master itself */
 	pll_db_commit_8996(pll, pdb);
 
 	mdss_pll_resource_enable(pll, false);
@@ -857,7 +886,7 @@ static void shadow_pll_dynamic_refresh_8996(struct mdss_pll_resources *pll,
 		DSI_DYNAMIC_REFRESH_PLL_CTRL24,
 		DSIPHY_PLL_PLLLOCK_CMP3, DSIPHY_PLL_PLL_VCO_TUNE,
 		((pout->plllock_cmp >> 16) & 0x03),
-		(pll->cache_pll_trim_codes[1] | BIT(7))); 
+		(pll->cache_pll_trim_codes[1] | BIT(7))); /* VCO tune*/
 	MDSS_DYN_PLL_REG_W(pll->dyn_pll_base,
 		DSI_DYNAMIC_REFRESH_PLL_CTRL25,
 		DSIPHY_PLL_KVCO_CODE, DSIPHY_PLL_RESETSM_CNTRL,
@@ -995,7 +1024,7 @@ long pll_vco_round_rate_8996(struct clk *c, unsigned long rate)
 
 	div = vco->min_rate / rate;
 	if (div > 15) {
-		
+		/* rate < 86.67 Mhz */
 		pr_err("rate=%lu NOT supportted\n", rate);
 		return -EINVAL;
 	}

@@ -210,10 +210,14 @@ static int __maybe_unused cpu_psci_cpu_init_idle(struct device_node *cpu_node,
 	struct psci_power_state *psci_states;
 	struct device_node *state_node;
 
+	/*
+	 * If the PSCI cpu_suspend function hook has not been initialized
+	 * idle states must not be enabled, so bail out
+	 */
 	if (!psci_ops.cpu_suspend)
 		return -EOPNOTSUPP;
 
-	
+	/* Count idle states */
 	while ((state_node = of_parse_phandle(cpu_node, "cpu-idle-states",
 					      count))) {
 		count++;
@@ -247,7 +251,7 @@ static int __maybe_unused cpu_psci_cpu_init_idle(struct device_node *cpu_node,
 							    i);
 		psci_power_state_unpack(psci_power_state, &psci_states[i]);
 	}
-	
+	/* Idle states parsed correctly, initialize per-cpu pointer */
 	per_cpu(psci_power_state, cpu) = psci_states;
 	return 0;
 
@@ -288,6 +292,10 @@ static void psci_sys_poweroff(void)
 	invoke_psci_fn(PSCI_0_2_FN_SYSTEM_OFF, 0, 0, 0);
 }
 
+/*
+ * PSCI Function IDs for v0.2+ are well defined so use
+ * standard values.
+ */
 static int __init psci_1_0_init(struct device_node *np)
 {
 	int err, ver;
@@ -300,7 +308,7 @@ static int __init psci_1_0_init(struct device_node *np)
 	ver = psci_get_version();
 
 	if (ver == PSCI_RET_NOT_SUPPORTED) {
-		
+		/* PSCI v1.0 mandates implementation of PSCI_ID_VERSION. */
 		pr_err("PSCI firmware does not comply with the v1.0 spec.\n");
 		err = -EOPNOTSUPP;
 		goto out_put_node;
@@ -352,7 +360,7 @@ static int __init psci_0_2_init(struct device_node *np)
 	ver = psci_get_version();
 
 	if (ver == PSCI_RET_NOT_SUPPORTED) {
-		
+		/* PSCI v0.2 mandates implementation of PSCI_ID_VERSION. */
 		pr_err("PSCI firmware does not comply with the v0.2 spec.\n");
 		err = -EOPNOTSUPP;
 		goto out_put_node;
@@ -397,6 +405,9 @@ out_put_node:
 	return err;
 }
 
+/*
+ * PSCI < v0.2 get PSCI Function IDs via DT.
+ */
 static int __init psci_0_1_init(struct device_node *np)
 {
 	u32 id;
@@ -496,7 +507,7 @@ static int cpu_psci_cpu_boot(unsigned int cpu)
 #ifdef CONFIG_HOTPLUG_CPU
 static int cpu_psci_cpu_disable(unsigned int cpu)
 {
-	
+	/* Fail early if we don't have CPU_OFF support */
 	if (!psci_ops.cpu_off)
 		return -EOPNOTSUPP;
 	return 0;
@@ -505,6 +516,10 @@ static int cpu_psci_cpu_disable(unsigned int cpu)
 static void cpu_psci_cpu_die(unsigned int cpu)
 {
 	int ret;
+	/*
+	 * There are no known implementations of PSCI actually using the
+	 * power state field, pass a sensible default for now.
+	 */
 	struct psci_power_state state = {
 		.type = PSCI_POWER_STATE_TYPE_POWER_DOWN,
 	};
@@ -527,6 +542,11 @@ static int cpu_psci_cpu_kill(unsigned int cpu)
 
 	if (!psci_ops.affinity_info)
 		return 1;
+	/*
+	 * cpu_kill could race with cpu_die and we can
+	 * potentially end up declaring this cpu undead
+	 * while it is dying. So, try again a few times.
+	 */
 
 	for (i = 0; i < 10; i++) {
 		err = psci_ops.affinity_info(cpu_logical_map(cpu), 0);
@@ -541,7 +561,7 @@ static int cpu_psci_cpu_kill(unsigned int cpu)
 
 	pr_warn("CPU%d may not have shut down cleanly (AFFINITY_INFO reports %d)\n",
 			cpu, err);
-	
+	/* Make op_cpu_kill() fail. */
 	return 0;
 }
 #endif

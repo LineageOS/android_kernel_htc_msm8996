@@ -37,6 +37,12 @@
 #define WAIT_MAX_FENCE_TIMEOUT (WAIT_FENCE_FIRST_TIMEOUT + \
 					WAIT_FENCE_FINAL_TIMEOUT)
 #define WAIT_MIN_FENCE_TIMEOUT  (1)
+/*
+ * Display op timeout should be greater than total time it can take for
+ * a display thread to commit one frame. One of the largest time consuming
+ * activity performed by display thread is waiting for fences. So keeping
+ * that as a reference and add additional 20s to sustain system holdups.
+ */
 #define WAIT_DISP_OP_TIMEOUT (WAIT_FENCE_FIRST_TIMEOUT + \
 		WAIT_FENCE_FINAL_TIMEOUT + (20 * MSEC_PER_SEC))
 
@@ -52,6 +58,27 @@
 #define MDP_PP_AD_BL_LINEAR_INV	0x1
 #define MAX_LAYER_COUNT		0xC
 
+/**
+ * enum mdp_notify_event - Different frame events to indicate frame update state
+ *
+ * @MDP_NOTIFY_FRAME_BEGIN:	Frame update has started, the frame is about to
+ *				be programmed into hardware.
+ * @MDP_NOTIFY_FRAME_CFG_DONE:	Frame configuration is done.
+ * @MDP_NOTIFY_FRAME_CTX_DONE:	Frame has finished accessing sw context.
+ *				Next frame can start preparing.
+ * @MDP_NOTIFY_FRAME_READY:	Frame ready to be kicked off, this can be used
+ *				as the last point in time to synchronize with
+ *				source buffers before kickoff.
+ * @MDP_NOTIFY_FRAME_FLUSHED:	Configuration of frame has been flushed and
+ *				DMA transfer has started.
+ * @MDP_NOTIFY_FRAME_DONE:	Frame DMA transfer has completed.
+ *				- For video mode panels this will indicate that
+ *				  previous frame has been replaced by new one.
+ *				- For command mode/writeback frame done happens
+ *				  as soon as the DMA of the frame is done.
+ * @MDP_NOTIFY_FRAME_TIMEOUT:	Frame DMA transfer has failed to complete within
+ *				a fair amount of time.
+ */
 enum mdp_notify_event {
 	MDP_NOTIFY_FRAME_BEGIN = 1,
 	MDP_NOTIFY_FRAME_CFG_DONE,
@@ -62,6 +89,24 @@ enum mdp_notify_event {
 	MDP_NOTIFY_FRAME_TIMEOUT,
 };
 
+/**
+ * enum mdp_split_mode - Lists the possible split modes in the device
+ *
+ * @MDP_SPLIT_MODE_NONE: Single physical display with single ctl path
+ *                       and single layer mixer.
+ *                       i.e. 1080p single DSI with single LM.
+ * #MDP_DUAL_LM_SINGLE_DISPLAY: Single physical display with signle ctl
+ *                              path but two layer mixers.
+ *                              i.e. WQXGA eDP or 4K HDMI primary or 1080p
+ *                                   single DSI with split LM to reduce power.
+ * @MDP_DUAL_LM_DUAL_DISPLAY: Two physically separate displays with two
+ *                            separate but synchronized ctl paths. Each ctl
+ *                            path with its own layer mixer.
+ *                            i.e. 1440x2560 with two DSI interfaces.
+ * @MDP_PINGPONG_SPLIT: Two physically separate display but single ctl path with
+ *                      single layer mixer. Data is split at pingpong module.
+ *                      i.e. 1440x2560 on chipsets with single DSI interface.
+ */
 enum mdp_split_mode {
 	MDP_SPLIT_MODE_NONE,
 	MDP_DUAL_LM_SINGLE_DISPLAY,
@@ -69,12 +114,26 @@ enum mdp_split_mode {
 	MDP_PINGPONG_SPLIT,
 };
 
+/* enum mdp_mmap_type - Lists the possible mmap type in the device
+ *
+ * @MDP_FB_MMAP_NONE: Unknown type.
+ * @MDP_FB_MMAP_ION_ALLOC:   Use ION allocate a buffer for mmap
+ * @MDP_FB_MMAP_PHYSICAL_ALLOC:  Use physical buffer for mmap
+ */
 enum mdp_mmap_type {
 	MDP_FB_MMAP_NONE,
 	MDP_FB_MMAP_ION_ALLOC,
 	MDP_FB_MMAP_PHYSICAL_ALLOC,
 };
 
+/**
+ * enum dyn_mode_switch_state - Lists next stage for dynamic mode switch work
+ *
+ * @MDSS_MDP_NO_UPDATE_REQUESTED: incoming frame is processed normally
+ * @MDSS_MDP_WAIT_FOR_PREP: Waiting for OVERLAY_PREPARE to be called
+ * @MDSS_MDP_WAIT_FOR_SYNC: Waiting for BUFFER_SYNC to be called
+ * @MDSS_MDP_WAIT_FOR_COMMIT: Waiting for COMMIT to be called
+ */
 enum dyn_mode_switch_state {
 	MDSS_MDP_NO_UPDATE_REQUESTED,
 	MDSS_MDP_WAIT_FOR_PREP,
@@ -82,6 +141,12 @@ enum dyn_mode_switch_state {
 	MDSS_MDP_WAIT_FOR_COMMIT,
 };
 
+/**
+ * enum mdss_fb_idle_state - idle states based on frame updates
+ * @MDSS_FB_NOT_IDLE: Frame updates have started
+ * @MDSS_FB_IDLE_TIMER_RUNNING: Idle timer has been kicked
+ * @MDSS_FB_IDLE: Currently idle
+ */
 enum mdss_fb_idle_state {
 	MDSS_FB_NOT_IDLE,
 	MDSS_FB_IDLE_TIMER_RUNNING,
@@ -134,7 +199,7 @@ struct msm_mdp_interface {
 	int (*init_fnc)(struct msm_fb_data_type *mfd);
 	int (*on_fnc)(struct msm_fb_data_type *mfd);
 	int (*off_fnc)(struct msm_fb_data_type *mfd);
-	
+	/* called to release resources associated to the process */
 	int (*release_fnc)(struct msm_fb_data_type *mfd, struct file *file);
 	int (*mode_switch)(struct msm_fb_data_type *mfd,
 					u32 mode);
@@ -252,7 +317,7 @@ struct msm_fb_data_type {
 
 	struct msm_sync_pt_data mdp_sync_pt_data;
 
-	
+	/* for non-blocking */
 	struct task_struct *disp_thread;
 	atomic_t commits_pending;
 	atomic_t kickoff_pending;
@@ -286,7 +351,7 @@ struct msm_fb_data_type {
 	int fb_mmap_type;
 	struct led_trigger *boot_notification_led;
 
-	
+	/* Following is used for dynamic mode switch */
 	enum dyn_mode_switch_state switch_state;
 	u32 switch_new_mode;
 	bool pending_switch;
@@ -316,16 +381,19 @@ static inline void mdss_fb_update_notify_update(struct msm_fb_data_type *mfd)
 	}
 }
 
+/* Function returns true for either any kind of dual display */
 static inline bool is_panel_split(struct msm_fb_data_type *mfd)
 {
 	return mfd && mfd->panel_info && mfd->panel_info->is_split_display;
 }
+/* Function returns true, if Layer Mixer split is Set */
 static inline bool is_split_lm(struct msm_fb_data_type *mfd)
 {
 	return mfd &&
 	       (mfd->split_mode == MDP_DUAL_LM_DUAL_DISPLAY ||
 		mfd->split_mode == MDP_DUAL_LM_SINGLE_DISPLAY);
 }
+/* Function returns true, if Ping pong split is Set*/
 static inline bool is_pingpong_split(struct msm_fb_data_type *mfd)
 {
 	return mfd && (mfd->split_mode == MDP_PINGPONG_SPLIT);
@@ -384,4 +452,4 @@ u32 mdss_fb_get_mode_switch(struct msm_fb_data_type *mfd);
 void mdss_fb_report_panel_dead(struct msm_fb_data_type *mfd);
 void mdss_panelinfo_to_fb_var(struct mdss_panel_info *pinfo,
 						struct fb_var_screeninfo *var);
-#endif 
+#endif /* MDSS_FB_H */

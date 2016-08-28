@@ -103,6 +103,8 @@ static int32_t qdsp_apr_callback(struct apr_client_data *data, void *priv)
 		} else if (data->reset_proc == APR_DEST_MODEM) {
 			pr_debug("%s: Received Modem reset event\n", __func__);
 		}
+		/* Set the remaining member variables to default values
+			for RESET_EVENTS */
 		data->payload_size = 0;
 		data->payload = NULL;
 		data->src_port = 0;
@@ -125,6 +127,9 @@ static int32_t qdsp_apr_callback(struct apr_client_data *data, void *priv)
 
 		response_list->resp.src_port = data->src_port;
 
+		/* Reverting the bit manipulation done in voice_svc_update_hdr
+		 * to the src_port which is returned to us as dest_port.
+		 */
 		response_list->resp.dest_port = ((data->dest_port) >> 8);
 		response_list->resp.token = data->token;
 		response_list->resp.opcode = data->opcode;
@@ -150,7 +155,7 @@ static int32_t qdsp_apr_callback(struct apr_client_data *data, void *priv)
 
 static int32_t qdsp_dummy_apr_callback(struct apr_client_data *data, void *priv)
 {
-	
+	/* Do Nothing */
 	return 0;
 }
 
@@ -161,6 +166,12 @@ static void voice_svc_update_hdr(struct voice_svc_cmd_request *apr_req_data,
 	aprdata->hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
 				       APR_HDR_LEN(sizeof(struct apr_hdr)),
 				       APR_PKT_VER);
+	/* Bit manipulation is done on src_port so that a unique ID is sent.
+	 * This manipulation can be used in the future where the same service
+	 * is tried to open multiple times with the same src_port. At that
+	 * time 0x0001 can be replaced with other values depending on the
+	 * count.
+	 */
 	aprdata->hdr.src_port = ((apr_req_data->src_port) << 8 | 0x0001);
 	aprdata->hdr.dest_port = apr_req_data->dest_port;
 	aprdata->hdr.token = apr_req_data->token;
@@ -548,6 +559,12 @@ static int voice_svc_open(struct inode *inode, struct file *file)
 	spin_lock_init(&prtd->response_lock);
 	file->private_data = (void *)prtd;
 
+	/* Current APR implementation doesn't support session based
+	 * multiple service registrations. The apr_deregister()
+	 * function sets the destination and client IDs to zero, if
+	 * deregister is called for a single service instance.
+	 * To avoid this, register for additional services.
+	 */
 	if (!reg_dummy_sess) {
 		voice_svc_dummy_reg();
 		reg_dummy_sess = 1;

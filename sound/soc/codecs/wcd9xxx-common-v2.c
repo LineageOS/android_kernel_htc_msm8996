@@ -93,6 +93,9 @@ static const char *state_to_str(u8 state, char *buf, size_t buflen)
 {
 	int i;
 	int cnt = 0;
+	/*
+	 * This array of strings should match with enum wcd_clsh_state_bit.
+	 */
 	const char *states[] = {
 		"STATE_EAR",
 		"STATE_HPH_L",
@@ -172,10 +175,10 @@ static inline void wcd_clsh_set_buck_mode(struct snd_soc_codec *codec,
 {
 	if (mode == CLS_H_HIFI)
 		snd_soc_update_bits(codec, WCD9XXX_A_ANA_RX_SUPPLIES,
-				    0x08, 0x08); 
+				    0x08, 0x08); /* set to HIFI */
 	else
 		snd_soc_update_bits(codec, WCD9XXX_A_ANA_RX_SUPPLIES,
-				    0x08, 0x00); 
+				    0x08, 0x00); /* set to default */
 }
 
 static inline void wcd_clsh_set_flyback_mode(struct snd_soc_codec *codec,
@@ -183,10 +186,10 @@ static inline void wcd_clsh_set_flyback_mode(struct snd_soc_codec *codec,
 {
 	if (mode == CLS_H_HIFI)
 		snd_soc_update_bits(codec, WCD9XXX_A_ANA_RX_SUPPLIES,
-				    0x04, 0x04); 
+				    0x04, 0x04); /* set to HIFI */
 	else
 		snd_soc_update_bits(codec, WCD9XXX_A_ANA_RX_SUPPLIES,
-				    0x04, 0x00); 
+				    0x04, 0x00); /* set to Default */
 }
 
 static void wcd_clsh_buck_ctrl(struct snd_soc_codec *codec,
@@ -194,13 +197,17 @@ static void wcd_clsh_buck_ctrl(struct snd_soc_codec *codec,
 			       int mode,
 			       bool enable)
 {
-	
+	/* enable/disable buck */
 	if ((enable && (++clsh_d->buck_users == 1)) ||
 	   (!enable && (--clsh_d->buck_users == 0)))
 		snd_soc_update_bits(codec, WCD9XXX_A_ANA_RX_SUPPLIES,
 				    (1 << 7), (enable << 7));
 	dev_dbg(codec->dev, "%s: buck_users %d, enable %d, mode: %s",
 		__func__, clsh_d->buck_users, enable, mode_to_str(mode));
+	/*
+	 * 500us sleep is required after buck enable/disable
+	 * as per HW requirement
+	 */
 	usleep_range(500, 500 + WCD_USLEEP_RANGE);
 }
 
@@ -213,12 +220,12 @@ static void wcd_clsh_flyback_ctrl(struct snd_soc_codec *codec,
 	struct wcd9xxx_reg_val bulk_reg[2];
 	u8 vneg[] = {0x00, 0x40};
 
-	
+	/* enable/disable flyback */
 	if ((enable && (++clsh_d->flyback_users == 1)) ||
 	   (!enable && (--clsh_d->flyback_users == 0))) {
 		snd_soc_update_bits(codec, WCD9XXX_A_ANA_RX_SUPPLIES,
 				    (1 << 6), (enable << 6));
-		
+		/* 100usec delay is needed as per HW requirement */
 		usleep_range(100, 110);
 		if (enable && (TASHA_IS_1_1(wcd9xxx->version))) {
 			wcd_clsh_set_flyback_mode(codec, CLS_H_HIFI);
@@ -236,7 +243,7 @@ static void wcd_clsh_flyback_ctrl(struct snd_soc_codec *codec,
 			bulk_reg[1].reg = WCD9XXX_A_ANA_RX_SUPPLIES;
 			bulk_reg[1].buf = &vneg[1];
 			bulk_reg[1].bytes = 1;
-			
+			/* 500usec delay is needed as per HW requirement */
 			usleep_range(500, 510);
 			wcd9xxx_slim_bulk_write(wcd9xxx, bulk_reg, 2,
 						false);
@@ -248,6 +255,10 @@ static void wcd_clsh_flyback_ctrl(struct snd_soc_codec *codec,
 	}
 	dev_dbg(codec->dev, "%s: flyback_users %d, enable %d, mode: %s",
 		__func__, clsh_d->flyback_users, enable, mode_to_str(mode));
+	/*
+	 * 500us sleep is required after flyback enable/disable
+	 * as per HW requirement
+	 */
 	usleep_range(500, 500 + WCD_USLEEP_RANGE);
 }
 
@@ -330,7 +341,7 @@ static void wcd_clsh_set_flyback_current(struct snd_soc_codec *codec, int mode)
 
 	snd_soc_update_bits(codec, WCD9XXX_RX_BIAS_FLYB_BUFF, 0x0F, 0x0A);
 	snd_soc_update_bits(codec, WCD9XXX_RX_BIAS_FLYB_BUFF, 0xF0, 0xA0);
-	
+	/* Sleep needed to avoid click and pop as per HW requirement */
 	usleep_range(100, 110);
 }
 
@@ -385,6 +396,11 @@ static void wcd_clsh_state_hph_ear(struct snd_soc_codec *codec,
 
 	if (is_enable) {
 		if (req_state == WCD_CLSH_STATE_EAR) {
+			/* If HPH is running in CLS-AB when
+			 * EAR comes, let it continue to run
+			 * in Class-AB, no need to enable Class-H
+			 * for EAR.
+			 */
 			if (clsh_d->state & WCD_CLSH_STATE_HPHL)
 				hph_mode = wcd_clsh_get_int_mode(clsh_d,
 						WCD_CLSH_STATE_HPHL);
@@ -425,6 +441,12 @@ static void wcd_clsh_state_hph_ear(struct snd_soc_codec *codec,
 		}
 	} else {
 		if (req_state == WCD_CLSH_STATE_EAR) {
+			/*
+			 * If EAR goes away, disable EAR Channel Enable
+			 * if HPH running in Class-H otherwise
+			 * and if HPH requested mode is CLS_AB then
+			 * no need to disable EAR channel enable bit.
+			 */
 		       if (wcd_clsh_enable_status(codec))
 				snd_soc_update_bits(codec,
 						WCD9XXX_A_CDC_RX0_RX_PATH_CFG0,
@@ -455,6 +477,9 @@ static void wcd_clsh_state_hph_ear(struct snd_soc_codec *codec,
 					0x40, 0x00);
 		if ((req_state & WCD_CLSH_STATE_HPH_ST) &&
 		    !wcd_clsh_enable_status(codec)) {
+			/* If Class-H is not enabled when HPH is turned
+			 * off, enable it as EAR is in progress
+			 */
 			wcd_enable_clsh_block(codec, clsh_d, true);
 			snd_soc_update_bits(codec,
 					WCD9XXX_A_CDC_RX0_RX_PATH_CFG0,
@@ -478,6 +503,11 @@ static void wcd_clsh_state_ear_lo(struct snd_soc_codec *codec,
 		if (req_state == WCD_CLSH_STATE_EAR)
 			goto end;
 
+		/* LO powerdown.
+		 * If EAR Class-H is already enabled, just
+		 * turn on regulator other enable Class-H
+		 * configuration
+		 */
 		if (wcd_clsh_enable_status(codec)) {
 			wcd_clsh_set_buck_regulator_mode(codec,
 					CLS_H_NORMAL);
@@ -508,6 +538,14 @@ static void wcd_clsh_state_hph_lo(struct snd_soc_codec *codec,
 		is_enable ? "enable" : "disable");
 
 	if (is_enable) {
+		/*
+		 * If requested state is LO, put regulator
+		 * in class-AB or if requested state is HPH,
+		 * which means LO is already enabled, keep
+		 * the regulator config the same at class-AB
+		 * and just set the power modes for flyback
+		 * and buck.
+		 */
 		if (req_state == WCD_CLSH_STATE_LO)
 			wcd_clsh_set_buck_regulator_mode(codec, CLS_AB);
 		else {
@@ -520,9 +558,19 @@ static void wcd_clsh_state_hph_lo(struct snd_soc_codec *codec,
 	} else {
 		if ((req_state == WCD_CLSH_STATE_HPHL) ||
 		    (req_state == WCD_CLSH_STATE_HPHR)) {
+			/*
+			 * If HPH is powering down first, then set the
+			 * buck/flyback mode to default and keep the
+			 * regulator at Class-AB
+			 */
 			wcd_clsh_set_flyback_mode(codec, CLS_H_NORMAL);
 			wcd_clsh_set_buck_mode(codec, CLS_H_NORMAL);
 		} else {
+			/* LO powerdown.
+			 * If HPH mode also is CLS-AB, no need
+			 * to turn-on class-H, otherwise enable
+			 * Class-H configuration.
+			 */
 			if (clsh_d->state & WCD_CLSH_STATE_HPHL)
 				hph_mode = wcd_clsh_get_int_mode(clsh_d,
 						WCD_CLSH_STATE_HPHL);
@@ -533,6 +581,11 @@ static void wcd_clsh_state_hph_lo(struct snd_soc_codec *codec,
 			   (hph_mode == CLS_NONE))
 				goto end;
 
+			/*
+			 * If Class-H is already enabled (HPH ON and then
+			 * LO ON), no need to turn on again, just set the
+			 * regulator mode.
+			 */
 			if (wcd_clsh_enable_status(codec)) {
 				wcd_clsh_set_buck_regulator_mode(codec,
 								 hph_mode);
@@ -610,6 +663,10 @@ static void wcd_clsh_state_hph_r(struct snd_soc_codec *codec,
 	if (is_enable) {
 		if (mode != CLS_AB) {
 			wcd_enable_clsh_block(codec, clsh_d, true);
+			/*
+			 * These K1 values depend on the Headphone Impedance
+			 * For now it is assumed to be 16 ohm
+			 */
 			snd_soc_update_bits(codec, WCD9XXX_A_CDC_CLSH_K1_MSB,
 					    0x0F, 0x00);
 			snd_soc_update_bits(codec, WCD9XXX_A_CDC_CLSH_K1_LSB,
@@ -635,7 +692,7 @@ static void wcd_clsh_state_hph_r(struct snd_soc_codec *codec,
 					    0x40, 0x00);
 			wcd_enable_clsh_block(codec, clsh_d, false);
 		}
-		
+		/* buck and flyback set to default mode and disable */
 		wcd_clsh_buck_ctrl(codec, clsh_d, CLS_H_NORMAL, false);
 		wcd_clsh_flyback_ctrl(codec, clsh_d, CLS_H_NORMAL, false);
 		wcd_clsh_set_flyback_mode(codec, CLS_H_NORMAL);
@@ -660,6 +717,10 @@ static void wcd_clsh_state_hph_l(struct snd_soc_codec *codec,
 	if (is_enable) {
 		if (mode != CLS_AB) {
 			wcd_enable_clsh_block(codec, clsh_d, true);
+			/*
+			 * These K1 values depend on the Headphone Impedance
+			 * For now it is assumed to be 16 ohm
+			 */
 			snd_soc_update_bits(codec, WCD9XXX_A_CDC_CLSH_K1_MSB,
 					    0x0F, 0x00);
 			snd_soc_update_bits(codec, WCD9XXX_A_CDC_CLSH_K1_LSB,
@@ -685,7 +746,7 @@ static void wcd_clsh_state_hph_l(struct snd_soc_codec *codec,
 					    0x40, 0x00);
 			wcd_enable_clsh_block(codec, clsh_d, false);
 		}
-		
+		/* set buck and flyback to Default Mode */
 		wcd_clsh_buck_ctrl(codec, clsh_d, CLS_H_NORMAL, false);
 		wcd_clsh_flyback_ctrl(codec, clsh_d, CLS_H_NORMAL, false);
 		wcd_clsh_set_flyback_mode(codec, CLS_H_NORMAL);
@@ -742,6 +803,12 @@ static void wcd_clsh_state_err(struct snd_soc_codec *codec,
 	WARN_ON(1);
 }
 
+/*
+ * Function: wcd_clsh_is_state_valid
+ * Params: state
+ * Description:
+ * Provides information on valid states of Class H configuration
+ */
 static bool wcd_clsh_is_state_valid(u8 state)
 {
 	switch (state) {
@@ -763,6 +830,15 @@ static bool wcd_clsh_is_state_valid(u8 state)
 	};
 }
 
+/*
+ * Function: wcd_clsh_fsm
+ * Params: codec, cdc_clsh_d, req_state, req_type, clsh_event
+ * Description:
+ * This function handles PRE DAC and POST DAC conditions of different devices
+ * and updates class H configuration of different combination of devices
+ * based on validity of their states. cdc_clsh_d will contain current
+ * class h state information
+ */
 void wcd_clsh_fsm(struct snd_soc_codec *codec,
 		struct wcd_clsh_cdc_data *cdc_clsh_d,
 		u8 clsh_event, u8 req_state,
@@ -867,7 +943,7 @@ void wcd_clsh_init(struct wcd_clsh_cdc_data *clsh)
 	clsh_state_fp[WCD_CLSH_STATE_HPH_ST_LO] =
 						wcd_clsh_state_hph_lo;
 	clsh_state_fp[WCD_CLSH_STATE_EAR_LO] = wcd_clsh_state_ear_lo;
-	
+	/* Set interpolaotr modes to NONE */
 	wcd_clsh_set_int_mode(clsh, WCD_CLSH_STATE_EAR, CLS_NONE);
 	wcd_clsh_set_int_mode(clsh, WCD_CLSH_STATE_HPHL, CLS_NONE);
 	wcd_clsh_set_int_mode(clsh, WCD_CLSH_STATE_HPHR, CLS_NONE);

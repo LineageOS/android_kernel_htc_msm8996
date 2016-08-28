@@ -81,7 +81,7 @@
 				cmd_id), &desc_arg);			\
 			size = desc_arg.ret[0];				\
 		}							\
-				\
+		/* Have barrier before reading from TZ data */		\
 		mb();							\
 		trace_lmh_event_call("GET_TYPE exit");			\
 		if (ret) {						\
@@ -183,12 +183,12 @@ static struct lmh_default_data		lmh_lite_data = {
 };
 static struct lmh_default_data		lmh_v1_data = {
 	.default_profile = 1,
-	.odcm_reg_addr = {	0x09981030, 
-				0x09991030, 
-				0x099A1028, 
-				0x099B1030, 
-				0x099C1030, 
-				0x099D1028, 
+	.odcm_reg_addr = {	0x09981030, /* CPU0 */
+				0x09991030, /* CPU1 */
+				0x099A1028, /* APC0_L2 */
+				0x099B1030, /* CPU2 */
+				0x099C1030, /* CPU3 */
+				0x099D1028, /* APC1_l2 */
 	},
 };
 static struct lmh_default_data		*lmh_hw_data;
@@ -305,7 +305,7 @@ static void lmh_read_and_update(struct lmh_driver_data *lmh_dat)
 	static struct lmh_sensor_packet payload;
 	struct scm_desc desc_arg;
 	struct {
-		
+		/* TZ is 32-bit right now */
 		uint32_t addr;
 		uint32_t size;
 	} cmd_buf;
@@ -315,7 +315,7 @@ static void lmh_read_and_update(struct lmh_driver_data *lmh_dat)
 		lmh_sensor->last_read_value = 0;
 	payload.count = 0;
 	cmd_buf.addr = SCM_BUFFER_PHYS(&payload);
-	
+	/* &payload may be a physical address > 4 GB */
 	desc_arg.args[0] = SCM_BUFFER_PHYS(&payload);
 	desc_arg.args[1] = cmd_buf.size
 			= SCM_BUFFER_SIZE(struct lmh_sensor_packet);
@@ -328,7 +328,7 @@ static void lmh_read_and_update(struct lmh_driver_data *lmh_dat)
 	else
 		ret = scm_call2(SCM_SIP_FNID(SCM_SVC_LMH,
 			LMH_GET_INTENSITY), &desc_arg);
-	
+	/* Have memory barrier before we access the TZ data */
 	mb();
 	trace_lmh_event_call("GET_INTENSITY exit");
 	if (ret) {
@@ -667,7 +667,7 @@ static int lmh_get_sensor_list(void)
 	do {
 		payload->count = next;
 		cmd_buf.addr = payload_phys;
-		
+		/* payload_phys may be a physical address > 4 GB */
 		desc_arg.args[0] = payload_phys;
 		desc_arg.args[1] = cmd_buf.size = SCM_BUFFER_SIZE(struct
 				lmh_sensor_packet);
@@ -681,7 +681,7 @@ static int lmh_get_sensor_list(void)
 		else
 			ret = scm_call2(SCM_SIP_FNID(SCM_SVC_LMH,
 				LMH_GET_SENSORS), &desc_arg);
-		
+		/* Have memory barrier before we access the TZ data */
 		mb();
 		trace_lmh_event_call("GET_SENSORS exit");
 		if (ret < 0) {
@@ -804,7 +804,7 @@ static int lmh_get_dev_info(void)
 	}
 
 	cmd_buf.list_addr = SCM_BUFFER_PHYS(payload);
-	
+	/* &payload may be a physical address > 4 GB */
 	desc_arg.args[0] = SCM_BUFFER_PHYS(payload);
 	desc_arg.args[1] = cmd_buf.list_size =
 		SCM_BUFFER_SIZE(uint32_t) * LMH_GET_PROFILE_SIZE;
@@ -901,7 +901,7 @@ static int lmh_debug_read(struct lmh_debug_ops *ops, uint32_t **buf)
 	}
 
 	cmd_buf.buf_addr = SCM_BUFFER_PHYS(payload);
-	
+	/* &payload may be a physical address > 4 GB */
 	desc_arg.args[0] = SCM_BUFFER_PHYS(payload);
 	desc_arg.args[1] = cmd_buf.buf_size = curr_size;
 	desc_arg.arginfo = SCM_ARGS(2, SCM_RW, SCM_VAL);
@@ -916,7 +916,7 @@ static int lmh_debug_read(struct lmh_debug_ops *ops, uint32_t **buf)
 			LMH_DEBUG_READ), &desc_arg);
 		tz_ret = desc_arg.ret[0];
 	}
-	
+	/* Have memory barrier before we access the TZ data */
 	mb();
 	trace_lmh_event_call("GET_DEBUG_READ exit");
 	if (ret) {
@@ -966,7 +966,7 @@ static int lmh_debug_config_write(uint32_t cmd_id, uint32_t *buf, int size)
 	memcpy(payload, &buf[3], size_bytes);
 
 	cmd_buf.buf_addr = SCM_BUFFER_PHYS(payload);
-	
+	/* &payload may be a physical address > 4 GB */
 	desc_arg.args[0] = SCM_BUFFER_PHYS(payload);
 	desc_arg.args[1] = cmd_buf.buf_size = size_bytes;
 	desc_arg.args[2] = cmd_buf.node = buf[0];
@@ -981,7 +981,7 @@ static int lmh_debug_config_write(uint32_t cmd_id, uint32_t *buf, int size)
 			SCM_BUFFER_SIZE(cmd_buf), NULL, 0);
 	else
 		ret = scm_call2(SCM_SIP_FNID(SCM_SVC_LMH, cmd_id), &desc_arg);
-	
+	/* Have memory barrier before we access the TZ data */
 	mb();
 	trace_lmh_event_call("CONFIG_DEBUG_WRITE exit");
 	if (ret) {
@@ -1034,7 +1034,7 @@ static int lmh_debug_get_types(struct lmh_debug_ops *ops, bool is_read,
 		goto get_type_exit;
 	}
 	cmd_buf.list_addr = SCM_BUFFER_PHYS(payload);
-	
+	/* &payload may be a physical address > 4 GB */
 	desc_arg.args[0] = SCM_BUFFER_PHYS(payload);
 	desc_arg.args[1] = cmd_buf.list_size =
 		SCM_BUFFER_SIZE(uint32_t) * LMH_SCM_PAYLOAD_SIZE;
@@ -1115,14 +1115,14 @@ static void evaluate_and_config_odcm(uint32_t rail_uV, unsigned long state)
 		if (rail_mV > lmh_data->odcm_thresh_mV) {
 			if (lmh_data->odcm_enabled)
 				break;
-			
+			/* Enable ODCM before the voltage increases */
 			pr_debug("Enable ODCM for voltage %u mV\n", rail_mV);
 			write_to_odcm(true);
 			lmh_data->odcm_enabled = true;
 		} else {
 			if (!lmh_data->odcm_enabled)
 				break;
-			
+			/* Disable ODCM after the voltage decreases */
 			pr_debug("Disable ODCM for voltage %u mV\n", rail_mV);
 			disable_odcm = true;
 		}
@@ -1150,7 +1150,7 @@ static int lmh_voltage_change_notifier(struct notifier_block *nb_data,
 	static bool change_needed;
 
 	if (event == REGULATOR_EVENT_VOLTAGE_CHANGE) {
-		
+		/* Convert from uV to mV */
 		pr_debug("Received event POST_VOLTAGE_CHANGE\n");
 		voltage = ((unsigned long)data) / 1000;
 		if (change_needed == 1 &&
@@ -1165,10 +1165,10 @@ static int lmh_voltage_change_notifier(struct notifier_block *nb_data,
 			(struct pre_voltage_change_data *)data;
 		last_voltage = change_data->min_uV / 1000;
 		if (change_data->min_uV > change_data->old_uV)
-			
+			/* Going from low to high apply change first */
 			lmh_voltage_scale_set(last_voltage);
 		else
-			
+			/* Going from high to low apply change after */
 			change_needed = 1;
 		pr_debug("Received event PRE_VOLTAGE_CHANGE\n");
 		pr_debug("max = %lu mV min = %lu mV previous = %lu mV\n",

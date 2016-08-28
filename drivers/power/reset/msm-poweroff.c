@@ -58,6 +58,7 @@ extern void msm_watchdog_bark(void);
 static int restart_mode;
 static bool scm_pmic_arbiter_disable_supported;
 static bool scm_deassert_ps_hold_supported;
+/* Download mode master kill-switch */
 static void __iomem *msm_ps_hold;
 static phys_addr_t tcsr_boot_misc_detect;
 
@@ -149,6 +150,8 @@ static void enable_emergency_dload_mode(void)
 				emergency_dload_mode_addr +
 				(2 * sizeof(unsigned int)));
 
+		/* Need disable the pmic wdt, then the emergency dload mode
+		 * will not auto reset. */
 		qpnp_pon_wd_config(0);
 		mb();
 	}
@@ -168,7 +171,7 @@ static int dload_set(const char *val, struct kernel_param *kp)
 	if (ret)
 		return ret;
 
-	
+	/* If download_mode is not zero or one, ignore. */
 	if (download_mode >> 1) {
 		download_mode = old_val;
 		return -EINVAL;
@@ -281,6 +284,10 @@ static void msm_restart_prepare(char mode, const char *cmd)
 
 #ifdef CONFIG_MSM_DLOAD_MODE
 
+	/* Write download mode flags if we're panic'ing
+	 * Write download mode flags if restart_mode says so
+	 * Kill download mode if master-kill switch is set
+	 */
 
 	set_dload_mode(download_mode &&
 			(in_panic || restart_mode == RESTART_DLOAD ||
@@ -290,7 +297,7 @@ static void msm_restart_prepare(char mode, const char *cmd)
 	pr_info("%s: restart by command: [%s]\r\n", __func__, (cmd) ? cmd : "");
 
 	if (qpnp_pon_check_hard_reset_stored()) {
-		
+		/* Set warm reset as true when device is in dload mode */
 		if (get_dload_mode())
 			need_warm_reset = true;
 	} else {
@@ -298,7 +305,7 @@ static void msm_restart_prepare(char mode, const char *cmd)
 				(htc_restart_cmd_to_type(cmd) == PON_POWER_OFF_WARM_RESET));
 	}
 
-	
+	/* Hard reset the PMIC unless memory contents must be maintained. */
 	if (need_warm_reset) {
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
 		is_warm_reset = 1;
@@ -364,7 +371,7 @@ static void msm_restart_prepare(char mode, const char *cmd)
 	msm_flush_console();
 	flush_cache_all();
 
-	
+	/*outer_flush_all is not supported by 64bit kernel*/
 #ifndef CONFIG_ARM64
 	outer_flush_all();
 #endif
@@ -379,6 +386,13 @@ static void msm_restart_prepare(char mode, const char *cmd)
 	}
 }
 
+/*
+ * Deassert PS_HOLD to signal the PMIC that we are ready to power down or reset.
+ * Do this by calling into the secure environment, if available, or by directly
+ * writing to a hardware register.
+ *
+ * This function should never return.
+ */
 static void deassert_ps_hold(void)
 {
 	struct scm_desc desc = {
@@ -392,12 +406,12 @@ static void deassert_ps_hold(void)
 #endif
 
 	if (scm_deassert_ps_hold_supported) {
-		
+		/* This call will be available on ARMv8 only */
 		scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_PWR,
 				 SCM_IO_DEASSERT_PS_HOLD), &desc);
 	}
 
-	
+	/* Fall-through to the direct write in case the scm_call "returns" */
 	__raw_writel(0, msm_ps_hold);
 }
 
@@ -415,12 +429,16 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 	msm_restart_prepare((char)reboot_mode, cmd);
 
 #ifdef CONFIG_MSM_DLOAD_MODE
+	/*
+	 * Trigger a watchdog bite here and if this fails,
+	 * device will take the usual restart path.
+	 */
 
 	if ((WDOG_BITE_ON_PANIC && in_panic) || is_warm_reset)
 		msm_trigger_wdog_bite();
 #endif
 
-	
+	/* Needed to bypass debug image on some chips */
 	if (!is_scm_armv8())
 		ret = scm_call_atomic2(SCM_SVC_BOOT,
 			       SCM_WDOG_DEBUG_BOOT_PART, 1, 0);
@@ -450,7 +468,7 @@ static void do_msm_poweroff(void)
 	set_dload_mode(0);
 #endif
 	qpnp_pon_system_pwr_off(PON_POWER_OFF_SHUTDOWN);
-	
+	/* Needed to bypass debug image on some chips */
 	if (!is_scm_armv8())
 		ret = scm_call_atomic2(SCM_SVC_BOOT,
 			       SCM_WDOG_DEBUG_BOOT_PART, 1, 0);

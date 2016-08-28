@@ -20,4 +20,4 @@ void mc_logging_exit(void);
 int mc_logging_start(void);
 void mc_logging_stop(void);
 
-#endif 
+#endif /* _MC_LOGGING_H_ */

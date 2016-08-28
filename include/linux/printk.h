@@ -18,7 +18,7 @@ static inline int printk_get_level(const char *buffer)
 	if (buffer[0] == KERN_SOH_ASCII && buffer[1]) {
 		switch (buffer[1]) {
 		case '0' ... '7':
-		case 'd':	
+		case 'd':	/* KERN_DEFAULT */
 			return buffer[1];
 		}
 	}
@@ -33,14 +33,16 @@ static inline const char *printk_skip_level(const char *buffer)
 	return buffer;
 }
 
+/* printk's without a loglevel use this.. */
 #define MESSAGE_LOGLEVEL_DEFAULT CONFIG_MESSAGE_LOGLEVEL_DEFAULT
 
-#define CONSOLE_LOGLEVEL_SILENT  0 
-#define CONSOLE_LOGLEVEL_MIN	 1 
-#define CONSOLE_LOGLEVEL_QUIET	 4 
-#define CONSOLE_LOGLEVEL_DEFAULT 7 
-#define CONSOLE_LOGLEVEL_DEBUG	10 
-#define CONSOLE_LOGLEVEL_MOTORMOUTH 15	
+/* We show everything that is MORE important than this.. */
+#define CONSOLE_LOGLEVEL_SILENT  0 /* Mum's the word */
+#define CONSOLE_LOGLEVEL_MIN	 1 /* Minimum loglevel we let people use */
+#define CONSOLE_LOGLEVEL_QUIET	 4 /* Shhh ..., when booted with "quiet" */
+#define CONSOLE_LOGLEVEL_DEFAULT 7 /* anything MORE serious than KERN_DEBUG */
+#define CONSOLE_LOGLEVEL_DEBUG	10 /* issue debug messages */
+#define CONSOLE_LOGLEVEL_MOTORMOUTH 15	/* You can't shut this one up */
 
 extern int console_printk[];
 
@@ -65,14 +67,48 @@ struct va_format {
 	va_list *va;
 };
 
+/*
+ * FW_BUG
+ * Add this to a message where you are sure the firmware is buggy or behaves
+ * really stupid or out of spec. Be aware that the responsible BIOS developer
+ * should be able to fix this issue or at least get a concrete idea of the
+ * problem by reading your message without the need of looking at the kernel
+ * code.
+ *
+ * Use it for definite and high priority BIOS bugs.
+ *
+ * FW_WARN
+ * Use it for not that clear (e.g. could the kernel messed up things already?)
+ * and medium priority BIOS bugs.
+ *
+ * FW_INFO
+ * Use this one if you want to tell the user or vendor about something
+ * suspicious, but generally harmless related to the firmware.
+ *
+ * Use it for information or very low priority BIOS bugs.
+ */
 #define FW_BUG		"[Firmware Bug]: "
 #define FW_WARN		"[Firmware Warn]: "
 #define FW_INFO		"[Firmware Info]: "
 
+/*
+ * HW_ERR
+ * Add this to a message for hardware errors, so that user can report
+ * it to hardware vendor instead of LKML or software vendor.
+ */
 #define HW_ERR		"[Hardware Error]: "
 
+/*
+ * DEPRECATED
+ * Add this to a message whenever you want to warn user space about the use
+ * of a deprecated aspect of an API so they can stop using it
+ */
 #define DEPRECATED	"[Deprecated]: "
 
+/*
+ * Dummy printk for disabled debugging statements to use whilst maintaining
+ * gcc's format and side-effect checking.
+ */
 static inline __printf(1, 2)
 int no_printk(const char *fmt, ...)
 {
@@ -105,8 +141,16 @@ int printk_emit(int facility, int level,
 asmlinkage __printf(1, 2) __cold
 int printk(const char *fmt, ...);
 
+/*
+ * Special printk facility for scheduler/timekeeping use only, _DO_NOT_USE_ !
+ */
 __printf(1, 2) __cold int printk_deferred(const char *fmt, ...);
 
+/*
+ * Please don't use printk_ratelimit(), because it shares ratelimiting state
+ * with all other unrelated printk_ratelimit() callsites.  Instead use
+ * printk_ratelimited() or plain old __ratelimit().
+ */
 extern int __printk_ratelimit(const char *func);
 #define printk_ratelimit() __printk_ratelimit(__func__)
 extern bool printk_timed_ratelimit(unsigned long *caller_jiffies,
@@ -180,6 +224,12 @@ extern asmlinkage void dump_stack(void) __cold;
 #define pr_fmt(fmt) fmt
 #endif
 
+/*
+ * These can be used to print at the various log levels.
+ * All of these will print unconditionally, although note that pr_debug()
+ * and other debug macros are compiled out unless either DEBUG is defined
+ * or CONFIG_DYNAMIC_DEBUG is set.
+ */
 #define pr_emerg(fmt, ...) \
 	printk(KERN_EMERG pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_alert(fmt, ...) \
@@ -198,6 +248,7 @@ extern asmlinkage void dump_stack(void) __cold;
 #define pr_cont(fmt, ...) \
 	printk(KERN_CONT fmt, ##__VA_ARGS__)
 
+/* pr_devel() should produce zero code unless DEBUG is defined */
 #ifdef DEBUG
 #define pr_devel(fmt, ...) \
 	printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
@@ -230,7 +281,9 @@ extern asmlinkage void dump_stack(void) __cold;
 
 #include <linux/dynamic_debug.h>
 
+/* If you are writing a driver, please use dev_dbg instead */
 #if defined(CONFIG_DYNAMIC_DEBUG)
+/* dynamic_pr_debug() uses pr_fmt() internally so we don't need it here */
 #define pr_debug(fmt, ...) \
 	dynamic_pr_debug(fmt, ##__VA_ARGS__)
 #elif defined(DEBUG)
@@ -241,6 +294,9 @@ extern asmlinkage void dump_stack(void) __cold;
 	no_printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
 #endif
 
+/*
+ * Print a one-time message (analogous to WARN_ONCE() et al):
+ */
 
 #ifdef CONFIG_PRINTK
 #define printk_once(fmt, ...)					\
@@ -293,6 +349,7 @@ extern asmlinkage void dump_stack(void) __cold;
 	no_printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
 #endif
 
+/* If you are writing a driver, please use dev_dbg instead */
 #if defined(DEBUG)
 #define pr_debug_once(fmt, ...)					\
 	printk_once(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
@@ -301,6 +358,10 @@ extern asmlinkage void dump_stack(void) __cold;
 	no_printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
 #endif
 
+/*
+ * ratelimited messages with local ratelimit_state,
+ * no local ratelimit_state used in the !PRINTK case
+ */
 #ifdef CONFIG_PRINTK
 #define printk_ratelimited(fmt, ...)					\
 ({									\
@@ -330,6 +391,7 @@ extern asmlinkage void dump_stack(void) __cold;
 	printk_ratelimited(KERN_NOTICE pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_info_ratelimited(fmt, ...)					\
 	printk_ratelimited(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__)
+/* no pr_cont_ratelimited, don't do that... */
 
 #if defined(DEBUG)
 #define pr_devel_ratelimited(fmt, ...)					\
@@ -339,7 +401,9 @@ extern asmlinkage void dump_stack(void) __cold;
 	no_printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
 #endif
 
+/* If you are writing a driver, please use dev_dbg instead */
 #if defined(CONFIG_DYNAMIC_DEBUG)
+/* descriptor check is first to prevent flooding with "callbacks suppressed" */
 #define pr_debug_ratelimited(fmt, ...)					\
 do {									\
 	static DEFINE_RATELIMIT_STATE(_rs,				\
@@ -378,7 +442,7 @@ extern void print_hex_dump(const char *level, const char *prefix_str,
 #else
 extern void print_hex_dump_bytes(const char *prefix_str, int prefix_type,
 				 const void *buf, size_t len);
-#endif 
+#endif /* defined(CONFIG_DYNAMIC_DEBUG) */
 #else
 static inline void print_hex_dump(const char *level, const char *prefix_str,
 				  int prefix_type, int rowsize, int groupsize,
@@ -402,6 +466,6 @@ static inline void print_hex_dump_bytes(const char *prefix_str, int prefix_type,
 			     groupsize, buf, len, ascii)		\
 	print_hex_dump(KERN_DEBUG, prefix_str, prefix_type, rowsize,	\
 		       groupsize, buf, len, ascii)
-#endif 
+#endif /* defined(CONFIG_DYNAMIC_DEBUG) */
 
 #endif

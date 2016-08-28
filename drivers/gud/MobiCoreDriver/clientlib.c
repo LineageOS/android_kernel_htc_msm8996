@@ -80,7 +80,7 @@ static inline bool is_valid_device(u32 device_id)
 
 static struct tee_client *client;
 static int open_count;
-static DEFINE_MUTEX(dev_mutex);	
+static DEFINE_MUTEX(dev_mutex);	/* Lock for the device */
 
 static bool clientlib_client_get(void)
 {
@@ -107,7 +107,7 @@ enum mc_result mc_open_device(u32 device_id)
 {
 	enum mc_result mc_result = MC_DRV_OK;
 
-	
+	/* Check parameters */
 	if (!is_valid_device(device_id))
 		return MC_DRV_ERR_UNKNOWN_DEVICE;
 
@@ -132,7 +132,7 @@ enum mc_result mc_close_device(u32 device_id)
 {
 	enum mc_result mc_result = MC_DRV_OK;
 
-	
+	/* Check parameters */
 	if (!is_valid_device(device_id))
 		return MC_DRV_ERR_UNKNOWN_DEVICE;
 
@@ -220,7 +220,7 @@ enum mc_result mc_close_session(struct mc_session_handle *session)
 {
 	enum mc_result ret;
 
-	
+	/* Check parameters */
 	if (!session)
 		return MC_DRV_ERR_INVALID_PARAMETER;
 
@@ -241,7 +241,7 @@ enum mc_result mc_notify(struct mc_session_handle *session)
 {
 	enum mc_result ret;
 
-	
+	/* Check parameters */
 	if (!session)
 		return MC_DRV_ERR_INVALID_PARAMETER;
 
@@ -263,7 +263,7 @@ enum mc_result mc_wait_notification(struct mc_session_handle *session,
 {
 	enum mc_result ret;
 
-	
+	/* Check parameters */
 	if (!session)
 		return MC_DRV_ERR_INVALID_PARAMETER;
 
@@ -287,7 +287,7 @@ enum mc_result mc_malloc_wsm(u32 device_id, u32 align, u32 len, u8 **wsm,
 	enum mc_result ret;
 	uintptr_t va;
 
-	
+	/* Check parameters */
 	if (!is_valid_device(device_id))
 		return MC_DRV_ERR_UNKNOWN_DEVICE;
 
@@ -315,7 +315,7 @@ enum mc_result mc_free_wsm(u32 device_id, u8 *wsm)
 	enum mc_result ret;
 	uintptr_t va = (uintptr_t)wsm;
 
-	
+	/* Check parameters */
 	if (!is_valid_device(device_id))
 		return MC_DRV_ERR_UNKNOWN_DEVICE;
 
@@ -336,7 +336,7 @@ enum mc_result mc_map(struct mc_session_handle *session, void *address,
 	struct mc_ioctl_buffer bufs[MC_MAP_MAX];
 	u32 i;
 
-	
+	/* Check parameters */
 	if (!session)
 		return MC_DRV_ERR_INVALID_PARAMETER;
 
@@ -349,7 +349,7 @@ enum mc_result mc_map(struct mc_session_handle *session, void *address,
 	if (!clientlib_client_get())
 		return MC_DRV_ERR_DAEMON_DEVICE_NOT_OPEN;
 
-	
+	/* Call core api */
 	bufs[0].va = (uintptr_t)address;
 	bufs[0].len = length;
 	for (i = 1; i < MC_MAP_MAX; i++)
@@ -374,7 +374,7 @@ enum mc_result mc_unmap(struct mc_session_handle *session, void *address,
 	struct mc_ioctl_buffer bufs[MC_MAP_MAX];
 	u32 i;
 
-	
+	/* Check parameters */
 	if (!session)
 		return MC_DRV_ERR_INVALID_PARAMETER;
 
@@ -387,7 +387,7 @@ enum mc_result mc_unmap(struct mc_session_handle *session, void *address,
 	if (!clientlib_client_get())
 		return MC_DRV_ERR_DAEMON_DEVICE_NOT_OPEN;
 
-	
+	/* Call core api */
 	bufs[0].va = (uintptr_t)address;
 	bufs[0].len = map_info->secure_virt_len;
 	bufs[0].sva = map_info->secure_virt_addr;
@@ -406,7 +406,7 @@ enum mc_result mc_get_session_error_code(struct mc_session_handle *session,
 {
 	enum mc_result ret;
 
-	
+	/* Check parameters */
 	if (!session)
 		return MC_DRV_ERR_INVALID_PARAMETER;
 

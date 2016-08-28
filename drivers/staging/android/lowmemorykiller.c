@@ -68,10 +68,10 @@ static short lowmem_adj[6] = {
 };
 static int lowmem_adj_size = 4;
 static int lowmem_minfree[6] = {
-	3 * 512,	
-	2 * 1024,	
-	4 * 1024,	
-	16 * 1024,	
+	3 * 512,	/* 6MB */
+	2 * 1024,	/* 8MB */
+	4 * 1024,	/* 16MB */
+	16 * 1024,	/* 64MB */
 };
 static int lowmem_minfree_size = 4;
 static int lmk_fast_run = 1;
@@ -96,10 +96,18 @@ static unsigned long lowmem_count(struct shrinker *s,
 static atomic_t shift_adj = ATOMIC_INIT(0);
 static short adj_max_shift = 353;
 
+/* User knob to enable/disable adaptive lmk feature */
 static int enable_adaptive_lmk;
 module_param_named(enable_adaptive_lmk, enable_adaptive_lmk, int,
 	S_IRUGO | S_IWUSR);
 
+/*
+ * This parameter controls the behaviour of LMK when vmpressure is in
+ * the range of 90-94. Adaptive lmk triggers based on number of file
+ * pages wrt vmpressure_file_min, when vmpressure is in the range of
+ * 90-94. Usually this is a pseudo minfree value, higher than the
+ * highest configured value in minfree array.
+ */
 static int vmpressure_file_min;
 module_param_named(vmpressure_file_min, vmpressure_file_min, int,
 	S_IRUGO | S_IWUSR);
@@ -170,6 +178,12 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 					other_file);
 		}
 	} else if (atomic_read(&shift_adj)) {
+		/*
+		 * shift_adj would have been set by a previous invocation
+		 * of notifier, which is not followed by a lowmem_shrink yet.
+		 * Since vmpressure has improved, reset shift_adj to avoid
+		 * false adaptive LMK trigger.
+		 */
 		trace_almk_vmpressure(pressure, other_free, other_file);
 		atomic_set(&shift_adj, 0);
 	}
@@ -437,14 +451,14 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		if (tsk->flags & PF_KTHREAD)
 			continue;
 
-		
+		/* if task no longer has any memory ignore it */
 		if (test_task_flag(tsk, TIF_MM_RELEASED))
 			continue;
 
 		if (time_before_eq(jiffies, lowmem_deathpending_timeout)) {
 			if (test_task_flag(tsk, TIF_MEMDIE)) {
 				rcu_read_unlock();
-				
+				/* give the system time to free up the memory */
 				msleep_interruptible(20);
 				mutex_unlock(&scan_mutex);
 				return 0;
@@ -638,7 +652,7 @@ static int lowmem_adj_array_set(const char *val, const struct kernel_param *kp)
 
 	ret = param_array_ops.set(val, kp);
 
-	
+	/* HACK: Autodetect oom_adj values in lowmem_adj array */
 	lowmem_autodetect_oom_adj_values();
 
 	return ret;

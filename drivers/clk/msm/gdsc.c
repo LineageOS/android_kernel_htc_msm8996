@@ -35,6 +35,7 @@
 #define GMEM_CLAMP_IO_MASK	BIT(0)
 #define BCR_BLK_ARES_BIT	BIT(0)
 
+/* Wait 2^n CXO cycles between all states. Here, n=2 (4 cycles). */
 #define EN_REST_WAIT_VAL	(0x2 << 20)
 #define EN_FEW_WAIT_VAL		(0x8 << 16)
 #define CLK_DIS_WAIT_VAL	(0x2 << 12)
@@ -102,6 +103,13 @@ static int poll_gdsc_status(struct gdsc *sc, enum gdscr_status status)
 				return 0;
 			break;
 		}
+		/*
+		 * There is no guarantee about the delay needed for the enable
+		 * bit in the GDSCR to be set or reset after the GDSC state
+		 * changes. Hence, keep on checking for a reasonable number
+		 * of times until the bit is set with the least possible delay
+		 * between succeessive tries.
+		 */
 		udelay(1);
 	}
 	return -ETIMEDOUT;
@@ -117,6 +125,11 @@ static int gdsc_is_enabled(struct regulator_dev *rdev)
 
 	regval = readl_relaxed(sc->gdscr);
 	if (regval & PWR_ON_MASK) {
+		/*
+		 * The GDSC might be turned on due to TZ/HYP vote on the
+		 * votable GDS registers. Check the SW_COLLAPSE_MASK to
+		 * determine if HLOS has voted for it.
+		 */
 		if (!(regval & SW_COLLAPSE_MASK))
 			return true;
 	}
@@ -139,13 +152,17 @@ static int gdsc_enable(struct regulator_dev *rdev)
 			regval = readl_relaxed(sc->sw_reset_addr);
 			regval |= BCR_BLK_ARES_BIT;
 			writel_relaxed(regval, sc->sw_reset_addr);
+			/*
+			 * BLK_ARES should be kept asserted for 1us before
+			 * being de-asserted.
+			 */
 			wmb();
 			udelay(1);
 
 			regval &= ~BCR_BLK_ARES_BIT;
 			writel_relaxed(regval, sc->sw_reset_addr);
 
-			
+			/* Make sure de-assert goes through before continuing */
 			wmb();
 		}
 
@@ -153,6 +170,9 @@ static int gdsc_enable(struct regulator_dev *rdev)
 			regval = readl_relaxed(sc->domain_addr);
 			regval &= ~GMEM_CLAMP_IO_MASK;
 			writel_relaxed(regval, sc->domain_addr);
+			/*
+			 * Make sure CLAMP_IO is de-asserted before continuing.
+			 */
 			wmb();
 		}
 
@@ -167,7 +187,7 @@ static int gdsc_enable(struct regulator_dev *rdev)
 		regval &= ~SW_COLLAPSE_MASK;
 		writel_relaxed(regval, sc->gdscr);
 
-		
+		/* Wait for 8 XO cycles before polling the status bit. */
 		mb();
 		udelay(1);
 
@@ -220,9 +240,15 @@ static int gdsc_enable(struct regulator_dev *rdev)
 			clk_set_flags(sc->clocks[i], CLKFLAG_RETAIN_PERIPH);
 	}
 
+	/*
+	 * If clocks to this power domain were already on, they will take an
+	 * additional 4 clock cycles to re-enable after the rail is enabled.
+	 * Delay to account for this. A delay is also needed to ensure clocks
+	 * are not enabled within 400ns of enabling power to the memories.
+	 */
 	udelay(1);
 
-	
+	/* Delay to account for staggered memory powerup. */
 	udelay(1);
 
 	if (sc->force_root_en)
@@ -254,7 +280,7 @@ static int gdsc_disable(struct regulator_dev *rdev)
 			clk_set_flags(sc->clocks[i], CLKFLAG_NORETAIN_PERIPH);
 	}
 
-	
+	/* Delay to account for staggered memory powerdown. */
 	udelay(1);
 
 	if (sc->toggle_logic) {
@@ -268,11 +294,16 @@ static int gdsc_disable(struct regulator_dev *rdev)
 
 		regval |= SW_COLLAPSE_MASK;
 		writel_relaxed(regval, sc->gdscr);
-		
+		/* Wait for 8 XO cycles before polling the status bit. */
 		mb();
 		udelay(1);
 
 		if (sc->no_status_check_on_disable) {
+			/*
+			 * Add a short delay here to ensure that gdsc_enable
+			 * right after it was disabled does not put it in a
+			 * wierd state.
+			 */
 			udelay(TIMEOUT_US);
 		} else {
 			ret = poll_gdsc_status(sc, DISABLED);
@@ -293,6 +324,10 @@ static int gdsc_disable(struct regulator_dev *rdev)
 		sc->resets_asserted = true;
 	}
 
+	/*
+	 * Check if gdsc_enable was called for this GDSC. If not, the root
+	 * clock will not have been enabled prior to this.
+	 */
 	if ((sc->is_gdsc_enabled && sc->root_en) || sc->force_root_en)
 		clk_disable_unprepare(sc->clocks[sc->root_clk_idx]);
 	sc->is_gdsc_enabled = false;
@@ -325,6 +360,10 @@ static int gdsc_set_mode(struct regulator_dev *rdev, unsigned int mode)
 
 	regval = readl_relaxed(sc->gdscr);
 
+	/*
+	 * HW control can only be enable/disabled when SW_COLLAPSE
+	 * indicates on.
+	 */
 	if (regval & SW_COLLAPSE_MASK) {
 		dev_err(&rdev->dev, "can't enable hw collapse now\n");
 		mutex_unlock(&gdsc_seq_lock);
@@ -333,17 +372,33 @@ static int gdsc_set_mode(struct regulator_dev *rdev, unsigned int mode)
 
 	switch (mode) {
 	case REGULATOR_MODE_FAST:
-		
+		/* Turn on HW trigger mode */
 		regval |= HW_CONTROL_MASK;
 		writel_relaxed(regval, sc->gdscr);
+		/*
+		 * There may be a race with internal HW trigger signal,
+		 * that will result in GDSC going through a power down and
+		 * up cycle.  In case HW trigger signal is controlled by
+		 * firmware that also poll same status bits as we do, FW
+		 * might read an 'on' status before the GDSC can finish
+		 * power cycle.  We wait 1us before returning to ensure
+		 * FW can't immediately poll the status bit.
+		 */
 		mb();
 		udelay(1);
 		break;
 
 	case REGULATOR_MODE_NORMAL:
-		
+		/* Turn off HW trigger mode */
 		regval &= ~HW_CONTROL_MASK;
 		writel_relaxed(regval, sc->gdscr);
+		/*
+		 * There may be a race with internal HW trigger signal,
+		 * that will result in GDSC going through a power down and
+		 * up cycle.  If we poll too early, status bit will
+		 * indicate 'on' before the GDSC can finish the power cycle.
+		 * Account for this case by waiting 1us before polling.
+		 */
 		mb();
 		udelay(1);
 
@@ -486,6 +541,10 @@ static int gdsc_probe(struct platform_device *pdev)
 	sc->rdesc.owner = THIS_MODULE;
 	platform_set_drvdata(pdev, sc);
 
+	/*
+	 * Disable HW trigger: collapse/restore occur based on registers writes.
+	 * Disable SW override: Use hardware state-machine for sequencing.
+	 */
 	regval = readl_relaxed(sc->gdscr);
 	regval &= ~(HW_CONTROL_MASK | SW_OVERRIDE_MASK);
 
@@ -493,7 +552,7 @@ static int gdsc_probe(struct platform_device *pdev)
 				  &clk_dis_wait_val))
 		clk_dis_wait_val = clk_dis_wait_val << 12;
 
-	
+	/* Configure wait time between states. */
 	regval &= ~(EN_REST_WAIT_MASK | EN_FEW_WAIT_MASK | CLK_DIS_WAIT_MASK);
 	regval |= EN_REST_WAIT_VAL | EN_FEW_WAIT_VAL | clk_dis_wait_val;
 	writel_relaxed(regval, sc->gdscr);

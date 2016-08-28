@@ -34,6 +34,7 @@
 #define DCMD_SLOT 31
 #define NUM_SLOTS 32
 
+/* 1 sec */
 #define HALT_TIMEOUT_MS 1000
 
 static int cmdq_halt_poll(struct mmc_host *mmc, bool halt);
@@ -141,7 +142,7 @@ static void cmdq_clear_set_irqs(struct cmdq_host *cq_host, u32 clear, u32 set)
 	ier |= set;
 	cmdq_writel(cq_host, ier, CQISTE);
 	cmdq_writel(cq_host, ier, CQISGE);
-	
+	/* ensure the writes are done */
 	mb();
 }
 
@@ -243,6 +244,21 @@ static void cmdq_dumpregs(struct cmdq_host *cq_host)
 		cq_host->ops->dump_vendor_regs(mmc);
 }
 
+/**
+ * The allocated descriptor table for task, link & transfer descritors
+ * looks like:
+ * |----------|
+ * |task desc |  |->|----------|
+ * |----------|  |  |trans desc|
+ * |link desc-|->|  |----------|
+ * |----------|          .
+ *      .                .
+ *  no. of slots      max-segs
+ *      .           |----------|
+ * |----------|
+ * The idea here is to create the [task+trans] table and mark & point the
+ * link desc to the transfer desc table on a per slot basis.
+ */
 static int cmdq_host_alloc_tdl(struct cmdq_host *cq_host)
 {
 
@@ -250,7 +266,7 @@ static int cmdq_host_alloc_tdl(struct cmdq_host *cq_host)
 	size_t data_size;
 	int i = 0;
 
-	
+	/* task descriptor can be 64/128 bit irrespective of arch */
 	if (cq_host->caps & CMDQ_TASK_DESC_SZ_128) {
 		cmdq_writel(cq_host, cmdq_readl(cq_host, CQCFG) |
 			       CQ_TASK_DESC_SZ, CQCFG);
@@ -259,6 +275,11 @@ static int cmdq_host_alloc_tdl(struct cmdq_host *cq_host)
 		cq_host->task_desc_len = 8;
 	}
 
+	/*
+	 * 96 bits length of transfer desc instead of 128 bits which means
+	 * ADMA would expect next valid descriptor at the 96th bit
+	 * or 128th bit
+	 */
 	if (cq_host->dma64) {
 		if (cq_host->quirks & CMDQ_QUIRK_SHORT_TXFR_DESC_SZ)
 			cq_host->trans_desc_len = 12;
@@ -270,7 +291,7 @@ static int cmdq_host_alloc_tdl(struct cmdq_host *cq_host)
 		cq_host->link_desc_len = 8;
 	}
 
-	
+	/* total size of a slot: 1 task & 1 transfer (link) */
 	cq_host->slot_sz = cq_host->task_desc_len + cq_host->link_desc_len;
 
 	desc_size = cq_host->slot_sz * cq_host->num_slots;
@@ -281,6 +302,12 @@ static int cmdq_host_alloc_tdl(struct cmdq_host *cq_host)
 	pr_info("%s: desc_size: %d data_sz: %d slot-sz: %d\n", __func__,
 		(int)desc_size, (int)data_size, cq_host->slot_sz);
 
+	/*
+	 * allocate a dma-mapped chunk of memory for the descriptors
+	 * allocate a dma-mapped chunk of memory for link descriptors
+	 * setup each link-desc memory offset per slot-number to
+	 * the descriptor table.
+	 */
 	cq_host->desc_base = dmam_alloc_coherent(mmc_dev(cq_host->mmc),
 						 desc_size,
 						 &cq_host->desc_dma_base,
@@ -340,7 +367,7 @@ static int cmdq_enable(struct mmc_host *mmc)
 			(dcmd_enable ? CQ_DCMD : 0));
 
 	cmdq_writel(cq_host, cqcfg, CQCFG);
-	
+	/* enable CQ_HOST */
 	cmdq_writel(cq_host, cmdq_readl(cq_host, CQCFG) | CQ_ENABLE,
 		    CQCFG);
 
@@ -354,24 +381,29 @@ static int cmdq_enable(struct mmc_host *mmc)
 	cmdq_writel(cq_host, lower_32_bits(cq_host->desc_dma_base), CQTDLBA);
 	cmdq_writel(cq_host, upper_32_bits(cq_host->desc_dma_base), CQTDLBAU);
 
+	/*
+	 * disable all vendor interrupts
+	 * enable CMDQ interrupts
+	 * enable the vendor error interrupts
+	 */
 	if (cq_host->ops->clear_set_irqs)
 		cq_host->ops->clear_set_irqs(mmc, true);
 
 	cmdq_clear_set_irqs(cq_host, 0x0, CQ_INT_ALL);
 
-	
+	/* cq_host would use this rca to address the card */
 	cmdq_writel(cq_host, mmc->card->rca, CQSSC2);
 
-	
+	/* send QSR at lesser intervals than the default */
 	cmdq_writel(cq_host, SEND_QSR_INTERVAL, CQSSC1);
 
-	
+	/* enable bkops exception indication */
 	if (mmc_card_configured_manual_bkops(mmc->card) &&
 	    !mmc_card_configured_auto_bkops(mmc->card))
 		cmdq_writel(cq_host, cmdq_readl(cq_host, CQRMEM) | CQ_EXCEPTION,
 				CQRMEM);
 
-	
+	/* ensure the writes are done before enabling CQE */
 	mb();
 
 	cq_host->enabled = true;
@@ -454,10 +486,10 @@ static void cmdq_reset(struct mmc_host *mmc, bool soft)
 
 	cmdq_clear_set_irqs(cq_host, 0x0, CQ_INT_ALL);
 
-	
+	/* cq_host would use this rca to address the card */
 	cmdq_writel(cq_host, rca, CQSSC2);
 
-	
+	/* ensure the writes are done before enabling CQE */
 	mb();
 
 	cmdq_writel(cq_host, cqcfg, CQCFG);
@@ -644,7 +676,7 @@ static void cmdq_pm_qos_vote(struct sdhci_host *host, struct mmc_request *mrq)
 
 static void cmdq_pm_qos_unvote(struct sdhci_host *host, struct mmc_request *mrq)
 {
-	
+	/* use async as we're inside an atomic context (soft-irq) */
 	sdhci_msm_pm_qos_cpu_unvote(host, mrq->req->cpu, true);
 }
 
@@ -669,7 +701,7 @@ static int cmdq_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	if (mrq->cmdq_req->cmdq_req_flags & DCMD) {
 		cmdq_prep_dcmd_desc(mmc, mrq);
 		cq_host->mrq_slot[DCMD_SLOT] = mrq;
-		
+		/* DCMD's are always issued on a fixed slot */
 		tag = DCMD_SLOT;
 		goto ring_doorbell;
 	}
@@ -701,18 +733,18 @@ static int cmdq_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	if (cq_host->ops->set_tranfer_params)
 		cq_host->ops->set_tranfer_params(mmc);
 
-	
+	/* PM QoS */
 	sdhci_msm_pm_qos_irq_vote(host);
 	cmdq_pm_qos_vote(host, mrq);
 ring_doorbell:
-	
+	/* Ensure the task descriptor list is flushed before ringing doorbell */
 	wmb();
 	if (cmdq_readl(cq_host, CQTDBR) & (1 << tag)) {
 		cmdq_dumpregs(cq_host);
 		BUG_ON(1);
 	}
 	cmdq_writel(cq_host, 1 << tag, CQTDBR);
-	
+	/* Commit the doorbell write immediately */
 	wmb();
 
 out:
@@ -766,6 +798,16 @@ irqreturn_t cmdq_irq(struct mmc_host *mmc, int err)
 		cmdq_dumpregs(cq_host);
 
 		if (!err_info) {
+			/*
+			 * It may so happen sometimes for few errors(like ADMA)
+			 * that HW cannot give CQTERRI info.
+			 * Thus below is a HW WA for recovering from such
+			 * scenario.
+			 * - To halt/disable CQE and do reset_all.
+			 *   Since there is no way to know which tag would
+			 *   have caused such error, so check for any first
+			 *   bit set in doorbell and proceed with an error.
+			 */
 			dbr_set = cmdq_readl(cq_host, CQTDBR);
 			if (!dbr_set) {
 				pr_err("%s: spurious/force error interrupt\n",
@@ -783,6 +825,10 @@ irqreturn_t cmdq_irq(struct mmc_host *mmc, int err)
 				mrq->data->error = err;
 			else
 				mrq->cmd->error = err;
+			/*
+			 * Get ADMA descriptor memory in case of ADMA
+			 * error for debug.
+			 */
 			if (err == -EIO)
 				cmdq_dump_adma_mem(cq_host);
 			goto skip_cqterri;
@@ -793,7 +839,7 @@ irqreturn_t cmdq_irq(struct mmc_host *mmc, int err)
 			pr_err("%s: CMD err tag: %lu\n", __func__, tag);
 
 			mrq = get_req_by_tag(cq_host, tag);
-			
+			/* CMD44/45/46/47 will not have a valid cmd */
 			if (mrq->cmd)
 				mrq->cmd->error = err;
 			else
@@ -806,10 +852,22 @@ irqreturn_t cmdq_irq(struct mmc_host *mmc, int err)
 		}
 
 skip_cqterri:
+		/*
+		 * If CQE halt fails then, disable CQE
+		 * from processing any further requests
+		 */
 		if (ret)
 			cmdq_disable_nosync(mmc, true);
 
+		/*
+		 * CQE detected a reponse error from device
+		 * In most cases, this would require a reset.
+		 */
 		if (status & CQIS_RED) {
+			/*
+			 * will check if the RED error is due to a bkops
+			 * exception once the queue is empty
+			 */
 			BUG_ON(!mmc->card);
 			if (mmc_card_configured_manual_bkops(mmc->card) &&
 			    !mmc_card_configured_auto_bkops(mmc->card))
@@ -827,13 +885,24 @@ skip_cqterri:
 	}
 
 	if (status & CQIS_TCC) {
-		
+		/* read CQTCN and complete the request */
 		comp_status = cmdq_readl(cq_host, CQTCN);
 		if (!comp_status)
 			goto out;
+		/*
+		 * The CQTCN must be cleared before notifying req completion
+		 * to upper layers to avoid missing completion notification
+		 * of new requests with the same tag.
+		 */
 		cmdq_writel(cq_host, comp_status, CQTCN);
+		/*
+		 * A write memory barrier is necessary to guarantee that CQTCN
+		 * gets cleared first before next doorbell for the same tag is
+		 * set but that is already achieved by the barrier present
+		 * before setting doorbell, hence one is not needed here.
+		 */
 		for_each_set_bit(tag, &comp_status, cq_host->num_slots) {
-			
+			/* complete the corresponding mrq */
 			pr_debug("%s: completing tag -> %lu\n",
 				 mmc_hostname(mmc), tag);
 			cmdq_finish_data(mmc, tag);
@@ -843,7 +912,7 @@ skip_cqterri:
 	if (status & CQIS_HAC) {
 		if (cq_host->ops->post_cqe_halt)
 			cq_host->ops->post_cqe_halt(mmc);
-		
+		/* halt is completed, wakeup waiting thread */
 		complete(&cq_host->halt_comp);
 	}
 
@@ -877,7 +946,7 @@ static int cmdq_halt_poll(struct mmc_host *mmc, bool halt)
 		} else {
 			if (cq_host->ops->post_cqe_halt)
 				cq_host->ops->post_cqe_halt(mmc);
-			
+			/* halt done: re-enable legacy interrupts */
 			if (cq_host->ops->clear_set_irqs)
 				cq_host->ops->clear_set_irqs(mmc,
 							false);
@@ -889,6 +958,7 @@ static int cmdq_halt_poll(struct mmc_host *mmc, bool halt)
 	return retries ? 0 : -ETIMEDOUT;
 }
 
+/* May sleep */
 static int cmdq_halt(struct mmc_host *mmc, bool halt)
 {
 	struct cmdq_host *cq_host = (struct cmdq_host *)mmc_cmdq_private(mmc);
@@ -906,7 +976,7 @@ static int cmdq_halt(struct mmc_host *mmc, bool halt)
 				retries--;
 				continue;
 			} else {
-				
+				/* halt done: re-enable legacy interrupts */
 				if (cq_host->ops->clear_set_irqs)
 					cq_host->ops->clear_set_irqs(mmc,
 								false);
@@ -950,7 +1020,7 @@ static void cmdq_post_req(struct mmc_host *mmc, int tag, int err)
 		else
 			data->bytes_xfered = blk_rq_bytes(mrq->req);
 
-		
+		/* we're in atomic context (soft-irq) so unvote async. */
 		sdhci_msm_pm_qos_irq_unvote(sdhci_host, true);
 		cmdq_pm_qos_unvote(sdhci_host, mrq);
 	}
@@ -970,6 +1040,10 @@ static int cmdq_late_init(struct mmc_host *mmc)
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_msm_host *msm_host = pltfm_host->priv;
 
+	/*
+	 * TODO: This should basically move to something like "sdhci-cmdq-msm"
+	 * for msm specific implementation.
+	 */
 	sdhci_msm_pm_qos_irq_init(host);
 
 	if (msm_host->pdata->pm_qos_data.cmdq_valid)
@@ -994,7 +1068,7 @@ struct cmdq_host *cmdq_pltfm_init(struct platform_device *pdev)
 	struct cmdq_host *cq_host;
 	struct resource *cmdq_memres = NULL;
 
-	
+	/* check and setup CMDQ interface */
 	cmdq_memres = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 						   "cmdq_mem");
 	if (!cmdq_memres) {

@@ -16,10 +16,12 @@
 
 #define MC_INTR_SSIQ	280
 
+/* Use SMC for fastcalls */
 #define MC_SMC_FASTCALL
 
 #include <linux/types.h>
 
+/*--------------- Implementation -------------- */
 #if defined(CONFIG_ARCH_APQ8084) || defined(CONFIG_ARCH_MSM8916) || \
 	defined(CONFIG_ARCH_MSM8994) || defined(CONFIG_ARCH_MSM8909) || \
 	defined(CONFIG_ARCH_MSM8996)
@@ -51,6 +53,7 @@
 #include <mach/scm.h>
 #endif
 
+/* from following file */
 #define SCM_SVC_MOBICORE		250
 #define SCM_CMD_MOBICORE		1
 
@@ -102,18 +105,21 @@ static inline int smc_fastcall(void *fc_generic, size_t size)
 #define MC_CRYPTO_CLOCK_MANAGEMENT
 #endif
 
+/*
+ * Perform clock enable/disable for clock  "core_clk_src"
+ */
 #if defined(CONFIG_ARCH_MSM8916) || defined(CONFIG_ARCH_MSM8909) || \
 	defined(CONFIG_ARCH_MSM8996)
 #define MC_DEVICE_PROPNAME "qcom,mcd"
 #if defined(MC_CRYPTO_CLOCK_MANAGEMENT)
 #define MC_CLOCK_CORESRC_PROPNAME "qcom,ce-opp-freq"
 #define MC_CLOCK_CORESRC_DEFAULTRATE 100000000
-#endif 
+#endif /* MC_CRYPTO_CLOCK_MANAGEMENT */
 #endif
 
 #if !defined(CONFIG_ARCH_MSM8996)
 #define MC_ARMV7_FC
-#endif 
+#endif /* not CONFIG_ARCH_MSM8996 */
 
 #if defined(CONFIG_ARCH_MSM8226)
 #define MC_NO_UIDGIT_H

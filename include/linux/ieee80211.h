@@ -20,6 +20,21 @@
 #include <linux/if_ether.h>
 #include <asm/byteorder.h>
 
+/*
+ * DS bit usage
+ *
+ * TA = transmitter address
+ * RA = receiver address
+ * DA = destination address
+ * SA = source address
+ *
+ * ToDS    FromDS  A1(RA)  A2(TA)  A3      A4      Use
+ * -----------------------------------------------------------------
+ *  0       0       DA      SA      BSSID   -       IBSS/DLS
+ *  0       1       DA      BSSID   SA      -       AP -> STA
+ *  1       0       BSSID   SA      DA      -       AP <- STA
+ *  1       1       RA      TA      DA      SA      unspecified (WDS)
+ */
 
 #define FCS_LEN 4
 
@@ -44,6 +59,7 @@
 #define IEEE80211_FTYPE_DATA		0x0008
 #define IEEE80211_FTYPE_EXT		0x000c
 
+/* management */
 #define IEEE80211_STYPE_ASSOC_REQ	0x0000
 #define IEEE80211_STYPE_ASSOC_RESP	0x0010
 #define IEEE80211_STYPE_REASSOC_REQ	0x0020
@@ -57,6 +73,7 @@
 #define IEEE80211_STYPE_DEAUTH		0x00C0
 #define IEEE80211_STYPE_ACTION		0x00D0
 
+/* control */
 #define IEEE80211_STYPE_CTL_EXT		0x0060
 #define IEEE80211_STYPE_BACK_REQ	0x0080
 #define IEEE80211_STYPE_BACK		0x0090
@@ -67,6 +84,7 @@
 #define IEEE80211_STYPE_CFEND		0x00E0
 #define IEEE80211_STYPE_CFENDACK	0x00F0
 
+/* data */
 #define IEEE80211_STYPE_DATA			0x0000
 #define IEEE80211_STYPE_DATA_CFACK		0x0010
 #define IEEE80211_STYPE_DATA_CFPOLL		0x0020
@@ -84,8 +102,10 @@
 #define IEEE80211_STYPE_QOS_CFPOLL		0x00E0
 #define IEEE80211_STYPE_QOS_CFACKPOLL		0x00F0
 
+/* extension, added by 802.11ad */
 #define IEEE80211_STYPE_DMG_BEACON		0x0000
 
+/* control extension - for IEEE80211_FTYPE_CTL | IEEE80211_STYPE_CTL_EXT */
 #define IEEE80211_CTL_EXT_POLL		0x2000
 #define IEEE80211_CTL_EXT_SPR		0x3000
 #define IEEE80211_CTL_EXT_GRANT	0x4000
@@ -123,13 +143,23 @@ static inline u16 ieee80211_sn_sub(u16 sn1, u16 sn2)
 #define IEEE80211_SEQ_TO_SN(seq)	(((seq) & IEEE80211_SCTL_SEQ) >> 4)
 #define IEEE80211_SN_TO_SEQ(ssn)	(((ssn) << 4) & IEEE80211_SCTL_SEQ)
 
+/* miscellaneous IEEE 802.11 constants */
 #define IEEE80211_MAX_FRAG_THRESHOLD	2352
 #define IEEE80211_MAX_RTS_THRESHOLD	2353
 #define IEEE80211_MAX_AID		2007
 #define IEEE80211_MAX_TIM_LEN		251
 #define IEEE80211_MAX_MESH_PEERINGS	63
+/* Maximum size for the MA-UNITDATA primitive, 802.11 standard section
+   6.2.1.1.2.
+
+   802.11e clarifies the figure in section 7.1.2. The frame body is
+   up to 2304 octets long (maximum MSDU size) plus any crypt overhead. */
 #define IEEE80211_MAX_DATA_LEN		2304
+/* 802.11ad extends maximum MSDU size for DMG (freq > 40Ghz) networks
+ * to 7920 bytes, see 8.2.3 General frame format
+ */
 #define IEEE80211_MAX_DATA_LEN_DMG	7920
+/* 30 byte 4 addr hdr, 2 byte QoS, 2304 byte MSDU, 12 byte crypt, 4 byte FCS */
 #define IEEE80211_MAX_FRAME_LEN		2352
 
 #define IEEE80211_MAX_SSID_LEN		32
@@ -139,32 +169,44 @@ static inline u16 ieee80211_sn_sub(u16 sn1, u16 sn2)
 #define IEEE80211_FIRST_TSPEC_TSID	8
 #define IEEE80211_NUM_TIDS		16
 
+/* number of user priorities 802.11 uses */
 #define IEEE80211_NUM_UPS		8
 
 #define IEEE80211_QOS_CTL_LEN		2
+/* 1d tag mask */
 #define IEEE80211_QOS_CTL_TAG1D_MASK		0x0007
+/* TID mask */
 #define IEEE80211_QOS_CTL_TID_MASK		0x000f
+/* EOSP */
 #define IEEE80211_QOS_CTL_EOSP			0x0010
+/* ACK policy */
 #define IEEE80211_QOS_CTL_ACK_POLICY_NORMAL	0x0000
 #define IEEE80211_QOS_CTL_ACK_POLICY_NOACK	0x0020
 #define IEEE80211_QOS_CTL_ACK_POLICY_NO_EXPL	0x0040
 #define IEEE80211_QOS_CTL_ACK_POLICY_BLOCKACK	0x0060
 #define IEEE80211_QOS_CTL_ACK_POLICY_MASK	0x0060
+/* A-MSDU 802.11n */
 #define IEEE80211_QOS_CTL_A_MSDU_PRESENT	0x0080
+/* Mesh Control 802.11s */
 #define IEEE80211_QOS_CTL_MESH_CONTROL_PRESENT  0x0100
 
+/* Mesh Power Save Level */
 #define IEEE80211_QOS_CTL_MESH_PS_LEVEL		0x0200
+/* Mesh Receiver Service Period Initiated */
 #define IEEE80211_QOS_CTL_RSPI			0x0400
 
+/* U-APSD queue for WMM IEs sent by AP */
 #define IEEE80211_WMM_IE_AP_QOSINFO_UAPSD	(1<<7)
 #define IEEE80211_WMM_IE_AP_QOSINFO_PARAM_SET_CNT_MASK	0x0f
 
+/* U-APSD queues for WMM IEs sent by STA */
 #define IEEE80211_WMM_IE_STA_QOSINFO_AC_VO	(1<<0)
 #define IEEE80211_WMM_IE_STA_QOSINFO_AC_VI	(1<<1)
 #define IEEE80211_WMM_IE_STA_QOSINFO_AC_BK	(1<<2)
 #define IEEE80211_WMM_IE_STA_QOSINFO_AC_BE	(1<<3)
 #define IEEE80211_WMM_IE_STA_QOSINFO_AC_MASK	0x0f
 
+/* U-APSD max SP length for WMM IEs sent by STA */
 #define IEEE80211_WMM_IE_STA_QOSINFO_SP_ALL	0x00
 #define IEEE80211_WMM_IE_STA_QOSINFO_SP_2	0x01
 #define IEEE80211_WMM_IE_STA_QOSINFO_SP_4	0x02
@@ -203,222 +245,384 @@ struct ieee80211_qos_hdr {
 	__le16 qos_ctrl;
 } __packed __aligned(2);
 
+/**
+ * ieee80211_has_tods - check if IEEE80211_FCTL_TODS is set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_has_tods(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_TODS)) != 0;
 }
 
+/**
+ * ieee80211_has_fromds - check if IEEE80211_FCTL_FROMDS is set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_has_fromds(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FROMDS)) != 0;
 }
 
+/**
+ * ieee80211_has_a4 - check if IEEE80211_FCTL_TODS and IEEE80211_FCTL_FROMDS are set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_has_a4(__le16 fc)
 {
 	__le16 tmp = cpu_to_le16(IEEE80211_FCTL_TODS | IEEE80211_FCTL_FROMDS);
 	return (fc & tmp) == tmp;
 }
 
+/**
+ * ieee80211_has_morefrags - check if IEEE80211_FCTL_MOREFRAGS is set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_has_morefrags(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_MOREFRAGS)) != 0;
 }
 
+/**
+ * ieee80211_has_retry - check if IEEE80211_FCTL_RETRY is set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_has_retry(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_RETRY)) != 0;
 }
 
+/**
+ * ieee80211_has_pm - check if IEEE80211_FCTL_PM is set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_has_pm(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_PM)) != 0;
 }
 
+/**
+ * ieee80211_has_moredata - check if IEEE80211_FCTL_MOREDATA is set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_has_moredata(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_MOREDATA)) != 0;
 }
 
+/**
+ * ieee80211_has_protected - check if IEEE80211_FCTL_PROTECTED is set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_has_protected(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_PROTECTED)) != 0;
 }
 
+/**
+ * ieee80211_has_order - check if IEEE80211_FCTL_ORDER is set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_has_order(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_ORDER)) != 0;
 }
 
+/**
+ * ieee80211_is_mgmt - check if type is IEEE80211_FTYPE_MGMT
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_mgmt(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT);
 }
 
+/**
+ * ieee80211_is_ctl - check if type is IEEE80211_FTYPE_CTL
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_ctl(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_CTL);
 }
 
+/**
+ * ieee80211_is_data - check if type is IEEE80211_FTYPE_DATA
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_data(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_DATA);
 }
 
+/**
+ * ieee80211_is_data_qos - check if type is IEEE80211_FTYPE_DATA and IEEE80211_STYPE_QOS_DATA is set
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_data_qos(__le16 fc)
 {
+	/*
+	 * mask with QOS_DATA rather than IEEE80211_FCTL_STYPE as we just need
+	 * to check the one bit
+	 */
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_STYPE_QOS_DATA)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_DATA | IEEE80211_STYPE_QOS_DATA);
 }
 
+/**
+ * ieee80211_is_data_present - check if type is IEEE80211_FTYPE_DATA and has data
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_data_present(__le16 fc)
 {
+	/*
+	 * mask with 0x40 and test that that bit is clear to only return true
+	 * for the data-containing substypes.
+	 */
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | 0x40)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_DATA);
 }
 
+/**
+ * ieee80211_is_assoc_req - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_ASSOC_REQ
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_assoc_req(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_ASSOC_REQ);
 }
 
+/**
+ * ieee80211_is_assoc_resp - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_ASSOC_RESP
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_assoc_resp(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_ASSOC_RESP);
 }
 
+/**
+ * ieee80211_is_reassoc_req - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_REASSOC_REQ
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_reassoc_req(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_REASSOC_REQ);
 }
 
+/**
+ * ieee80211_is_reassoc_resp - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_REASSOC_RESP
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_reassoc_resp(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_REASSOC_RESP);
 }
 
+/**
+ * ieee80211_is_probe_req - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_PROBE_REQ
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_probe_req(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_PROBE_REQ);
 }
 
+/**
+ * ieee80211_is_probe_resp - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_PROBE_RESP
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_probe_resp(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_PROBE_RESP);
 }
 
+/**
+ * ieee80211_is_beacon - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_BEACON
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_beacon(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_BEACON);
 }
 
+/**
+ * ieee80211_is_atim - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_ATIM
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_atim(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_ATIM);
 }
 
+/**
+ * ieee80211_is_disassoc - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_DISASSOC
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_disassoc(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_DISASSOC);
 }
 
+/**
+ * ieee80211_is_auth - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_AUTH
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_auth(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_AUTH);
 }
 
+/**
+ * ieee80211_is_deauth - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_DEAUTH
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_deauth(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_DEAUTH);
 }
 
+/**
+ * ieee80211_is_action - check if IEEE80211_FTYPE_MGMT && IEEE80211_STYPE_ACTION
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_action(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_ACTION);
 }
 
+/**
+ * ieee80211_is_back_req - check if IEEE80211_FTYPE_CTL && IEEE80211_STYPE_BACK_REQ
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_back_req(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_CTL | IEEE80211_STYPE_BACK_REQ);
 }
 
+/**
+ * ieee80211_is_back - check if IEEE80211_FTYPE_CTL && IEEE80211_STYPE_BACK
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_back(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_CTL | IEEE80211_STYPE_BACK);
 }
 
+/**
+ * ieee80211_is_pspoll - check if IEEE80211_FTYPE_CTL && IEEE80211_STYPE_PSPOLL
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_pspoll(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_CTL | IEEE80211_STYPE_PSPOLL);
 }
 
+/**
+ * ieee80211_is_rts - check if IEEE80211_FTYPE_CTL && IEEE80211_STYPE_RTS
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_rts(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_CTL | IEEE80211_STYPE_RTS);
 }
 
+/**
+ * ieee80211_is_cts - check if IEEE80211_FTYPE_CTL && IEEE80211_STYPE_CTS
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_cts(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_CTL | IEEE80211_STYPE_CTS);
 }
 
+/**
+ * ieee80211_is_ack - check if IEEE80211_FTYPE_CTL && IEEE80211_STYPE_ACK
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_ack(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_CTL | IEEE80211_STYPE_ACK);
 }
 
+/**
+ * ieee80211_is_cfend - check if IEEE80211_FTYPE_CTL && IEEE80211_STYPE_CFEND
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_cfend(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_CTL | IEEE80211_STYPE_CFEND);
 }
 
+/**
+ * ieee80211_is_cfendack - check if IEEE80211_FTYPE_CTL && IEEE80211_STYPE_CFENDACK
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_cfendack(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_CTL | IEEE80211_STYPE_CFENDACK);
 }
 
+/**
+ * ieee80211_is_nullfunc - check if frame is a regular (non-QoS) nullfunc frame
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_nullfunc(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_DATA | IEEE80211_STYPE_NULLFUNC);
 }
 
+/**
+ * ieee80211_is_qos_nullfunc - check if frame is a QoS nullfunc frame
+ * @fc: frame control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_qos_nullfunc(__le16 fc)
 {
 	return (fc & cpu_to_le16(IEEE80211_FCTL_FTYPE | IEEE80211_FCTL_STYPE)) ==
 	       cpu_to_le16(IEEE80211_FTYPE_DATA | IEEE80211_STYPE_QOS_NULLFUNC);
 }
 
+/**
+ * ieee80211_is_bufferable_mmpdu - check if frame is bufferable MMPDU
+ * @fc: frame control field in little-endian byteorder
+ */
 static inline bool ieee80211_is_bufferable_mmpdu(__le16 fc)
 {
+	/* IEEE 802.11-2012, definition of "bufferable management frame";
+	 * note that this ignores the IBSS special case. */
 	return ieee80211_is_mgmt(fc) &&
 	       (ieee80211_is_action(fc) ||
 		ieee80211_is_disassoc(fc) ||
 		ieee80211_is_deauth(fc));
 }
 
+/**
+ * ieee80211_is_first_frag - check if IEEE80211_SCTL_FRAG is not set
+ * @seq_ctrl: frame sequence control bytes in little-endian byteorder
+ */
 static inline int ieee80211_is_first_frag(__le16 seq_ctrl)
 {
 	return (seq_ctrl & cpu_to_le16(IEEE80211_SCTL_FRAG)) == 0;
@@ -432,20 +636,37 @@ struct ieee80211s_hdr {
 	u8 eaddr2[ETH_ALEN];
 } __packed __aligned(2);
 
+/* Mesh flags */
 #define MESH_FLAGS_AE_A4 	0x1
 #define MESH_FLAGS_AE_A5_A6	0x2
 #define MESH_FLAGS_AE		0x3
 #define MESH_FLAGS_PS_DEEP	0x4
 
+/**
+ * enum ieee80211_preq_flags - mesh PREQ element flags
+ *
+ * @IEEE80211_PREQ_PROACTIVE_PREP_FLAG: proactive PREP subfield
+ */
 enum ieee80211_preq_flags {
 	IEEE80211_PREQ_PROACTIVE_PREP_FLAG	= 1<<2,
 };
 
+/**
+ * enum ieee80211_preq_target_flags - mesh PREQ element per target flags
+ *
+ * @IEEE80211_PREQ_TO_FLAG: target only subfield
+ * @IEEE80211_PREQ_USN_FLAG: unknown target HWMP sequence number subfield
+ */
 enum ieee80211_preq_target_flags {
 	IEEE80211_PREQ_TO_FLAG	= 1<<0,
 	IEEE80211_PREQ_USN_FLAG	= 1<<2,
 };
 
+/**
+ * struct ieee80211_quiet_ie
+ *
+ * This structure refers to "Quiet information element"
+ */
 struct ieee80211_quiet_ie {
 	u8 count;
 	u8 period;
@@ -453,6 +674,11 @@ struct ieee80211_quiet_ie {
 	__le16 offset;
 } __packed;
 
+/**
+ * struct ieee80211_msrment_ie
+ *
+ * This structure refers to "Measurement Request/Report information element"
+ */
 struct ieee80211_msrment_ie {
 	u8 token;
 	u8 mode;
@@ -460,12 +686,22 @@ struct ieee80211_msrment_ie {
 	u8 request[0];
 } __packed;
 
+/**
+ * struct ieee80211_channel_sw_ie
+ *
+ * This structure refers to "Channel Switch Announcement information element"
+ */
 struct ieee80211_channel_sw_ie {
 	u8 mode;
 	u8 new_ch_num;
 	u8 count;
 } __packed;
 
+/**
+ * struct ieee80211_ext_chansw_ie
+ *
+ * This structure represents the "Extended Channel Switch Announcement element"
+ */
 struct ieee80211_ext_chansw_ie {
 	u8 mode;
 	u8 new_operating_class;
@@ -473,10 +709,21 @@ struct ieee80211_ext_chansw_ie {
 	u8 count;
 } __packed;
 
+/**
+ * struct ieee80211_sec_chan_offs_ie - secondary channel offset IE
+ * @sec_chan_offs: secondary channel offset, uses IEEE80211_HT_PARAM_CHA_SEC_*
+ *	values here
+ * This structure represents the "Secondary Channel Offset element"
+ */
 struct ieee80211_sec_chan_offs_ie {
 	u8 sec_chan_offs;
 } __packed;
 
+/**
+ * struct ieee80211_mesh_chansw_params_ie - mesh channel switch parameters IE
+ *
+ * This structure represents the "Mesh Channel Switch Paramters element"
+ */
 struct ieee80211_mesh_chansw_params_ie {
 	u8 mesh_ttl;
 	u8 mesh_flags;
@@ -484,19 +731,32 @@ struct ieee80211_mesh_chansw_params_ie {
 	__le16 mesh_pre_value;
 } __packed;
 
+/**
+ * struct ieee80211_wide_bw_chansw_ie - wide bandwidth channel switch IE
+ */
 struct ieee80211_wide_bw_chansw_ie {
 	u8 new_channel_width;
 	u8 new_center_freq_seg0, new_center_freq_seg1;
 } __packed;
 
+/**
+ * struct ieee80211_tim
+ *
+ * This structure refers to "Traffic Indication Map information element"
+ */
 struct ieee80211_tim_ie {
 	u8 dtim_count;
 	u8 dtim_period;
 	u8 bitmap_ctrl;
-	
+	/* variable size: 1 - 251 bytes */
 	u8 virtual_map[1];
 } __packed;
 
+/**
+ * struct ieee80211_meshconf_ie
+ *
+ * This structure refers to "Mesh Configuration information element"
+ */
 struct ieee80211_meshconf_ie {
 	u8 meshconf_psel;
 	u8 meshconf_pmetric;
@@ -507,6 +767,17 @@ struct ieee80211_meshconf_ie {
 	u8 meshconf_cap;
 } __packed;
 
+/**
+ * enum mesh_config_capab_flags - Mesh Configuration IE capability field flags
+ *
+ * @IEEE80211_MESHCONF_CAPAB_ACCEPT_PLINKS: STA is willing to establish
+ *	additional mesh peerings with other mesh STAs
+ * @IEEE80211_MESHCONF_CAPAB_FORWARDING: the STA forwards MSDUs
+ * @IEEE80211_MESHCONF_CAPAB_TBTT_ADJUSTING: TBTT adjustment procedure
+ *	is ongoing
+ * @IEEE80211_MESHCONF_CAPAB_POWER_SAVE_LEVEL: STA is in deep sleep mode or has
+ *	neighbors in deep sleep mode
+ */
 enum mesh_config_capab_flags {
 	IEEE80211_MESHCONF_CAPAB_ACCEPT_PLINKS		= 0x01,
 	IEEE80211_MESHCONF_CAPAB_FORWARDING		= 0x08,
@@ -514,10 +785,19 @@ enum mesh_config_capab_flags {
 	IEEE80211_MESHCONF_CAPAB_POWER_SAVE_LEVEL	= 0x40,
 };
 
+/**
+ * mesh channel switch parameters element's flag indicator
+ *
+ */
 #define WLAN_EID_CHAN_SWITCH_PARAM_TX_RESTRICT BIT(0)
 #define WLAN_EID_CHAN_SWITCH_PARAM_INITIATOR BIT(1)
 #define WLAN_EID_CHAN_SWITCH_PARAM_REASON BIT(2)
 
+/**
+ * struct ieee80211_rann_ie
+ *
+ * This structure refers to "Root Announcement information element"
+ */
 struct ieee80211_rann_ie {
 	u8 rann_flags;
 	u8 rann_hopcount;
@@ -537,6 +817,19 @@ enum ieee80211_ht_chanwidth_values {
 	IEEE80211_HT_CHANWIDTH_ANY = 1,
 };
 
+/**
+ * enum ieee80211_opmode_bits - VHT operating mode field bits
+ * @IEEE80211_OPMODE_NOTIF_CHANWIDTH_MASK: channel width mask
+ * @IEEE80211_OPMODE_NOTIF_CHANWIDTH_20MHZ: 20 MHz channel width
+ * @IEEE80211_OPMODE_NOTIF_CHANWIDTH_40MHZ: 40 MHz channel width
+ * @IEEE80211_OPMODE_NOTIF_CHANWIDTH_80MHZ: 80 MHz channel width
+ * @IEEE80211_OPMODE_NOTIF_CHANWIDTH_160MHZ: 160 MHz or 80+80 MHz channel width
+ * @IEEE80211_OPMODE_NOTIF_RX_NSS_MASK: number of spatial streams mask
+ *	(the NSS value is the value of this field + 1)
+ * @IEEE80211_OPMODE_NOTIF_RX_NSS_SHIFT: number of spatial streams shift
+ * @IEEE80211_OPMODE_NOTIF_RX_NSS_TYPE_BF: indicates streams in SU-MIMO PPDU
+ *	using a beamforming steering matrix
+ */
 enum ieee80211_vht_opmode_bits {
 	IEEE80211_OPMODE_NOTIF_CHANWIDTH_MASK	= 3,
 	IEEE80211_OPMODE_NOTIF_CHANWIDTH_20MHZ	= 0,
@@ -550,6 +843,11 @@ enum ieee80211_vht_opmode_bits {
 
 #define WLAN_SA_QUERY_TR_ID_LEN 2
 
+/**
+ * struct ieee80211_tpc_report_ie
+ *
+ * This structure refers to "TPC Report element"
+ */
 struct ieee80211_tpc_report_ie {
 	u8 tx_power;
 	u8 link_margin;
@@ -567,7 +865,7 @@ struct ieee80211_mgmt {
 			__le16 auth_alg;
 			__le16 auth_transaction;
 			__le16 status_code;
-			
+			/* possibly followed by Challenge text */
 			u8 variable[0];
 		} __packed auth;
 		struct {
@@ -576,21 +874,21 @@ struct ieee80211_mgmt {
 		struct {
 			__le16 capab_info;
 			__le16 listen_interval;
-			
+			/* followed by SSID and Supported rates */
 			u8 variable[0];
 		} __packed assoc_req;
 		struct {
 			__le16 capab_info;
 			__le16 status_code;
 			__le16 aid;
-			
+			/* followed by Supported rates */
 			u8 variable[0];
 		} __packed assoc_resp, reassoc_resp;
 		struct {
 			__le16 capab_info;
 			__le16 listen_interval;
 			u8 current_ap[ETH_ALEN];
-			
+			/* followed by SSID and Supported rates */
 			u8 variable[0];
 		} __packed reassoc_req;
 		struct {
@@ -600,16 +898,20 @@ struct ieee80211_mgmt {
 			__le64 timestamp;
 			__le16 beacon_int;
 			__le16 capab_info;
+			/* followed by some of SSID, Supported rates,
+			 * FH Params, DS Params, CF Params, IBSS Params, TIM */
 			u8 variable[0];
 		} __packed beacon;
 		struct {
-			
+			/* only variable items: SSID, Supported rates */
 			u8 variable[0];
 		} __packed probe_req;
 		struct {
 			__le64 timestamp;
 			__le16 beacon_int;
 			__le16 capab_info;
+			/* followed by some of SSID, Supported rates,
+			 * FH Params, DS Params, CF Params, IBSS Params */
 			u8 variable[0];
 		} __packed probe_resp;
 		struct {
@@ -698,11 +1000,14 @@ struct ieee80211_mgmt {
 	} u;
 } __packed __aligned(2);
 
+/* Supported Rates value encodings in 802.11n-2009 7.3.2.2 */
 #define BSS_MEMBERSHIP_SELECTOR_HT_PHY	127
 
+/* mgmt header + 1 byte category code */
 #define IEEE80211_MIN_ACTION_SIZE offsetof(struct ieee80211_mgmt, u.action.u)
 
 
+/* Management MIC information element (IEEE 802.11w) */
 struct ieee80211_mmie {
 	u8 element_id;
 	u8 length;
@@ -719,25 +1024,26 @@ struct ieee80211_vendor_ie {
 } __packed;
 
 struct ieee80211_wmm_ac_param {
-	u8 aci_aifsn; 
-	u8 cw; 
+	u8 aci_aifsn; /* AIFSN, ACM, ACI */
+	u8 cw; /* ECWmin, ECWmax (CW = 2^ECW - 1) */
 	__le16 txop_limit;
 } __packed;
 
 struct ieee80211_wmm_param_ie {
-	u8 element_id; 
-	u8 len; 
-	
-	u8 oui[3]; 
-	u8 oui_type; 
-	u8 oui_subtype; 
-	u8 version; 
-	u8 qos_info; 
-	u8 reserved; 
-	
+	u8 element_id; /* Element ID: 221 (0xdd); */
+	u8 len; /* Length: 24 */
+	/* required fields for WMM version 1 */
+	u8 oui[3]; /* 00:50:f2 */
+	u8 oui_type; /* 2 */
+	u8 oui_subtype; /* 1 */
+	u8 version; /* 1 for WMM version 1.0 */
+	u8 qos_info; /* AP/STA specific QoS info */
+	u8 reserved; /* 0 */
+	/* AC_BE, AC_BK, AC_VI, AC_VO */
 	struct ieee80211_wmm_ac_param ac[4];
 } __packed;
 
+/* Control frames */
 struct ieee80211_rts {
 	__le16 frame_control;
 	__le16 duration;
@@ -758,9 +1064,11 @@ struct ieee80211_pspoll {
 	u8 ta[ETH_ALEN];
 } __packed __aligned(2);
 
+/* TDLS */
 
+/* Link-id information element */
 struct ieee80211_tdls_lnkie {
-	u8 ie_type; 
+	u8 ie_type; /* Link Identifier IE */
 	u8 ie_len;
 	u8 bssid[ETH_ALEN];
 	u8 init_sta[ETH_ALEN];
@@ -802,6 +1110,12 @@ struct ieee80211_tdls_data {
 	} u;
 } __packed;
 
+/*
+ * Peer-to-Peer IE attribute related definitions.
+ */
+/**
+ * enum ieee80211_p2p_attr_id - identifies type of peer-to-peer attribute.
+ */
 enum ieee80211_p2p_attr_id {
 	IEEE80211_P2P_ATTR_STATUS = 0,
 	IEEE80211_P2P_ATTR_MINOR_REASON,
@@ -822,12 +1136,14 @@ enum ieee80211_p2p_attr_id {
 	IEEE80211_P2P_ATTR_INTERFACE,
 	IEEE80211_P2P_ATTR_OPER_CHANNEL,
 	IEEE80211_P2P_ATTR_INVITE_FLAGS,
-	
+	/* 19 - 220: Reserved */
 	IEEE80211_P2P_ATTR_VENDOR_SPECIFIC = 221,
 
 	IEEE80211_P2P_ATTR_MAX
 };
 
+/* Notice of Absence attribute - described in P2P spec 4.1.14 */
+/* Typical max value used here */
 #define IEEE80211_P2P_NOA_DESC_MAX	4
 
 struct ieee80211_p2p_noa_desc {
@@ -846,6 +1162,12 @@ struct ieee80211_p2p_noa_attr {
 #define IEEE80211_P2P_OPPPS_ENABLE_BIT		BIT(7)
 #define IEEE80211_P2P_OPPPS_CTWINDOW_MASK	0x7F
 
+/**
+ * struct ieee80211_bar - HT Block Ack Request
+ *
+ * This structure refers to "HT BlockAckReq" as
+ * described in 802.11n draft section 7.2.1.7.1
+ */
 struct ieee80211_bar {
 	__le16 frame_control;
 	__le16 duration;
@@ -855,6 +1177,7 @@ struct ieee80211_bar {
 	__le16 start_seq_num;
 } __packed;
 
+/* 802.11 BAR control masks */
 #define IEEE80211_BAR_CTRL_ACK_POLICY_NORMAL	0x0000
 #define IEEE80211_BAR_CTRL_MULTI_TID		0x0002
 #define IEEE80211_BAR_CTRL_CBMTID_COMPRESSED_BA	0x0004
@@ -863,6 +1186,15 @@ struct ieee80211_bar {
 
 #define IEEE80211_HT_MCS_MASK_LEN		10
 
+/**
+ * struct ieee80211_mcs_info - MCS information
+ * @rx_mask: RX mask
+ * @rx_highest: highest supported RX rate. If set represents
+ *	the highest supported RX data rate in units of 1 Mbps.
+ *	If this field is 0 this value should not be used to
+ *	consider the highest RX data rate supported.
+ * @tx_params: TX parameters
+ */
 struct ieee80211_mcs_info {
 	u8 rx_mask[IEEE80211_HT_MCS_MASK_LEN];
 	__le16 rx_highest;
@@ -870,23 +1202,38 @@ struct ieee80211_mcs_info {
 	u8 reserved[3];
 } __packed;
 
+/* 802.11n HT capability MSC set */
 #define IEEE80211_HT_MCS_RX_HIGHEST_MASK	0x3ff
 #define IEEE80211_HT_MCS_TX_DEFINED		0x01
 #define IEEE80211_HT_MCS_TX_RX_DIFF		0x02
+/* value 0 == 1 stream etc */
 #define IEEE80211_HT_MCS_TX_MAX_STREAMS_MASK	0x0C
 #define IEEE80211_HT_MCS_TX_MAX_STREAMS_SHIFT	2
 #define		IEEE80211_HT_MCS_TX_MAX_STREAMS	4
 #define IEEE80211_HT_MCS_TX_UNEQUAL_MODULATION	0x10
 
+/*
+ * 802.11n D5.0 20.3.5 / 20.6 says:
+ * - indices 0 to 7 and 32 are single spatial stream
+ * - 8 to 31 are multiple spatial streams using equal modulation
+ *   [8..15 for two streams, 16..23 for three and 24..31 for four]
+ * - remainder are multiple spatial streams using unequal modulation
+ */
 #define IEEE80211_HT_MCS_UNEQUAL_MODULATION_START 33
 #define IEEE80211_HT_MCS_UNEQUAL_MODULATION_START_BYTE \
 	(IEEE80211_HT_MCS_UNEQUAL_MODULATION_START / 8)
 
+/**
+ * struct ieee80211_ht_cap - HT capabilities
+ *
+ * This structure is the "HT capabilities element" as
+ * described in 802.11n D5.0 7.3.2.57
+ */
 struct ieee80211_ht_cap {
 	__le16 cap_info;
 	u8 ampdu_params_info;
 
-	
+	/* 16 bytes MCS information */
 	struct ieee80211_mcs_info mcs;
 
 	__le16 extended_ht_cap_info;
@@ -894,6 +1241,7 @@ struct ieee80211_ht_cap {
 	u8 antenna_selection_info;
 } __packed;
 
+/* 802.11n HT capabilities masks (for cap_info) */
 #define IEEE80211_HT_CAP_LDPC_CODING		0x0001
 #define IEEE80211_HT_CAP_SUP_WIDTH_20_40	0x0002
 #define IEEE80211_HT_CAP_SM_PS			0x000C
@@ -911,6 +1259,7 @@ struct ieee80211_ht_cap {
 #define IEEE80211_HT_CAP_40MHZ_INTOLERANT	0x4000
 #define IEEE80211_HT_CAP_LSIG_TXOP_PROT		0x8000
 
+/* 802.11n HT extended capabilities masks (for extended_ht_cap_info) */
 #define IEEE80211_HT_EXT_CAP_PCO		0x0001
 #define IEEE80211_HT_EXT_CAP_PCO_TIME		0x0006
 #define		IEEE80211_HT_EXT_CAP_PCO_TIME_SHIFT	1
@@ -919,10 +1268,15 @@ struct ieee80211_ht_cap {
 #define IEEE80211_HT_EXT_CAP_HTC_SUP		0x0400
 #define IEEE80211_HT_EXT_CAP_RD_RESPONDER	0x0800
 
+/* 802.11n HT capability AMPDU settings (for ampdu_params_info) */
 #define IEEE80211_HT_AMPDU_PARM_FACTOR		0x03
 #define IEEE80211_HT_AMPDU_PARM_DENSITY		0x1C
 #define		IEEE80211_HT_AMPDU_PARM_DENSITY_SHIFT	2
 
+/*
+ * Maximum length of AMPDU that the STA can receive.
+ * Length = 2 ^ (13 + max_ampdu_length_exp) - 1 (octets)
+ */
 enum ieee80211_max_ampdu_length_exp {
 	IEEE80211_HT_MAX_AMPDU_8K = 0,
 	IEEE80211_HT_MAX_AMPDU_16K = 1,
@@ -932,17 +1286,24 @@ enum ieee80211_max_ampdu_length_exp {
 
 #define IEEE80211_HT_MAX_AMPDU_FACTOR 13
 
+/* Minimum MPDU start spacing */
 enum ieee80211_min_mpdu_spacing {
-	IEEE80211_HT_MPDU_DENSITY_NONE = 0,	
-	IEEE80211_HT_MPDU_DENSITY_0_25 = 1,	
-	IEEE80211_HT_MPDU_DENSITY_0_5 = 2,	
-	IEEE80211_HT_MPDU_DENSITY_1 = 3,	
-	IEEE80211_HT_MPDU_DENSITY_2 = 4,	
-	IEEE80211_HT_MPDU_DENSITY_4 = 5,	
-	IEEE80211_HT_MPDU_DENSITY_8 = 6,	
-	IEEE80211_HT_MPDU_DENSITY_16 = 7	
+	IEEE80211_HT_MPDU_DENSITY_NONE = 0,	/* No restriction */
+	IEEE80211_HT_MPDU_DENSITY_0_25 = 1,	/* 1/4 usec */
+	IEEE80211_HT_MPDU_DENSITY_0_5 = 2,	/* 1/2 usec */
+	IEEE80211_HT_MPDU_DENSITY_1 = 3,	/* 1 usec */
+	IEEE80211_HT_MPDU_DENSITY_2 = 4,	/* 2 usec */
+	IEEE80211_HT_MPDU_DENSITY_4 = 5,	/* 4 usec */
+	IEEE80211_HT_MPDU_DENSITY_8 = 6,	/* 8 usec */
+	IEEE80211_HT_MPDU_DENSITY_16 = 7	/* 16 usec */
 };
 
+/**
+ * struct ieee80211_ht_operation - HT operation IE
+ *
+ * This structure is the "HT operation element" as
+ * described in 802.11n-2009 7.3.2.57
+ */
 struct ieee80211_ht_operation {
 	u8 primary_chan;
 	u8 ht_param;
@@ -951,6 +1312,7 @@ struct ieee80211_ht_operation {
 	u8 basic_set[16];
 } __packed;
 
+/* for ht_param */
 #define IEEE80211_HT_PARAM_CHA_SEC_OFFSET		0x03
 #define		IEEE80211_HT_PARAM_CHA_SEC_NONE		0x00
 #define		IEEE80211_HT_PARAM_CHA_SEC_ABOVE	0x01
@@ -958,6 +1320,7 @@ struct ieee80211_ht_operation {
 #define IEEE80211_HT_PARAM_CHAN_WIDTH_ANY		0x04
 #define IEEE80211_HT_PARAM_RIFS_MODE			0x08
 
+/* for operation_mode */
 #define IEEE80211_HT_OP_MODE_PROTECTION			0x0003
 #define		IEEE80211_HT_OP_MODE_PROTECTION_NONE		0
 #define		IEEE80211_HT_OP_MODE_PROTECTION_NONMEMBER	1
@@ -966,6 +1329,7 @@ struct ieee80211_ht_operation {
 #define IEEE80211_HT_OP_MODE_NON_GF_STA_PRSNT		0x0004
 #define IEEE80211_HT_OP_MODE_NON_HT_STA_PRSNT		0x0010
 
+/* for stbc_param */
 #define IEEE80211_HT_STBC_PARAM_DUAL_BEACON		0x0040
 #define IEEE80211_HT_STBC_PARAM_DUAL_CTS_PROT		0x0080
 #define IEEE80211_HT_STBC_PARAM_STBC_BEACON		0x0100
@@ -974,25 +1338,47 @@ struct ieee80211_ht_operation {
 #define IEEE80211_HT_STBC_PARAM_PCO_PHASE		0x0800
 
 
+/* block-ack parameters */
 #define IEEE80211_ADDBA_PARAM_POLICY_MASK 0x0002
 #define IEEE80211_ADDBA_PARAM_TID_MASK 0x003C
 #define IEEE80211_ADDBA_PARAM_BUF_SIZE_MASK 0xFFC0
 #define IEEE80211_DELBA_PARAM_TID_MASK 0xF000
 #define IEEE80211_DELBA_PARAM_INITIATOR_MASK 0x0800
 
+/*
+ * A-PMDU buffer sizes
+ * According to IEEE802.11n spec size varies from 8K to 64K (in powers of 2)
+ */
 #define IEEE80211_MIN_AMPDU_BUF 0x8
 #define IEEE80211_MAX_AMPDU_BUF 0x40
 
 
+/* Spatial Multiplexing Power Save Modes (for capability) */
 #define WLAN_HT_CAP_SM_PS_STATIC	0
 #define WLAN_HT_CAP_SM_PS_DYNAMIC	1
 #define WLAN_HT_CAP_SM_PS_INVALID	2
 #define WLAN_HT_CAP_SM_PS_DISABLED	3
 
+/* for SM power control field lower two bits */
 #define WLAN_HT_SMPS_CONTROL_DISABLED	0
 #define WLAN_HT_SMPS_CONTROL_STATIC	1
 #define WLAN_HT_SMPS_CONTROL_DYNAMIC	3
 
+/**
+ * struct ieee80211_vht_mcs_info - VHT MCS information
+ * @rx_mcs_map: RX MCS map 2 bits for each stream, total 8 streams
+ * @rx_highest: Indicates highest long GI VHT PPDU data rate
+ *	STA can receive. Rate expressed in units of 1 Mbps.
+ *	If this field is 0 this value should not be used to
+ *	consider the highest RX data rate supported.
+ *	The top 3 bits of this field are reserved.
+ * @tx_mcs_map: TX MCS map 2 bits for each stream, total 8 streams
+ * @tx_highest: Indicates highest long GI VHT PPDU data rate
+ *	STA can transmit. Rate expressed in units of 1 Mbps.
+ *	If this field is 0 this value should not be used to
+ *	consider the highest TX data rate supported.
+ *	The top 3 bits of this field are reserved.
+ */
 struct ieee80211_vht_mcs_info {
 	__le16 rx_mcs_map;
 	__le16 rx_highest;
@@ -1000,6 +1386,20 @@ struct ieee80211_vht_mcs_info {
 	__le16 tx_highest;
 } __packed;
 
+/**
+ * enum ieee80211_vht_mcs_support - VHT MCS support definitions
+ * @IEEE80211_VHT_MCS_SUPPORT_0_7: MCSes 0-7 are supported for the
+ *	number of streams
+ * @IEEE80211_VHT_MCS_SUPPORT_0_8: MCSes 0-8 are supported
+ * @IEEE80211_VHT_MCS_SUPPORT_0_9: MCSes 0-9 are supported
+ * @IEEE80211_VHT_MCS_NOT_SUPPORTED: This number of streams isn't supported
+ *
+ * These definitions are used in each 2-bit subfield of the @rx_mcs_map
+ * and @tx_mcs_map fields of &struct ieee80211_vht_mcs_info, which are
+ * both split into 8 subfields by number of streams. These values indicate
+ * which MCSes are supported for the number of streams the value appears
+ * for.
+ */
 enum ieee80211_vht_mcs_support {
 	IEEE80211_VHT_MCS_SUPPORT_0_7	= 0,
 	IEEE80211_VHT_MCS_SUPPORT_0_8	= 1,
@@ -1007,11 +1407,27 @@ enum ieee80211_vht_mcs_support {
 	IEEE80211_VHT_MCS_NOT_SUPPORTED	= 3,
 };
 
+/**
+ * struct ieee80211_vht_cap - VHT capabilities
+ *
+ * This structure is the "VHT capabilities element" as
+ * described in 802.11ac D3.0 8.4.2.160
+ * @vht_cap_info: VHT capability info
+ * @supp_mcs: VHT MCS supported rates
+ */
 struct ieee80211_vht_cap {
 	__le32 vht_cap_info;
 	struct ieee80211_vht_mcs_info supp_mcs;
 } __packed;
 
+/**
+ * enum ieee80211_vht_chanwidth - VHT channel width
+ * @IEEE80211_VHT_CHANWIDTH_USE_HT: use the HT operation IE to
+ *	determine the channel width (20 or 40 MHz)
+ * @IEEE80211_VHT_CHANWIDTH_80MHZ: 80 MHz bandwidth
+ * @IEEE80211_VHT_CHANWIDTH_160MHZ: 160 MHz bandwidth
+ * @IEEE80211_VHT_CHANWIDTH_80P80MHZ: 80+80 MHz bandwidth
+ */
 enum ieee80211_vht_chanwidth {
 	IEEE80211_VHT_CHANWIDTH_USE_HT		= 0,
 	IEEE80211_VHT_CHANWIDTH_80MHZ		= 1,
@@ -1019,6 +1435,16 @@ enum ieee80211_vht_chanwidth {
 	IEEE80211_VHT_CHANWIDTH_80P80MHZ	= 3,
 };
 
+/**
+ * struct ieee80211_vht_operation - VHT operation IE
+ *
+ * This structure is the "VHT operation element" as
+ * described in 802.11ac D3.0 8.4.2.161
+ * @chan_width: Operating channel width
+ * @center_freq_seg1_idx: center freq segment 1 index
+ * @center_freq_seg2_idx: center freq segment 2 index
+ * @basic_mcs_set: VHT Basic MCS rate set
+ */
 struct ieee80211_vht_operation {
 	u8 chan_width;
 	u8 center_freq_seg1_idx;
@@ -1027,6 +1453,7 @@ struct ieee80211_vht_operation {
 } __packed;
 
 
+/* 802.11ac VHT Capabilities */
 #define IEEE80211_VHT_CAP_MAX_MPDU_LENGTH_3895			0x00000000
 #define IEEE80211_VHT_CAP_MAX_MPDU_LENGTH_7991			0x00000001
 #define IEEE80211_VHT_CAP_MAX_MPDU_LENGTH_11454			0x00000002
@@ -1062,6 +1489,7 @@ struct ieee80211_vht_operation {
 #define IEEE80211_VHT_CAP_RX_ANTENNA_PATTERN			0x10000000
 #define IEEE80211_VHT_CAP_TX_ANTENNA_PATTERN			0x20000000
 
+/* Authentication algorithms */
 #define WLAN_AUTH_OPEN 0
 #define WLAN_AUTH_SHARED_KEY 1
 #define WLAN_AUTH_FT 2
@@ -1073,6 +1501,11 @@ struct ieee80211_vht_operation {
 #define WLAN_CAPABILITY_ESS		(1<<0)
 #define WLAN_CAPABILITY_IBSS		(1<<1)
 
+/*
+ * A mesh STA sets the ESS and IBSS capability bits to zero.
+ * however, this holds true for p2p probe responses (in the p2p_find
+ * phase) as well.
+ */
 #define WLAN_CAPABILITY_IS_STA_BSS(cap)	\
 	(!((cap) & (WLAN_CAPABILITY_ESS | WLAN_CAPABILITY_IBSS)))
 
@@ -1083,6 +1516,7 @@ struct ieee80211_vht_operation {
 #define WLAN_CAPABILITY_PBCC		(1<<6)
 #define WLAN_CAPABILITY_CHANNEL_AGILITY	(1<<7)
 
+/* 802.11h */
 #define WLAN_CAPABILITY_SPECTRUM_MGMT	(1<<8)
 #define WLAN_CAPABILITY_QOS		(1<<9)
 #define WLAN_CAPABILITY_SHORT_SLOT_TIME	(1<<10)
@@ -1092,10 +1526,12 @@ struct ieee80211_vht_operation {
 #define WLAN_CAPABILITY_DEL_BACK	(1<<14)
 #define WLAN_CAPABILITY_IMM_BACK	(1<<15)
 
+/* DMG (60gHz) 802.11ad */
+/* type - bits 0..1 */
 #define WLAN_CAPABILITY_DMG_TYPE_MASK		(3<<0)
-#define WLAN_CAPABILITY_DMG_TYPE_IBSS		(1<<0) 
-#define WLAN_CAPABILITY_DMG_TYPE_PBSS		(2<<0) 
-#define WLAN_CAPABILITY_DMG_TYPE_AP		(3<<0) 
+#define WLAN_CAPABILITY_DMG_TYPE_IBSS		(1<<0) /* Tx by: STA */
+#define WLAN_CAPABILITY_DMG_TYPE_PBSS		(2<<0) /* Tx by: PCP */
+#define WLAN_CAPABILITY_DMG_TYPE_AP		(3<<0) /* Tx by: AP */
 
 #define WLAN_CAPABILITY_DMG_CBAP_ONLY		(1<<2)
 #define WLAN_CAPABILITY_DMG_CBAP_SOURCE		(1<<3)
@@ -1105,6 +1541,7 @@ struct ieee80211_vht_operation {
 #define WLAN_CAPABILITY_DMG_SPECTRUM_MGMT	(1<<8)
 #define WLAN_CAPABILITY_DMG_RADIO_MEASURE	(1<<12)
 
+/* measurement */
 #define IEEE80211_SPCT_MSR_RPRT_MODE_LATE	(1<<0)
 #define IEEE80211_SPCT_MSR_RPRT_MODE_INCAPABLE	(1<<1)
 #define IEEE80211_SPCT_MSR_RPRT_MODE_REFUSED	(1<<2)
@@ -1113,24 +1550,28 @@ struct ieee80211_vht_operation {
 #define IEEE80211_SPCT_MSR_RPRT_TYPE_CCA	1
 #define IEEE80211_SPCT_MSR_RPRT_TYPE_RPI	2
 
+/* 802.11g ERP information element */
 #define WLAN_ERP_NON_ERP_PRESENT (1<<0)
 #define WLAN_ERP_USE_PROTECTION (1<<1)
 #define WLAN_ERP_BARKER_PREAMBLE (1<<2)
 
+/* WLAN_ERP_BARKER_PREAMBLE values */
 enum {
 	WLAN_ERP_PREAMBLE_SHORT = 0,
 	WLAN_ERP_PREAMBLE_LONG = 1,
 };
 
+/* Band ID, 802.11ad #8.4.1.45 */
 enum {
-	IEEE80211_BANDID_TV_WS = 0, 
-	IEEE80211_BANDID_SUB1  = 1, 
-	IEEE80211_BANDID_2G    = 2, 
-	IEEE80211_BANDID_3G    = 3, 
-	IEEE80211_BANDID_5G    = 4, 
-	IEEE80211_BANDID_60G   = 5, 
+	IEEE80211_BANDID_TV_WS = 0, /* TV white spaces */
+	IEEE80211_BANDID_SUB1  = 1, /* Sub-1 GHz (excluding TV white spaces) */
+	IEEE80211_BANDID_2G    = 2, /* 2.4 GHz */
+	IEEE80211_BANDID_3G    = 3, /* 3.6 GHz */
+	IEEE80211_BANDID_5G    = 4, /* 4.9 and 5 GHz */
+	IEEE80211_BANDID_60G   = 5, /* 60 GHz */
 };
 
+/* Status codes */
 enum ieee80211_statuscode {
 	WLAN_STATUS_SUCCESS = 0,
 	WLAN_STATUS_UNSPECIFIED_FAILURE = 1,
@@ -1143,21 +1584,21 @@ enum ieee80211_statuscode {
 	WLAN_STATUS_AUTH_TIMEOUT = 16,
 	WLAN_STATUS_AP_UNABLE_TO_HANDLE_NEW_STA = 17,
 	WLAN_STATUS_ASSOC_DENIED_RATES = 18,
-	
+	/* 802.11b */
 	WLAN_STATUS_ASSOC_DENIED_NOSHORTPREAMBLE = 19,
 	WLAN_STATUS_ASSOC_DENIED_NOPBCC = 20,
 	WLAN_STATUS_ASSOC_DENIED_NOAGILITY = 21,
-	
+	/* 802.11h */
 	WLAN_STATUS_ASSOC_DENIED_NOSPECTRUM = 22,
 	WLAN_STATUS_ASSOC_REJECTED_BAD_POWER = 23,
 	WLAN_STATUS_ASSOC_REJECTED_BAD_SUPP_CHAN = 24,
-	
+	/* 802.11g */
 	WLAN_STATUS_ASSOC_DENIED_NOSHORTTIME = 25,
 	WLAN_STATUS_ASSOC_DENIED_NODSSSOFDM = 26,
-	
+	/* 802.11w */
 	WLAN_STATUS_ASSOC_REJECTED_TEMPORARILY = 30,
 	WLAN_STATUS_ROBUST_MGMT_FRAME_POLICY_VIOLATION = 31,
-	
+	/* 802.11i */
 	WLAN_STATUS_INVALID_IE = 40,
 	WLAN_STATUS_INVALID_GROUP_CIPHER = 41,
 	WLAN_STATUS_INVALID_PAIRWISE_CIPHER = 42,
@@ -1165,7 +1606,7 @@ enum ieee80211_statuscode {
 	WLAN_STATUS_UNSUPP_RSN_VERSION = 44,
 	WLAN_STATUS_INVALID_RSN_IE_CAP = 45,
 	WLAN_STATUS_CIPHER_SUITE_REJECTED = 46,
-	
+	/* 802.11e */
 	WLAN_STATUS_UNSPECIFIED_QOS = 32,
 	WLAN_STATUS_ASSOC_DENIED_NOBANDWIDTH = 33,
 	WLAN_STATUS_ASSOC_DENIED_LOWACK = 34,
@@ -1177,11 +1618,11 @@ enum ieee80211_statuscode {
 	WLAN_STATUS_NO_DIRECT_LINK = 48,
 	WLAN_STATUS_STA_NOT_PRESENT = 49,
 	WLAN_STATUS_STA_NOT_QSTA = 50,
-	
+	/* 802.11s */
 	WLAN_STATUS_ANTI_CLOG_REQUIRED = 76,
 	WLAN_STATUS_FCG_NOT_SUPP = 78,
 	WLAN_STATUS_STA_NO_TBTT = 78,
-	
+	/* 802.11ad */
 	WLAN_STATUS_REJECTED_WITH_SUGGESTED_CHANGES = 39,
 	WLAN_STATUS_REJECTED_FOR_DELAY_PERIOD = 47,
 	WLAN_STATUS_REJECT_WITH_SCHEDULE = 83,
@@ -1195,6 +1636,7 @@ enum ieee80211_statuscode {
 };
 
 
+/* Reason codes */
 enum ieee80211_reasoncode {
 	WLAN_REASON_UNSPECIFIED = 1,
 	WLAN_REASON_PREV_AUTH_NOT_VALID = 2,
@@ -1205,10 +1647,10 @@ enum ieee80211_reasoncode {
 	WLAN_REASON_CLASS3_FRAME_FROM_NONASSOC_STA = 7,
 	WLAN_REASON_DISASSOC_STA_HAS_LEFT = 8,
 	WLAN_REASON_STA_REQ_ASSOC_WITHOUT_AUTH = 9,
-	
+	/* 802.11h */
 	WLAN_REASON_DISASSOC_BAD_POWER = 10,
 	WLAN_REASON_DISASSOC_BAD_SUPP_CHAN = 11,
-	
+	/* 802.11i */
 	WLAN_REASON_INVALID_IE = 13,
 	WLAN_REASON_MIC_FAILURE = 14,
 	WLAN_REASON_4WAY_HANDSHAKE_TIMEOUT = 15,
@@ -1221,10 +1663,10 @@ enum ieee80211_reasoncode {
 	WLAN_REASON_INVALID_RSN_IE_CAP = 22,
 	WLAN_REASON_IEEE8021X_FAILED = 23,
 	WLAN_REASON_CIPHER_SUITE_REJECTED = 24,
-	
+	/* TDLS (802.11z) */
 	WLAN_REASON_TDLS_TEARDOWN_UNREACHABLE = 25,
 	WLAN_REASON_TDLS_TEARDOWN_UNSPECIFIED = 26,
-	
+	/* 802.11e */
 	WLAN_REASON_DISASSOC_UNSPECIFIED_QOS = 32,
 	WLAN_REASON_DISASSOC_QAP_NO_BANDWIDTH = 33,
 	WLAN_REASON_DISASSOC_LOW_ACK = 34,
@@ -1234,7 +1676,7 @@ enum ieee80211_reasoncode {
 	WLAN_REASON_QSTA_REQUIRE_SETUP = 38,
 	WLAN_REASON_QSTA_TIMEOUT = 39,
 	WLAN_REASON_QSTA_CIPHER_NOT_SUPP = 45,
-	
+	/* 802.11s */
 	WLAN_REASON_MESH_PEER_CANCELED = 52,
 	WLAN_REASON_MESH_MAX_PEERS = 53,
 	WLAN_REASON_MESH_CONFIG = 54,
@@ -1253,10 +1695,11 @@ enum ieee80211_reasoncode {
 };
 
 
+/* Information Element IDs */
 enum ieee80211_eid {
 	WLAN_EID_SSID = 0,
 	WLAN_EID_SUPP_RATES = 1,
-	WLAN_EID_FH_PARAMS = 2, 
+	WLAN_EID_FH_PARAMS = 2, /* reserved now */
 	WLAN_EID_DS_PARAMS = 3,
 	WLAN_EID_CF_PARAMS = 4,
 	WLAN_EID_TIM = 5,
@@ -1271,7 +1714,7 @@ enum ieee80211_eid {
 	WLAN_EID_TCLAS = 14,
 	WLAN_EID_SCHEDULE = 15,
 	WLAN_EID_CHALLENGE = 16,
-	
+	/* 17-31 reserved for challenge text extension */
 	WLAN_EID_PWR_CONSTRAINT = 32,
 	WLAN_EID_PWR_CAPABILITY = 33,
 	WLAN_EID_TPC_REQUEST = 34,
@@ -1287,7 +1730,7 @@ enum ieee80211_eid {
 	WLAN_EID_TCLAS_PROCESSING = 44,
 	WLAN_EID_HT_CAPABILITY = 45,
 	WLAN_EID_QOS_CAPA = 46,
-	
+	/* 47 reserved for Broadcom */
 	WLAN_EID_RSN = 48,
 	WLAN_EID_802_15_COEX = 49,
 	WLAN_EID_EXT_SUPP_RATES = 50,
@@ -1343,7 +1786,7 @@ enum ieee80211_eid {
 	WLAN_EID_DMS_RESPONSE = 100,
 	WLAN_EID_LINK_ID = 101,
 	WLAN_EID_WAKEUP_SCHEDUL = 102,
-	
+	/* 103 reserved */
 	WLAN_EID_CHAN_SWITCH_TIMING = 104,
 	WLAN_EID_PTI_CONTROL = 105,
 	WLAN_EID_PU_BUFFER_STATUS = 106,
@@ -1368,11 +1811,11 @@ enum ieee80211_eid {
 	WLAN_EID_GANN = 125,
 	WLAN_EID_RANN = 126,
 	WLAN_EID_EXT_CAPABILITY = 127,
-	
+	/* 128, 129 reserved for Agere */
 	WLAN_EID_PREQ = 130,
 	WLAN_EID_PREP = 131,
 	WLAN_EID_PERR = 132,
-	
+	/* 133-136 reserved for Cisco */
 	WLAN_EID_PXU = 137,
 	WLAN_EID_PXUC = 138,
 	WLAN_EID_AUTH_MESH_PEER_EXCH = 139,
@@ -1385,13 +1828,13 @@ enum ieee80211_eid {
 	WLAN_EID_DMG_TSPEC = 146,
 	WLAN_EID_DMG_AT = 147,
 	WLAN_EID_DMG_CAP = 148,
-	
+	/* 149 reserved for Cisco */
 	WLAN_EID_CISCO_VENDOR_SPECIFIC = 150,
 	WLAN_EID_DMG_OPERATION = 151,
 	WLAN_EID_DMG_BSS_PARAM_CHANGE = 152,
 	WLAN_EID_DMG_BEAM_REFINEMENT = 153,
 	WLAN_EID_CHANNEL_MEASURE_FEEDBACK = 154,
-	
+	/* 155-156 reserved for Cisco */
 	WLAN_EID_AWAKE_WINDOW = 157,
 	WLAN_EID_MULTI_BAND = 158,
 	WLAN_EID_ADDBA_EXT = 159,
@@ -1408,13 +1851,13 @@ enum ieee80211_eid {
 	WLAN_EID_MULTIPLE_MAC_ADDR = 170,
 	WLAN_EID_U_PID = 171,
 	WLAN_EID_DMG_LINK_ADAPT_ACK = 172,
-	
+	/* 173 reserved for Symbol */
 	WLAN_EID_MCCAOP_ADV_OVERVIEW = 174,
 	WLAN_EID_QUIET_PERIOD_REQ = 175,
-	
+	/* 176 reserved for Symbol */
 	WLAN_EID_QUIET_PERIOD_RESP = 177,
-	
-	
+	/* 178-179 reserved for Symbol */
+	/* 180 reserved for ISO/IEC 20011 */
 	WLAN_EID_EPAC_POLICY = 182,
 	WLAN_EID_CLISTER_TIME_OFF = 183,
 	WLAN_EID_INTER_AC_PRIO = 184,
@@ -1438,6 +1881,7 @@ enum ieee80211_eid {
 	WLAN_EID_QOS_PARAMETER = 222,
 };
 
+/* Action category code */
 enum ieee80211_category {
 	WLAN_CATEGORY_SPECTRUM_MGMT = 0,
 	WLAN_CATEGORY_QOS = 1,
@@ -1461,6 +1905,7 @@ enum ieee80211_category {
 	WLAN_CATEGORY_VENDOR_SPECIFIC = 127,
 };
 
+/* SPECTRUM_MGMT action code */
 enum ieee80211_spectrum_mgmt_actioncode {
 	WLAN_ACTION_SPCT_MSR_REQ = 0,
 	WLAN_ACTION_SPCT_MSR_RPRT = 1,
@@ -1469,6 +1914,7 @@ enum ieee80211_spectrum_mgmt_actioncode {
 	WLAN_ACTION_SPCT_CHL_SWITCH = 4,
 };
 
+/* HT action codes */
 enum ieee80211_ht_actioncode {
 	WLAN_HT_ACTION_NOTIFY_CHANWIDTH = 0,
 	WLAN_HT_ACTION_SMPS = 1,
@@ -1480,12 +1926,14 @@ enum ieee80211_ht_actioncode {
 	WLAN_HT_ACTION_ASEL_IDX_FEEDBACK = 7,
 };
 
+/* VHT action codes */
 enum ieee80211_vht_actioncode {
 	WLAN_VHT_ACTION_COMPRESSED_BF = 0,
 	WLAN_VHT_ACTION_GROUPID_MGMT = 1,
 	WLAN_VHT_ACTION_OPMODE_NOTIF = 2,
 };
 
+/* Self Protected Action codes */
 enum ieee80211_self_protected_actioncode {
 	WLAN_SP_RESERVED = 0,
 	WLAN_SP_MESH_PEERING_OPEN = 1,
@@ -1495,6 +1943,7 @@ enum ieee80211_self_protected_actioncode {
 	WLAN_SP_MGK_ACK = 5,
 };
 
+/* Mesh action codes */
 enum ieee80211_mesh_actioncode {
 	WLAN_MESH_ACTION_LINK_METRIC_REPORT,
 	WLAN_MESH_ACTION_HWMP_PATH_SELECTION,
@@ -1509,6 +1958,7 @@ enum ieee80211_mesh_actioncode {
 	WLAN_MESH_ACTION_TBTT_ADJUSTMENT_RESPONSE,
 };
 
+/* Security key length */
 enum ieee80211_key_len {
 	WLAN_KEY_LEN_WEP40 = 5,
 	WLAN_KEY_LEN_WEP104 = 13,
@@ -1527,11 +1977,13 @@ enum ieee80211_key_len {
 #define IEEE80211_TKIP_ICV_LEN		4
 #define IEEE80211_CMAC_PN_LEN		6
 
+/* Public action codes */
 enum ieee80211_pub_actioncode {
 	WLAN_PUB_ACTION_EXT_CHANSW_ANN = 4,
 	WLAN_PUB_ACTION_TDLS_DISCOVER_RES = 14,
 };
 
+/* TDLS action codes */
 enum ieee80211_tdls_actioncode {
 	WLAN_TDLS_SETUP_REQUEST = 0,
 	WLAN_TDLS_SETUP_RESPONSE = 1,
@@ -1546,31 +1998,75 @@ enum ieee80211_tdls_actioncode {
 	WLAN_TDLS_DISCOVERY_REQUEST = 10,
 };
 
+/* Interworking capabilities are set in 7th bit of 4th byte of the
+ * @WLAN_EID_EXT_CAPABILITY information element
+ */
 #define WLAN_EXT_CAPA4_INTERWORKING_ENABLED	BIT(7)
 
+/*
+ * TDLS capabililites to be enabled in the 5th byte of the
+ * @WLAN_EID_EXT_CAPABILITY information element
+ */
 #define WLAN_EXT_CAPA5_TDLS_ENABLED	BIT(5)
 #define WLAN_EXT_CAPA5_TDLS_PROHIBITED	BIT(6)
 
 #define WLAN_EXT_CAPA8_OPMODE_NOTIF	BIT(6)
 #define WLAN_EXT_CAPA8_TDLS_WIDE_BW_ENABLED	BIT(7)
 
+/* TDLS specific payload type in the LLC/SNAP header */
 #define WLAN_TDLS_SNAP_RFTYPE	0x2
 
+/**
+ * enum - mesh synchronization method identifier
+ *
+ * @IEEE80211_SYNC_METHOD_NEIGHBOR_OFFSET: the default synchronization method
+ * @IEEE80211_SYNC_METHOD_VENDOR: a vendor specific synchronization method
+ *	that will be specified in a vendor specific information element
+ */
 enum {
 	IEEE80211_SYNC_METHOD_NEIGHBOR_OFFSET = 1,
 	IEEE80211_SYNC_METHOD_VENDOR = 255,
 };
 
+/**
+ * enum - mesh path selection protocol identifier
+ *
+ * @IEEE80211_PATH_PROTOCOL_HWMP: the default path selection protocol
+ * @IEEE80211_PATH_PROTOCOL_VENDOR: a vendor specific protocol that will
+ *	be specified in a vendor specific information element
+ */
 enum {
 	IEEE80211_PATH_PROTOCOL_HWMP = 1,
 	IEEE80211_PATH_PROTOCOL_VENDOR = 255,
 };
 
+/**
+ * enum - mesh path selection metric identifier
+ *
+ * @IEEE80211_PATH_METRIC_AIRTIME: the default path selection metric
+ * @IEEE80211_PATH_METRIC_VENDOR: a vendor specific metric that will be
+ *	specified in a vendor specific information element
+ */
 enum {
 	IEEE80211_PATH_METRIC_AIRTIME = 1,
 	IEEE80211_PATH_METRIC_VENDOR = 255,
 };
 
+/**
+ * enum ieee80211_root_mode_identifier - root mesh STA mode identifier
+ *
+ * These attribute are used by dot11MeshHWMPRootMode to set root mesh STA mode
+ *
+ * @IEEE80211_ROOTMODE_NO_ROOT: the mesh STA is not a root mesh STA (default)
+ * @IEEE80211_ROOTMODE_ROOT: the mesh STA is a root mesh STA if greater than
+ *	this value
+ * @IEEE80211_PROACTIVE_PREQ_NO_PREP: the mesh STA is a root mesh STA supports
+ *	the proactive PREQ with proactive PREP subfield set to 0
+ * @IEEE80211_PROACTIVE_PREQ_WITH_PREP: the mesh STA is a root mesh STA
+ *	supports the proactive PREQ with proactive PREP subfield set to 1
+ * @IEEE80211_PROACTIVE_RANN: the mesh STA is a root mesh STA supports
+ *	the proactive RANN
+ */
 enum ieee80211_root_mode_identifier {
 	IEEE80211_ROOTMODE_NO_ROOT = 0,
 	IEEE80211_ROOTMODE_ROOT = 1,
@@ -1579,13 +2075,56 @@ enum ieee80211_root_mode_identifier {
 	IEEE80211_PROACTIVE_RANN = 4,
 };
 
+/*
+ * IEEE 802.11-2007 7.3.2.9 Country information element
+ *
+ * Minimum length is 8 octets, ie len must be evenly
+ * divisible by 2
+ */
 
+/* Although the spec says 8 I'm seeing 6 in practice */
 #define IEEE80211_COUNTRY_IE_MIN_LEN	6
 
+/* The Country String field of the element shall be 3 octets in length */
 #define IEEE80211_COUNTRY_STRING_LEN	3
 
+/*
+ * For regulatory extension stuff see IEEE 802.11-2007
+ * Annex I (page 1141) and Annex J (page 1147). Also
+ * review 7.3.2.9.
+ *
+ * When dot11RegulatoryClassesRequired is true and the
+ * first_channel/reg_extension_id is >= 201 then the IE
+ * compromises of the 'ext' struct represented below:
+ *
+ *  - Regulatory extension ID - when generating IE this just needs
+ *    to be monotonically increasing for each triplet passed in
+ *    the IE
+ *  - Regulatory class - index into set of rules
+ *  - Coverage class - index into air propagation time (Table 7-27),
+ *    in microseconds, you can compute the air propagation time from
+ *    the index by multiplying by 3, so index 10 yields a propagation
+ *    of 10 us. Valid values are 0-31, values 32-255 are not defined
+ *    yet. A value of 0 inicates air propagation of <= 1 us.
+ *
+ *  See also Table I.2 for Emission limit sets and table
+ *  I.3 for Behavior limit sets. Table J.1 indicates how to map
+ *  a reg_class to an emission limit set and behavior limit set.
+ */
 #define IEEE80211_COUNTRY_EXTENSION_ID 201
 
+/*
+ *  Channels numbers in the IE must be monotonically increasing
+ *  if dot11RegulatoryClassesRequired is not true.
+ *
+ *  If dot11RegulatoryClassesRequired is true consecutive
+ *  subband triplets following a regulatory triplet shall
+ *  have monotonically increasing first_channel number fields.
+ *
+ *  Channel numbers shall not overlap.
+ *
+ *  Note that max_power is signed.
+ */
 struct ieee80211_country_ie_triplet {
 	union {
 		struct {
@@ -1602,36 +2141,46 @@ struct ieee80211_country_ie_triplet {
 } __packed;
 
 enum ieee80211_timeout_interval_type {
-	WLAN_TIMEOUT_REASSOC_DEADLINE = 1 ,
-	WLAN_TIMEOUT_KEY_LIFETIME = 2 ,
-	WLAN_TIMEOUT_ASSOC_COMEBACK = 3 ,
+	WLAN_TIMEOUT_REASSOC_DEADLINE = 1 /* 802.11r */,
+	WLAN_TIMEOUT_KEY_LIFETIME = 2 /* 802.11r */,
+	WLAN_TIMEOUT_ASSOC_COMEBACK = 3 /* 802.11w */,
 };
 
+/**
+ * struct ieee80211_timeout_interval_ie - Timeout Interval element
+ * @type: type, see &enum ieee80211_timeout_interval_type
+ * @value: timeout interval value
+ */
 struct ieee80211_timeout_interval_ie {
 	u8 type;
 	__le32 value;
 } __packed;
 
+/* BACK action code */
 enum ieee80211_back_actioncode {
 	WLAN_ACTION_ADDBA_REQ = 0,
 	WLAN_ACTION_ADDBA_RESP = 1,
 	WLAN_ACTION_DELBA = 2,
 };
 
+/* BACK (block-ack) parties */
 enum ieee80211_back_parties {
 	WLAN_BACK_RECIPIENT = 0,
 	WLAN_BACK_INITIATOR = 1,
 };
 
+/* SA Query action */
 enum ieee80211_sa_query_action {
 	WLAN_ACTION_SA_QUERY_REQUEST = 0,
 	WLAN_ACTION_SA_QUERY_RESPONSE = 1,
 };
 
 
+/* cipher suite selectors */
 #define WLAN_CIPHER_SUITE_USE_GROUP	0x000FAC00
 #define WLAN_CIPHER_SUITE_WEP40		0x000FAC01
 #define WLAN_CIPHER_SUITE_TKIP		0x000FAC02
+/* reserved: 				0x000FAC03 */
 #define WLAN_CIPHER_SUITE_CCMP		0x000FAC04
 #define WLAN_CIPHER_SUITE_WEP104	0x000FAC05
 #define WLAN_CIPHER_SUITE_AES_CMAC	0x000FAC06
@@ -1639,6 +2188,7 @@ enum ieee80211_sa_query_action {
 
 #define WLAN_CIPHER_SUITE_SMS4		0x00147201
 
+/* AKM suite selectors */
 #define WLAN_AKM_SUITE_8021X		0x000FAC01
 #define WLAN_AKM_SUITE_PSK		0x000FAC02
 
@@ -1667,6 +2217,9 @@ enum ieee80211_sa_query_action {
 #define WLAN_OUI_TYPE_MICROSOFT_WMM	2
 #define WLAN_OUI_TYPE_MICROSOFT_WPS	4
 
+/*
+ * WMM/802.11e Tspec Element
+ */
 #define IEEE80211_WMM_IE_TSPEC_TID_MASK		0x0F
 #define IEEE80211_WMM_IE_TSPEC_TID_SHIFT	1
 
@@ -1701,6 +2254,15 @@ struct ieee80211_tspec_ie {
 	__le16 medium_time;
 } __packed;
 
+/**
+ * ieee80211_get_qos_ctl - get pointer to qos control bytes
+ * @hdr: the frame
+ *
+ * The qos ctrl bytes come after the frame_control, duration, seq_num
+ * and 3 or 4 addresses of length ETH_ALEN.
+ * 3 addr: 2 + 2 + 2 + 3*6 = 24
+ * 4 addr: 2 + 2 + 2 + 4*6 = 30
+ */
 static inline u8 *ieee80211_get_qos_ctl(struct ieee80211_hdr *hdr)
 {
 	if (ieee80211_has_a4(hdr->frame_control))
@@ -1709,6 +2271,16 @@ static inline u8 *ieee80211_get_qos_ctl(struct ieee80211_hdr *hdr)
 		return (u8 *)hdr + 24;
 }
 
+/**
+ * ieee80211_get_SA - get pointer to SA
+ * @hdr: the frame
+ *
+ * Given an 802.11 frame, this function returns the offset
+ * to the source address (SA). It does not verify that the
+ * header is long enough to contain the address, and the
+ * header must be long enough to contain the frame control
+ * field.
+ */
 static inline u8 *ieee80211_get_SA(struct ieee80211_hdr *hdr)
 {
 	if (ieee80211_has_a4(hdr->frame_control))
@@ -1718,6 +2290,16 @@ static inline u8 *ieee80211_get_SA(struct ieee80211_hdr *hdr)
 	return hdr->addr2;
 }
 
+/**
+ * ieee80211_get_DA - get pointer to DA
+ * @hdr: the frame
+ *
+ * Given an 802.11 frame, this function returns the offset
+ * to the destination address (DA). It does not verify that
+ * the header is long enough to contain the address, and the
+ * header must be long enough to contain the frame control
+ * field.
+ */
 static inline u8 *ieee80211_get_DA(struct ieee80211_hdr *hdr)
 {
 	if (ieee80211_has_tods(hdr->frame_control))
@@ -1726,6 +2308,10 @@ static inline u8 *ieee80211_get_DA(struct ieee80211_hdr *hdr)
 		return hdr->addr1;
 }
 
+/**
+ * _ieee80211_is_robust_mgmt_frame - check if frame is a robust management frame
+ * @hdr: the frame (buffer must include at least the first octet of payload)
+ */
 static inline bool _ieee80211_is_robust_mgmt_frame(struct ieee80211_hdr *hdr)
 {
 	if (ieee80211_is_disassoc(hdr->frame_control) ||
@@ -1735,6 +2321,13 @@ static inline bool _ieee80211_is_robust_mgmt_frame(struct ieee80211_hdr *hdr)
 	if (ieee80211_is_action(hdr->frame_control)) {
 		u8 *category;
 
+		/*
+		 * Action frames, excluding Public Action frames, are Robust
+		 * Management Frames. However, if we are looking at a Protected
+		 * frame, skip the check since the data may be encrypted and
+		 * the frame has already been found to be a Robust Management
+		 * Frame (by the other end).
+		 */
 		if (ieee80211_has_protected(hdr->frame_control))
 			return true;
 		category = ((u8 *) hdr) + 24;
@@ -1747,6 +2340,10 @@ static inline bool _ieee80211_is_robust_mgmt_frame(struct ieee80211_hdr *hdr)
 	return false;
 }
 
+/**
+ * ieee80211_is_robust_mgmt_frame - check if skb contains a robust mgmt frame
+ * @skb: the skb containing the frame, length will be checked
+ */
 static inline bool ieee80211_is_robust_mgmt_frame(struct sk_buff *skb)
 {
 	if (skb->len < 25)
@@ -1754,6 +2351,11 @@ static inline bool ieee80211_is_robust_mgmt_frame(struct sk_buff *skb)
 	return _ieee80211_is_robust_mgmt_frame((void *)skb->data);
 }
 
+/**
+ * ieee80211_is_public_action - check if frame is a public action frame
+ * @hdr: the frame
+ * @len: length of the frame
+ */
 static inline bool ieee80211_is_public_action(struct ieee80211_hdr *hdr,
 					      size_t len)
 {
@@ -1766,11 +2368,21 @@ static inline bool ieee80211_is_public_action(struct ieee80211_hdr *hdr,
 	return mgmt->u.action.category == WLAN_CATEGORY_PUBLIC;
 }
 
+/**
+ * ieee80211_tu_to_usec - convert time units (TU) to microseconds
+ * @tu: the TUs
+ */
 static inline unsigned long ieee80211_tu_to_usec(unsigned long tu)
 {
 	return 1024 * tu;
 }
 
+/**
+ * ieee80211_check_tim - check if AID bit is set in TIM
+ * @tim: the TIM IE
+ * @tim_len: length of the TIM IE
+ * @aid: the AID to look for
+ */
 static inline bool ieee80211_check_tim(const struct ieee80211_tim_ie *tim,
 				       u8 tim_len, u16 aid)
 {
@@ -1795,9 +2407,18 @@ static inline bool ieee80211_check_tim(const struct ieee80211_tim_ie *tim,
 	return !!(tim->virtual_map[index] & mask);
 }
 
+/* convert time units */
 #define TU_TO_JIFFIES(x)	(usecs_to_jiffies((x) * 1024))
 #define TU_TO_EXP_TIME(x)	(jiffies + TU_TO_JIFFIES(x))
 
+/**
+ * ieee80211_action_contains_tpc - checks if the frame contains TPC element
+ * @skb: the skb containing the frame, length will be checked
+ *
+ * This function checks if it's either TPC report action frame or Link
+ * Measurement report action frame as defined in IEEE Std. 802.11-2012 8.5.2.5
+ * and 8.5.7.5 accordingly.
+ */
 static inline bool ieee80211_action_contains_tpc(struct sk_buff *skb)
 {
 	struct ieee80211_mgmt *mgmt = (void *)skb->data;
@@ -1809,11 +2430,22 @@ static inline bool ieee80211_action_contains_tpc(struct sk_buff *skb)
 		       sizeof(mgmt->u.action.u.tpc_report))
 		return false;
 
+	/*
+	 * TPC report - check that:
+	 * category = 0 (Spectrum Management) or 5 (Radio Measurement)
+	 * spectrum management action = 3 (TPC/Link Measurement report)
+	 * TPC report EID = 35
+	 * TPC report element length = 2
+	 *
+	 * The spectrum management's tpc_report struct is used here both for
+	 * parsing tpc_report and radio measurement's link measurement report
+	 * frame, since the relevant part is identical in both frames.
+	 */
 	if (mgmt->u.action.category != WLAN_CATEGORY_SPECTRUM_MGMT &&
 	    mgmt->u.action.category != WLAN_CATEGORY_RADIO_MEASUREMENT)
 		return false;
 
-	
+	/* both spectrum mgmt and link measurement have same action code */
 	if (mgmt->u.action.u.tpc_report.action_code !=
 	    WLAN_ACTION_SPCT_TPC_RPRT)
 		return false;
@@ -1826,4 +2458,4 @@ static inline bool ieee80211_action_contains_tpc(struct sk_buff *skb)
 	return true;
 }
 
-#endif 
+#endif /* LINUX_IEEE80211_H */

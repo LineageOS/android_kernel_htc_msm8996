@@ -85,6 +85,8 @@ static void adsp_loader_do(struct platform_device *pdev)
 		goto load_adsp;
 	}
 	if (!strcmp(img_name, "modem")) {
+		/* adsp_state always returns "0". So load modem image based on
+		apr_modem_state to prevent loading of image twice */
 		adsp_state = apr_get_modem_state();
 		if (adsp_state == APR_SUBSYS_DOWN) {
 			priv = platform_get_drvdata(pdev);
@@ -101,7 +103,7 @@ static void adsp_loader_do(struct platform_device *pdev)
 				goto fail;
 			}
 
-			
+			/* Set the state of the ADSP in APR driver */
 			apr_set_modem_state(APR_SUBSYS_LOADED);
 		} else if (adsp_state == APR_SUBSYS_LOADED) {
 			dev_dbg(&pdev->dev,
@@ -129,7 +131,7 @@ load_adsp:
 				goto fail;
 			}
 
-			
+			/* Set the state of the ADSP in APR driver */
 			apr_set_q6_state(APR_SUBSYS_LOADED);
 		} else if (adsp_state == APR_SUBSYS_LOADED) {
 			dev_dbg(&pdev->dev,

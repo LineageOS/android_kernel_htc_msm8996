@@ -112,6 +112,8 @@ void add_to_ptable(uint64_t *arg)
 		return;
 	}
 
+	/* Insert a new frequency (may need to move things around to
+	   keep in ascending order). */
 	for (i = MAX_PSTATES - 1; i > 0; i--) {
 		if (node->head[i-1].freq > arg[FREQ_OFFSET]) {
 			node->head[i].freq = node->head[i-1].freq;

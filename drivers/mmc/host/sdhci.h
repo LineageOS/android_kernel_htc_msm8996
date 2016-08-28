@@ -20,6 +20,9 @@
 
 #include <linux/mmc/sdhci.h>
 
+/*
+ * Controller registers
+ */
 
 #define SDHCI_DMA_ADDRESS	0x00
 #define SDHCI_ARGUMENT2		SDHCI_DMA_ADDRESS
@@ -168,7 +171,7 @@
 #define   SDHCI_CTRL_UHS_SDR50		0x0002
 #define   SDHCI_CTRL_UHS_SDR104		0x0003
 #define   SDHCI_CTRL_UHS_DDR50		0x0004
-#define   SDHCI_CTRL_HS400		0x0005 
+#define   SDHCI_CTRL_HS400		0x0005 /* Non-standard */
 #define  SDHCI_CTRL_VDD_180		0x0008
 #define  SDHCI_CTRL_DRV_TYPE_MASK	0x0030
 #define   SDHCI_CTRL_DRV_TYPE_B		0x0000
@@ -213,7 +216,7 @@
 #define  SDHCI_RETUNING_MODE_SHIFT		14
 #define  SDHCI_CLOCK_MUL_MASK	0x00FF0000
 #define  SDHCI_CLOCK_MUL_SHIFT	16
-#define  SDHCI_SUPPORT_HS400	0x80000000 
+#define  SDHCI_SUPPORT_HS400	0x80000000 /* Non-standard */
 
 #define SDHCI_CAPABILITIES_1	0x44
 
@@ -227,24 +230,27 @@
 #define  SDHCI_MAX_CURRENT_180_SHIFT	16
 #define   SDHCI_MAX_CURRENT_MULTIPLIER	4
 
+/* 4C-4F reserved for more max current */
 
 #define SDHCI_SET_ACMD12_ERROR	0x50
 #define SDHCI_SET_INT_ERROR	0x52
 
 #define SDHCI_ADMA_ERROR	0x54
 
+/* 55-57 reserved */
 
 #define SDHCI_HI_SHIFT 32
-#define SDHCI_ADMA_ADDRESS_LOW	0x58 
-#define SDHCI_ADMA_ADDRESS_HIGH	0x5C 
+#define SDHCI_ADMA_ADDRESS_LOW	0x58 /* addr[0:31] */
+#define SDHCI_ADMA_ADDRESS_HIGH	0x5C /* addr[32:63] */
 
+/* 60-FB reserved */
 
 #define SDHCI_PRESET_FOR_SDR12 0x66
 #define SDHCI_PRESET_FOR_SDR25 0x68
 #define SDHCI_PRESET_FOR_SDR50 0x6A
 #define SDHCI_PRESET_FOR_SDR104        0x6C
 #define SDHCI_PRESET_FOR_DDR50 0x6E
-#define SDHCI_PRESET_FOR_HS400 0x74 
+#define SDHCI_PRESET_FOR_HS400 0x74 /* Non-standard */
 #define SDHCI_PRESET_DRV_MASK  0xC000
 #define SDHCI_PRESET_DRV_SHIFT  14
 #define SDHCI_PRESET_CLKGEN_SEL_MASK   0x400
@@ -263,10 +269,16 @@
 #define   SDHCI_SPEC_200	1
 #define   SDHCI_SPEC_300	2
 
+/*
+ * End of controller registers.
+ */
 
 #define SDHCI_MAX_DIV_SPEC_200	256
 #define SDHCI_MAX_DIV_SPEC_300	2046
 
+/*
+ * Host SDMA buffer boundary. Valid values from 4K to 512K in powers of 2.
+ */
 #define SDHCI_DEFAULT_BOUNDARY_SIZE  (512 * 1024)
 #define SDHCI_DEFAULT_BOUNDARY_ARG   (ilog2(SDHCI_DEFAULT_BOUNDARY_SIZE) - 12)
 
@@ -410,7 +422,7 @@ static inline u8 sdhci_readb(struct sdhci_host *host, int reg)
 	return readb(host->ioaddr + reg);
 }
 
-#endif 
+#endif /* CONFIG_MMC_SDHCI_IO_ACCESSORS */
 
 extern struct sdhci_host *sdhci_alloc_host(struct device *dev,
 	size_t priv_size);
@@ -449,4 +461,4 @@ extern int sdhci_runtime_resume_host(struct sdhci_host *host);
 #endif
 
 void sdhci_cfg_irq(struct sdhci_host *host, bool enable, bool sync);
-#endif 
+#endif /* __SDHCI_HW_H */

@@ -46,30 +46,30 @@ static struct admin_ctx {
 } admin_ctx;
 
 static struct mc_admin_driver_request {
-	
-	struct mutex mutex;		
-	struct mutex states_mutex;	
+	/* Global */
+	struct mutex mutex;		/* Protects access to this struct */
+	struct mutex states_mutex;	/* Protect access to the states */
 	enum client_state {
 		IDLE,
 		REQUEST_SENT,
 		BUFFERS_READY,
 	} client_state;
 	enum server_state {
-		NOT_CONNECTED,		
-		READY,			
-		REQUEST_RECEIVED,	
-		RESPONSE_SENT,		
-		DATA_SENT,		
+		NOT_CONNECTED,		/* Device not open */
+		READY,			/* Waiting for requests */
+		REQUEST_RECEIVED,	/* Got a request, is working */
+		RESPONSE_SENT,		/* Has sent a response header */
+		DATA_SENT,		/* Blocked until data is consumed */
 	} server_state;
 	
 	u32 request_id;
 	struct mc_admin_request request;
 	struct completion client_complete;
-	
+	/* Response */
 	struct mc_admin_response response;
 	struct completion server_complete;
-	void *buffer;			
-	size_t size;			
+	void *buffer;			/* Reception buffer (pre-allocated) */
+	size_t size;			/* Size of the reception buffer */
 } g_request;
 
 static struct tee_object *tee_object_alloc(bool is_sp_trustlet, size_t length)
@@ -78,19 +78,19 @@ static struct tee_object *tee_object_alloc(bool is_sp_trustlet, size_t length)
 	size_t size = sizeof(*obj) + length;
 	size_t header_length = 0;
 
-	
+	/* Determine required size */
 	if (is_sp_trustlet) {
-		
+		/* Need space for lengths info and containers */
 		header_length = sizeof(struct mc_blob_len_info);
 		size += header_length + 3 * MAX_SO_CONT_SIZE;
 	}
 
-	
+	/* Allocate memory */
 	obj = vzalloc(size);
 	if (!obj)
 		return NULL;
 
-	
+	/* A non-zero header_length indicates that we have a SP trustlet */
 	obj->header_length = header_length;
 	obj->length = length;
 	return obj;
@@ -143,9 +143,9 @@ static int request_send(u32 command, const struct mc_uuid_t *uuid, bool is_gp,
 	int counter = 10;
 	int ret = 0;
 
-	
+	/* Prepare request */
 	mutex_lock(&g_request.states_mutex);
-	
+	/* Wait a little for daemon to connect */
 	while ((g_request.server_state == NOT_CONNECTED) && counter--) {
 		mutex_unlock(&g_request.states_mutex);
 		ssleep(1);
@@ -181,26 +181,26 @@ static int request_send(u32 command, const struct mc_uuid_t *uuid, bool is_gp,
 	g_request.client_state = REQUEST_SENT;
 	mutex_unlock(&g_request.states_mutex);
 
-	
+	/* Send request */
 	complete(&g_request.client_complete);
 
-	
+	/* Wait for header (could be interruptible, but then needs more work) */
 	wait_for_completion(&g_request.server_complete);
 
-	
+	/* Server should be waiting with some data for us */
 	mutex_lock(&g_request.states_mutex);
 	switch (g_request.server_state) {
 	case NOT_CONNECTED:
-		
+		/* Daemon gone */
 		ret = -EPIPE;
 		break;
 	case READY:
-		
+		/* No data to come, likely an error */
 		ret = -g_request.response.error_no;
 		break;
 	case RESPONSE_SENT:
 	case DATA_SENT:
-		
+		/* Normal case, data to come */
 		ret = 0;
 		break;
 	case REQUEST_RECEIVED:
@@ -222,8 +222,12 @@ end:
 
 static int request_receive(void *address, u32 size)
 {
+	/*
+	 * At this point we have received the header and prepared some buffers
+	 * to receive data that we know are coming from the server.
+	 */
 
-	
+	/* Check server state */
 	bool server_ok;
 
 	mutex_lock(&g_request.states_mutex);
@@ -237,34 +241,35 @@ static int request_receive(void *address, u32 size)
 		return -EPIPE;
 	}
 
-	
+	/* Setup reception buffer */
 	g_request.buffer = address;
 	g_request.size = size;
 	client_state_change(BUFFERS_READY);
 
-	
+	/* Unlock write of data */
 	complete(&g_request.client_complete);
 
-	
+	/* Wait for data (far too late to be interruptible) */
 	wait_for_completion(&g_request.server_complete);
 
-	
+	/* Reset reception buffer */
 	g_request.buffer = NULL;
 	g_request.size = 0;
 
-	
+	/* Return to idle state */
 	client_state_change(IDLE);
 	return 0;
 }
 
+/* Must be called instead of request_receive() to cancel a pending request */
 static void request_cancel(void)
 {
-	
+	/* Unlock write of data */
 	mutex_lock(&g_request.states_mutex);
 	if (g_request.server_state == DATA_SENT)
 		complete(&g_request.client_complete);
 
-	
+	/* Return to idle state */
 	g_request.client_state = IDLE;
 	mutex_unlock(&g_request.states_mutex);
 }
@@ -273,15 +278,15 @@ static int admin_get_root_container(void *address)
 {
 	int ret = 0;
 
-	
+	/* Lock communication channel */
 	mutex_lock(&g_request.mutex);
 
-	
+	/* Send request and wait for header */
 	ret = request_send(MC_DRV_GET_ROOT_CONTAINER, 0, 0, 0);
 	if (ret)
 		goto end;
 
-	
+	/* Check length against max */
 	if (g_request.response.length >= MAX_SO_CONT_SIZE) {
 		request_cancel();
 		mc_dev_err("response length exceeds maximum\n");
@@ -289,7 +294,7 @@ static int admin_get_root_container(void *address)
 		goto end;
 	}
 
-	
+	/* Get data */
 	ret = request_receive(address, g_request.response.length);
 	if (!ret)
 		ret = g_request.response.length;
@@ -303,15 +308,15 @@ static int admin_get_sp_container(void *address, u32 spid)
 {
 	int ret = 0;
 
-	
+	/* Lock communication channel */
 	mutex_lock(&g_request.mutex);
 
-	
+	/* Send request and wait for header */
 	ret = request_send(MC_DRV_GET_SP_CONTAINER, 0, 0, spid);
 	if (ret)
 		goto end;
 
-	
+	/* Check length against max */
 	if (g_request.response.length >= MAX_SO_CONT_SIZE) {
 		request_cancel();
 		mc_dev_err("response length exceeds maximum\n");
@@ -319,7 +324,7 @@ static int admin_get_sp_container(void *address, u32 spid)
 		goto end;
 	}
 
-	
+	/* Get data */
 	ret = request_receive(address, g_request.response.length);
 	if (!ret)
 		ret = g_request.response.length;
@@ -334,15 +339,15 @@ static int admin_get_trustlet_container(void *address,
 {
 	int ret = 0;
 
-	
+	/* Lock communication channel */
 	mutex_lock(&g_request.mutex);
 
-	
+	/* Send request and wait for header */
 	ret = request_send(MC_DRV_GET_TRUSTLET_CONTAINER, uuid, 0, spid);
 	if (ret)
 		goto end;
 
-	
+	/* Check length against max */
 	if (g_request.response.length >= MAX_SO_CONT_SIZE) {
 		request_cancel();
 		mc_dev_err("response length exceeds maximum\n");
@@ -350,7 +355,7 @@ static int admin_get_trustlet_container(void *address,
 		goto end;
 	}
 
-	
+	/* Get data */
 	ret = request_receive(address, g_request.response.length);
 	if (!ret)
 		ret = g_request.response.length;
@@ -367,15 +372,15 @@ static struct tee_object *admin_get_trustlet(const struct mc_uuid_t *uuid,
 	bool is_sp_tl;
 	int ret = 0;
 
-	
+	/* Lock communication channel */
 	mutex_lock(&g_request.mutex);
 
-	
+	/* Send request and wait for header */
 	ret = request_send(MC_DRV_GET_TRUSTLET, uuid, is_gp, 0);
 	if (ret)
 		goto end;
 
-	
+	/* Allocate memory */
 	is_sp_tl = g_request.response.service_type == SERVICE_TYPE_SP_TRUSTLET;
 	obj = tee_object_alloc(is_sp_tl, g_request.response.length);
 	if (!obj) {
@@ -384,7 +389,7 @@ static struct tee_object *admin_get_trustlet(const struct mc_uuid_t *uuid,
 		goto end;
 	}
 
-	
+	/* Get data */
 	ret = request_receive(&obj->data[obj->header_length], obj->length);
 	*spid = g_request.response.spid;
 
@@ -400,15 +405,15 @@ static void mc_admin_sendcrashdump(void)
 {
 	int ret = 0;
 
-	
+	/* Lock communication channel */
 	mutex_lock(&g_request.mutex);
 
-	
+	/* Send request and wait for header */
 	ret = request_send(MC_DRV_SIGNAL_CRASH, NULL, false, 0);
 	if (ret)
 		goto end;
 
-	
+	/* Done */
 	request_cancel();
 
 end:
@@ -422,7 +427,7 @@ static int tee_object_make(u32 spid, struct tee_object *obj)
 	struct mclf_header_v2 *thdr;
 	int ret;
 
-	
+	/* Get root container */
 	ret = admin_get_root_container(address);
 	if (ret < 0)
 		goto err;
@@ -430,7 +435,7 @@ static int tee_object_make(u32 spid, struct tee_object *obj)
 	l_info->root_size = ret;
 	address += ret;
 
-	
+	/* Get SP container */
 	ret = admin_get_sp_container(address, spid);
 	if (ret < 0)
 		goto err;
@@ -438,7 +443,7 @@ static int tee_object_make(u32 spid, struct tee_object *obj)
 	l_info->sp_size = ret;
 	address += ret;
 
-	
+	/* Get trustlet container */
 	thdr = (struct mclf_header_v2 *)&obj->data[obj->header_length];
 	ret = admin_get_trustlet_container(address, &thdr->uuid, spid);
 	if (ret < 0)
@@ -447,7 +452,7 @@ static int tee_object_make(u32 spid, struct tee_object *obj)
 	l_info->ta_size = ret;
 	address += ret;
 
-	
+	/* Setup lengths information */
 	l_info->magic = MC_TLBLOBLEN_MAGIC;
 	obj->length += sizeof(*l_info);
 	obj->length += l_info->root_size + l_info->sp_size + l_info->ta_size;
@@ -465,13 +470,13 @@ struct tee_object *tee_object_read(u32 spid, uintptr_t address, size_t length)
 	struct mclf_header_v2 thdr;
 	int ret;
 
-	
+	/* Check length */
 	if (length < sizeof(thdr)) {
 		mc_dev_err("buffer shorter than header size\n");
 		return ERR_PTR(-EFAULT);
 	}
 
-	
+	/* Read header */
 	if (copy_from_user(&thdr, addr, sizeof(thdr))) {
 		mc_dev_err("header: copy_from_user failed\n");
 		return ERR_PTR(-EFAULT);
@@ -483,10 +488,10 @@ struct tee_object *tee_object_read(u32 spid, uintptr_t address, size_t length)
 	if (!obj)
 		return ERR_PTR(-ENOMEM);
 
-	
+	/* Copy header */
 	data = &obj->data[obj->header_length];
 	memcpy(data, &thdr, sizeof(thdr));
-	
+	/* Copy the rest of the data */
 	data += sizeof(thdr);
 	if (copy_from_user(data, &addr[sizeof(thdr)], length - sizeof(thdr))) {
 		mc_dev_err("data: copy_from_user failed\n");
@@ -529,11 +534,11 @@ struct tee_object *tee_object_get(const struct mc_uuid_t *uuid, bool is_gp)
 	if (IS_ERR(obj))
 		return obj;
 
-	
+	/* SP trustlet: create full secure object with all containers */
 	if (obj->header_length) {
 		int ret;
 
-		
+		/* Do not return EINVAL in this case as SPID was not found */
 		if (!spid) {
 			vfree(obj);
 			return ERR_PTR(-ENOENT);
@@ -568,13 +573,17 @@ static inline int load_driver(struct tee_client *client,
 
 	thdr = (struct mclf_header_v2 *)&obj->data[obj->header_length];
 	if (!(thdr->flags & MC_SERVICE_HEADER_FLAGS_NO_CONTROL_INTERFACE)) {
+		/*
+		 * The driver requires a DCI, although we won't be able to use
+		 * it to communicate.
+		 */
 		dci_len = PAGE_SIZE;
 		ret = client_cbuf_create(client, dci_len, &dci, NULL);
 		if (ret)
 			goto end;
 	}
 
-	
+	/* Open session */
 	ret = client_add_session(client, obj, dci, dci_len, &sid, false,
 				 &identity);
 	if (!ret)
@@ -629,7 +638,7 @@ static ssize_t admin_write(struct file *file, const char __user *user,
 {
 	int ret;
 
-	
+	/* No offset allowed [yet] */
 	if (*off) {
 		mc_dev_err("offset not supported\n");
 		g_request.response.error_no = EPIPE;
@@ -638,7 +647,7 @@ static ssize_t admin_write(struct file *file, const char __user *user,
 	}
 
 	if (server_state_is(REQUEST_RECEIVED)) {
-		
+		/* Check client state */
 		if (!client_state_is(REQUEST_SENT)) {
 			mc_dev_err("expected client state %d, not %d\n",
 				   REQUEST_SENT, g_request.client_state);
@@ -647,7 +656,7 @@ static ssize_t admin_write(struct file *file, const char __user *user,
 			goto err;
 		}
 
-		
+		/* Receive response header */
 		if (copy_from_user(&g_request.response, user,
 				   sizeof(g_request.response))) {
 			mc_dev_err("failed to get response from daemon\n");
@@ -656,7 +665,7 @@ static ssize_t admin_write(struct file *file, const char __user *user,
 			goto err;
 		}
 
-		
+		/* Check request ID */
 		if (g_request.request.request_id !=
 						g_request.response.request_id) {
 			mc_dev_err("expected id %d, not %d\n",
@@ -667,7 +676,7 @@ static ssize_t admin_write(struct file *file, const char __user *user,
 			goto err;
 		}
 
-		
+		/* Response header is acceptable */
 		ret = sizeof(g_request.response);
 		if (g_request.response.length)
 			server_state_change(RESPONSE_SENT);
@@ -676,20 +685,20 @@ static ssize_t admin_write(struct file *file, const char __user *user,
 
 		goto end;
 	} else if (server_state_is(RESPONSE_SENT)) {
-		
+		/* Server is waiting */
 		server_state_change(DATA_SENT);
 
-		
+		/* Get data */
 		ret = wait_for_completion_interruptible(
 						&g_request.client_complete);
 
-		
+		/* Server received a signal, let see if it tries again */
 		if (ret) {
 			server_state_change(RESPONSE_SENT);
 			return ret;
 		}
 
-		
+		/* Check client state */
 		if (!client_state_is(BUFFERS_READY)) {
 			mc_dev_err("expected client state %d, not %d\n",
 				   BUFFERS_READY, g_request.client_state);
@@ -698,7 +707,7 @@ static ssize_t admin_write(struct file *file, const char __user *user,
 			goto err;
 		}
 
-		
+		/* TODO deal with several writes */
 		if (len != g_request.size)
 			len = g_request.size;
 
@@ -746,10 +755,10 @@ static long admin_ioctl(struct file *file, unsigned int cmd,
 		ret = wait_for_completion_interruptible(
 						&g_request.client_complete);
 		if (ret)
-			
+			/* Interrupted by signal */
 			break;
 
-		
+		/* Check client state */
 		if (!client_state_is(REQUEST_SENT)) {
 			mc_dev_err("expected client state %d, not %d\n",
 				   REQUEST_SENT, g_request.client_state);
@@ -759,7 +768,7 @@ static long admin_ioctl(struct file *file, unsigned int cmd,
 			break;
 		}
 
-		
+		/* Send request (the driver request mutex is held) */
 		ret = copy_to_user(uarg, &g_request.request,
 				   sizeof(g_request.request));
 		if (ret) {
@@ -834,16 +843,25 @@ static long admin_ioctl(struct file *file, unsigned int cmd,
 	return ret;
 }
 
+/*
+ * mc_fd_release() - This function will be called from user space as close(...)
+ * The client data are freed and the associated memory pages are unreserved.
+ *
+ * @inode
+ * @file
+ *
+ * Returns 0
+ */
 static int admin_release(struct inode *inode, struct file *file)
 {
 	
 	if (file->private_data)
 		client_close((struct tee_client *)file->private_data);
 
-	
+	/* Requests from driver to daemon */
 	mutex_lock(&g_request.states_mutex);
 	g_request.server_state = NOT_CONNECTED;
-	
+	/* A non-zero command indicates that a thread is waiting */
 	if (g_request.client_state != IDLE) {
 		g_request.response.error_no = ESHUTDOWN;
 		complete(&g_request.server_complete);
@@ -872,7 +890,7 @@ static int admin_open(struct inode *inode, struct file *file)
 	if (ret)
 		return ret;
 
-	
+	/* Any value will do */
 	g_request.request_id = 42;
 
 	
@@ -889,12 +907,13 @@ static int admin_open(struct inode *inode, struct file *file)
 		return admin_ctx.last_start_ret;
 	}
 
-	
+	/* Requests from driver to daemon */
 	server_state_change(READY);
 	mc_dev_info("admin connection open, PID %d\n", admin_ctx.admin_tgid);
 	return 0;
 }
 
+/* function table structure of this device driver. */
 static const struct file_operations mc_admin_fops = {
 	.owner = THIS_MODULE,
 	.open = admin_open,

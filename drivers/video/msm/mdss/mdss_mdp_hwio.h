@@ -255,6 +255,7 @@ enum mdss_mdp_sspp_chroma_samp_type {
 #define MDSS_MDP_REG_VIG_MEM_COL_BASE			0x288
 #define MDSS_MDP_REG_VIG_PA_BASE			0x310
 
+/* in mpq product */
 #define MDSS_MDP_REG_VIG_FLUSH_SEL			0x204
 
 #define MDSS_MDP_VIG_OP_PA_SAT_ZERO_EXP_EN		BIT(2)
@@ -683,9 +684,11 @@ enum mdss_mdp_pingpong_index {
 
 #define MDSS_MDP_REG_CDM_HDMI_PACK_OP_MODE              0x200
 
+/* Following offsets are with respect to MDP base */
 #define MDSS_MDP_MDP_OUT_CTL_0                          0x410
 #define MDSS_MDP_INTF_CMD_MISR_CTRL		(MDSS_MDP_INTF_MISR_CTRL + 0x8)
 #define MDSS_MDP_INTF_CMD_MISR_SIGNATURE	(MDSS_MDP_INTF_MISR_CTRL + 0xC)
+/* following offsets are with respect to MDP VBIF base */
 #define MMSS_VBIF_CLKON			0x4
 #define MMSS_VBIF_RD_LIM_CONF			0x0B0
 #define MMSS_VBIF_WR_LIM_CONF			0x0C0

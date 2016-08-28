@@ -53,6 +53,8 @@ static int bl_switcher_notifier_handler(struct notifier_block *this,
 	return 0;
 }
 
+
+/* CPI todo: inconsistent handling of ret in below 2 functions */
 int mc_pm_start(void)
 {
 	pm_ctx.bl_swicher_notifier.notifier_call = bl_switcher_notifier_handler;
@@ -65,4 +67,4 @@ void mc_pm_stop(void)
 	unregister_bL_swicher_notifier(&pm_ctx.bl_swicher_notifier);
 }
 
-#endif 
+#endif /* MC_PM_RUNTIME */

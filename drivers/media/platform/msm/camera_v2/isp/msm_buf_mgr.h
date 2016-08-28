@@ -16,11 +16,17 @@
 #include <media/msmb_isp.h>
 #include "msm_sd.h"
 
+/* Buffer type could be userspace / HAL.
+ * Userspase could provide native or scratch buffer. */
 #define BUF_SRC(id) ( \
 		(id & ISP_SCRATCH_BUF_BIT) ? MSM_ISP_BUFFER_SRC_SCRATCH : \
 		(id & ISP_NATIVE_BUF_BIT) ? MSM_ISP_BUFFER_SRC_NATIVE : \
 				MSM_ISP_BUFFER_SRC_HAL)
 
+/*
+ * This mask can be set dynamically if there are more than 2 VFE
+ *.and 2 of those are used
+ */
 #define ISP_SHARE_BUF_MASK 0x3
 #define ISP_NUM_BUF_MASK 2
 #define BUF_MGR_NUM_BUF_Q 28
@@ -36,22 +42,22 @@ enum msm_isp_buffer_src_t {
 };
 
 enum msm_isp_buffer_state {
-	MSM_ISP_BUFFER_STATE_UNUSED,         
-	MSM_ISP_BUFFER_STATE_INITIALIZED,    
-	MSM_ISP_BUFFER_STATE_PREPARED,       
-	MSM_ISP_BUFFER_STATE_QUEUED,         
-	MSM_ISP_BUFFER_STATE_DEQUEUED,       
-	MSM_ISP_BUFFER_STATE_DIVERTED,       
-	MSM_ISP_BUFFER_STATE_DISPATCHED,     
+	MSM_ISP_BUFFER_STATE_UNUSED,         /* not used */
+	MSM_ISP_BUFFER_STATE_INITIALIZED,    /* REQBUF done */
+	MSM_ISP_BUFFER_STATE_PREPARED,       /* BUF mapped */
+	MSM_ISP_BUFFER_STATE_QUEUED,         /* buf queued */
+	MSM_ISP_BUFFER_STATE_DEQUEUED,       /* in use in VFE */
+	MSM_ISP_BUFFER_STATE_DIVERTED,       /* Sent to other hardware*/
+	MSM_ISP_BUFFER_STATE_DISPATCHED,     /* Sent to HAL*/
 };
 
 enum msm_isp_buffer_put_state {
-	MSM_ISP_BUFFER_STATE_PUT_PREPARED,  
-	MSM_ISP_BUFFER_STATE_PUT_BUF,       
-	MSM_ISP_BUFFER_STATE_FLUSH,         
-	MSM_ISP_BUFFER_STATE_DROP_REG,      
-	MSM_ISP_BUFFER_STATE_DROP_SKIP,      
-	MSM_ISP_BUFFER_STATE_RETURN_EMPTY,  
+	MSM_ISP_BUFFER_STATE_PUT_PREPARED,  /* on init */
+	MSM_ISP_BUFFER_STATE_PUT_BUF,       /* on rotation */
+	MSM_ISP_BUFFER_STATE_FLUSH,         /* on recovery */
+	MSM_ISP_BUFFER_STATE_DROP_REG,      /* on drop frame for reg_update */
+	MSM_ISP_BUFFER_STATE_DROP_SKIP,      /* on drop frame for sw skip */
+	MSM_ISP_BUFFER_STATE_RETURN_EMPTY,  /* for return empty */
 };
 
 enum msm_isp_buffer_flush_t {
@@ -81,23 +87,23 @@ struct msm_isp_buffer_debug_t {
 };
 
 struct msm_isp_buffer {
-	
+	/*Common Data structure*/
 	int num_planes;
 	struct msm_isp_buffer_mapped_info mapped_info[VIDEO_MAX_PLANES];
 	int buf_idx;
 	uint32_t bufq_handle;
 	uint32_t frame_id;
 	struct timeval *tv;
-	
+	/* Indicates whether buffer is used as ping ot pong buffer */
 	uint32_t pingpong_bit;
 
-	
+	/*Native buffer*/
 	struct list_head list;
 	enum msm_isp_buffer_state state;
 
 	struct msm_isp_buffer_debug_t buf_debug;
 
-	
+	/*Vb2 buffer data*/
 	struct vb2_buffer *vb2_buf;
 };
 
@@ -110,7 +116,7 @@ struct msm_isp_bufq {
 	struct msm_isp_buffer *bufs;
 	spinlock_t bufq_lock;
 	uint8_t put_buf_mask[ISP_NUM_BUF_MASK];
-	
+	/*Native buffer queue*/
 	struct list_head head;
 };
 
@@ -183,10 +189,10 @@ struct msm_isp_buf_mgr {
 
 	struct msm_sd_req_vb2_q *vb2_ops;
 
-	
+	/*IOMMU driver*/
 	int iommu_hdl;
 
-	
+	/*Add secure mode*/
 	int secure_enable;
 
 	int num_iommu_ctx;
@@ -195,7 +201,7 @@ struct msm_isp_buf_mgr {
 	enum msm_isp_buf_mgr_state attach_state;
 	struct device *isp_dev;
 	struct mutex lock;
-	
+	/* Scratch buffer */
 	dma_addr_t scratch_buf_addr;
 	uint32_t scratch_buf_range;
 };
@@ -210,4 +216,4 @@ int msm_isp_proc_buf_cmd(struct msm_isp_buf_mgr *buf_mgr,
 int msm_isp_smmu_attach(struct msm_isp_buf_mgr *buf_mgr,
 	void *arg);
 
-#endif 
+#endif /* _MSM_ISP_BUF_H_ */

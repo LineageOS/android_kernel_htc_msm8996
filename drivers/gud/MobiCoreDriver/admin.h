@@ -29,4 +29,4 @@ struct tee_object *tee_object_get(const struct mc_uuid_t *uuid, bool is_gp);
 struct tee_object *tee_object_read(u32 spid, uintptr_t address, size_t length);
 void tee_object_free(struct tee_object *object);
 
-#endif 
+#endif /* ADMIN_FD_H_ */

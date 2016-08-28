@@ -23,8 +23,9 @@ extern "C" {
 
 #define MC_ADMIN_DEVNODE "mobicore"
 
+/* Driver/daemon commands */
 enum {
-	
+	/* Command 0 is reserved */
 	MC_DRV_GET_ROOT_CONTAINER = 1,
 	MC_DRV_GET_SP_CONTAINER = 2,
 	MC_DRV_GET_TRUSTLET_CONTAINER = 3,
@@ -32,6 +33,7 @@ enum {
 	MC_DRV_SIGNAL_CRASH = 5,
 };
 
+/* MobiCore IOCTL magic number */
 #define MC_IOC_MAGIC    'M'
 
 struct mc_admin_request {
@@ -77,4 +79,4 @@ struct mc_admin_load_info {
 #ifdef __cplusplus
 }
 #endif
-#endif 
+#endif				/* __MC_ADMIN_IOCTL_H__ */

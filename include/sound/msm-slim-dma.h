@@ -24,13 +24,13 @@ enum msm_dai_slim_event {
 
 struct msm_slim_dma_data {
 
-	
+	/* Handle to slimbus device */
 	struct slim_device *sdev;
 
-	
+	/* Port Handle */
 	u32 ph;
 
-	
+	/* Callback for data channel control */
 	int (*dai_channel_ctl) (struct msm_slim_dma_data *dma_data,
 				struct snd_soc_dai *dai,
 				enum msm_dai_slim_event);

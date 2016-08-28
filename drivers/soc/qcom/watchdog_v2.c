@@ -91,6 +91,11 @@ struct msm_watchdog_data {
 	struct completion pet_complete;
 };
 
+/*
+ * On the kernel command line specify
+ * watchdog_v2.enable=1 to enable the watchdog
+ * By default watchdog is turned on
+ */
 static int enable = 1;
 module_param(enable, int, 0);
 #if defined(CONFIG_HTC_DEBUG_WATCHDOG)
@@ -121,9 +126,19 @@ void msm_watchdog_bark(void)
 EXPORT_SYMBOL(msm_watchdog_bark);
 #endif 
 
+/*
+ * On the kernel command line specify
+ * watchdog_v2.WDT_HZ=<clock val in HZ> to set Watchdog
+ * ticks. By default it is set to 32765.
+ */
 static long WDT_HZ = 32765;
 module_param(WDT_HZ, long, 0);
 
+/*
+ * On the kernel command line specify
+ * watchdog_v2.ipi_opt_en=1 to enable the watchdog ipi ping
+ * optimization. By default it is turned off
+ */
 static int ipi_opt_en;
 module_param(ipi_opt_en, int, 0);
 
@@ -143,7 +158,7 @@ static int msm_watchdog_suspend(struct device *dev)
 		return 0;
 	__raw_writel(1, wdog_dd->base + WDT0_RST);
 	if (wdog_dd->wakeup_irq_enable) {
-		
+		/* Make sure register write is complete before proceeding */
 		mb();
 		wdog_dd->last_pet = sched_clock();
 		return 0;
@@ -167,7 +182,7 @@ static int msm_watchdog_resume(struct device *dev)
 		return 0;
 	if (wdog_dd->wakeup_irq_enable) {
 		__raw_writel(1, wdog_dd->base + WDT0_RST);
-		
+		/* Make sure register write is complete before proceeding */
 		mb();
 		wdog_dd->last_pet = sched_clock();
 		return 0;
@@ -221,12 +236,12 @@ static void wdog_disable(struct msm_watchdog_data *wdog_dd)
 	} else
 		devm_free_irq(wdog_dd->dev, wdog_dd->bark_irq, wdog_dd);
 	enable = 0;
-	
+	/*Ensure all cpus see update to enable*/
 	smp_mb();
 	atomic_notifier_chain_unregister(&panic_notifier_list,
 						&wdog_dd->panic_blk);
 	del_timer_sync(&wdog_dd->pet_timer);
-	
+	/* may be suspended after the first write above */
 	__raw_writel(0, wdog_dd->base + WDT0_EN);
 #ifdef CONFIG_HTC_DEBUG_FOOTPRINT
 	set_msm_watchdog_en_footprint(0);
@@ -333,6 +348,10 @@ static void keep_alive_response(void *info)
 	smp_mb();
 }
 
+/*
+ * If this function does not return, it implies one of the
+ * other cpu's is not responsive.
+ */
 static void ping_other_cpus(struct msm_watchdog_data *wdog_dd)
 {
 	int cpu;
@@ -371,6 +390,8 @@ static __ref int watchdog_kthread(void *arg)
 				ping_other_cpus(wdog_dd);
 			pet_watchdog(wdog_dd);
 		}
+		/* Check again before scheduling *
+		 * Could have been changed on other cpu */
 		mod_timer(&wdog_dd->pet_timer, jiffies + delay_time);
 #if defined(CONFIG_HTC_DEBUG_WATCHDOG)
 		htc_debug_watchdog_update_last_pet(wdog_dd->last_pet);
@@ -444,7 +465,7 @@ void msm_trigger_wdog_bite(void)
 	set_msm_watchdog_pet_footprint(mpm_clock_base);
 #endif
 	mb();
-	
+	/* Delay to make sure bite occurs */
 	mdelay(10000);
 	pr_err("Wdog - STS: 0x%x, CTL: 0x%x, BARK TIME: 0x%x, BITE TIME: 0x%x",
 		__raw_readl(wdog_data->base + WDT0_STS),
@@ -497,7 +518,7 @@ static void configure_bark_dump(struct msm_watchdog_data *wdog_dd)
 	if (MSM_DUMP_MAJOR(msm_dump_table_version()) == 1) {
 		wdog_dd->scm_regsave = (void *)__get_free_page(GFP_KERNEL);
 		if (wdog_dd->scm_regsave) {
-			
+			/* scm_regsave may be a phys address > 4GB */
 			desc.args[0] = virt_to_phys(wdog_dd->scm_regsave);
 			cmd_buf.addr = virt_to_phys(wdog_dd->scm_regsave);
 			desc.args[1] = cmd_buf.len  = PAGE_SIZE;
@@ -526,6 +547,11 @@ static void configure_bark_dump(struct msm_watchdog_data *wdog_dd)
 		} else {
 			pr_err("Allocating register save space failed\n"
 			       "Registers won't be dumped on a dog bite\n");
+			/*
+			 * No need to bail if allocation fails. Simply don't
+			 * send the command, and the secure side will reset
+			 * without saving registers.
+			 */
 		}
 	} else {
 #if defined(CONFIG_HTC_DEBUG_MEM_DUMP_TABLE)
@@ -553,6 +579,10 @@ static void configure_bark_dump(struct msm_watchdog_data *wdog_dd)
 			dump_entry.addr = virt_to_phys(&cpu_data[cpu]);
 			ret = msm_dump_data_register(MSM_DUMP_TABLE_APPS,
 						     &dump_entry);
+			/*
+			 * Don't free the buffers in case of error since
+			 * registration may have succeeded for some cpus.
+			 */
 			if (ret)
 				pr_err("cpu %d reg dump setup failed\n", cpu);
 		}
@@ -574,6 +604,10 @@ static void init_watchdog_data(struct msm_watchdog_data *wdog_dd)
 	u64 timeout;
 	int ret;
 
+	/*
+	 * Disable the watchdog for cluster 1 so that cluster 0 watchdog will
+	 * be mapped to the entire sub-system.
+	 */
 	if (wdog_dd->wdog_absent_base)
 		__raw_writel(2, wdog_dd->wdog_absent_base + WDOG_ABSENT);
 

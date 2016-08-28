@@ -112,4 +112,4 @@ static inline void msm_isp_cfg_stream_scratch(struct vfe_device *vfe_dev,
 	stream_info->buf[pingpong_bit] = NULL;
 }
 
-#endif 
+#endif /* __MSM_ISP_AXI_UTIL_H__ */

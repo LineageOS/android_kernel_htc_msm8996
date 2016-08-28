@@ -64,7 +64,7 @@ static inline bool gid_lt(kgid_t left, kgid_t right)
 #include "admin.h"		
 #include "mmu.h"
 #include "mcp.h"
-#include "client.h"		
+#include "client.h"		/* *cbuf* */
 #include "session.h"
 #include "mci/mcimcp.h"		
 
@@ -85,6 +85,10 @@ struct wsm {
 	struct list_head	list;
 };
 
+/*
+ * Postponed closing for GP TAs.
+ * Implemented as a worker because cannot be executed from within isr_worker.
+ */
 static void session_close_worker(struct work_struct *work)
 {
 	struct mcp_session *mcp_session;
@@ -235,7 +239,7 @@ static int check_prepare_identity(const struct mc_identity *identity,
 	unsigned int data_len;
 	struct task_struct *task;
 
-	
+	/* Mobicore doesn't support GP client authentication. */
 	if (!g_ctx.f_client_login &&
 	    (identity->login_type != LOGIN_PUBLIC)) {
 		mc_dev_err("Unsupported login type %d\n", identity->login_type);
@@ -332,14 +336,14 @@ struct tee_session *session_create(struct tee_client *client, bool is_gp,
 	struct identity mcp_identity;
 
 	if (is_gp) {
-		
+		/* Check identity method and data. */
 		int ret = check_prepare_identity(identity, &mcp_identity);
 
 		if (ret)
 			return ERR_PTR(ret);
 	}
 
-	
+	/* Allocate session object */
 	session = kzalloc(sizeof(*session), GFP_KERNEL);
 	if (!session)
 		return ERR_PTR(-ENOMEM);
@@ -347,7 +351,7 @@ struct tee_session *session_create(struct tee_client *client, bool is_gp,
 	
 	atomic_inc(&g_ctx.c_sessions);
 	mutex_init(&session->close_lock);
-	
+	/* Initialise object members */
 	mcp_session_init(&session->mcp_session, is_gp, &mcp_identity);
 	INIT_WORK(&session->mcp_session.close_work, session_close_worker);
 	client_get(client);
@@ -414,6 +418,11 @@ int session_close(struct tee_session *session)
 		put_session = true;
 		break;
 	case -EBUSY:
+		/*
+		 * (GP) TA needs time to close. The "TA closed" notification
+		 * will trigger a new call to session_close().
+		 * Return OK but do not unref.
+		 */
 		break;
 	default:
 		mc_dev_err("failed to close session %x in SWd\n",
@@ -505,7 +514,7 @@ int session_wsms_add(struct tee_session *session,
 	int i, ret = 0;
 	bool at_least_one = false;
 
-	
+	/* Check parameters */
 	if (!session)
 		return -ENXIO;
 
@@ -536,9 +545,9 @@ int session_wsms_add(struct tee_session *session,
 		return -EINVAL;
 	}
 
-	
+	/* Map buffers */
 	if (g_ctx.f_multimap) {
-		
+		/* Send MCP message to map buffers in SWd */
 		ret = mcp_multimap(session->mcp_session.id, maps);
 		if (ret) {
 			mc_dev_err("multimap failed: %d\n", ret);
@@ -634,6 +643,7 @@ int session_wsms_remove(struct tee_session *session,
 		return -EINVAL;
 	}
 
+	/* Lock the session */
 	mutex_lock(&session->wsms_lock);
 
 	
@@ -685,7 +695,7 @@ int session_wsms_remove(struct tee_session *session,
 	}
 
 	if (g_ctx.f_multimap) {
-		
+		/* Send MCP command to unmap buffers in SWd */
 		ret = mcp_multiunmap(session->mcp_session.id, maps);
 		if (ret) {
 			mc_dev_err("mcp_multiunmap failed: %d\n", ret);
@@ -751,7 +761,7 @@ int session_debug_structs(struct kasnprintf_buf *buf,
 	if (ret < 0)
 		return ret;
 
-	
+	/* WMSs */
 	mutex_lock(&session->wsms_lock);
 	if (list_empty(&session->wsms))
 		goto done;

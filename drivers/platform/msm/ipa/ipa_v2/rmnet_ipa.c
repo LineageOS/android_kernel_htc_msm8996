@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * WWAN Transport Network Driver.
+ */
 
 #include <linux/completion.h>
 #include <linux/errno.h>
@@ -36,10 +39,10 @@
 #define WWAN_METADATA_SHFT 24
 #define WWAN_METADATA_MASK 0xFF000000
 #define WWAN_DATA_LEN 2000
-#define IPA_RM_INACTIVITY_TIMER 100 
-#define HEADROOM_FOR_QMAP   8 
-#define TAILROOM            0 
-#define MAX_NUM_OF_MUX_CHANNEL  10 
+#define IPA_RM_INACTIVITY_TIMER 100 /* IPA_RM */
+#define HEADROOM_FOR_QMAP   8 /* for mux header */
+#define TAILROOM            0 /* for padding by mux layer */
+#define MAX_NUM_OF_MUX_CHANNEL  10 /* max mux channels */
 #define UL_FILTER_RULE_HANDLE_START 69
 #define DEFAULT_OUTSTANDING_HIGH 64
 #define DEFAULT_OUTSTANDING_LOW 32
@@ -52,7 +55,7 @@
 #define INVALID_MUX_ID 0xFF
 #define IPA_QUOTA_REACH_ALERT_MAX_SIZE 64
 #define IPA_QUOTA_REACH_IF_NAME_MAX_SIZE 64
-#define IPA_UEVENT_NUM_EVNP 4 
+#define IPA_UEVENT_NUM_EVNP 4 /* number of event pointers */
 
 static struct net_device *ipa_netdevs[IPA_WWAN_DEVICE_COUNT];
 static struct ipa_sys_connect_params apps_to_ipa_ep_cfg, ipa_to_apps_ep_cfg;
@@ -61,12 +64,12 @@ static struct rmnet_mux_val mux_channel[MAX_NUM_OF_MUX_CHANNEL];
 static int num_q6_rule, old_num_q6_rule;
 static int rmnet_index;
 static bool egress_set, a7_ul_flt_set;
-static struct workqueue_struct *ipa_rm_q6_workqueue; 
+static struct workqueue_struct *ipa_rm_q6_workqueue; /* IPA_RM workqueue*/
 static atomic_t is_initialized;
 static atomic_t is_ssr;
 static void *subsys_notify_handle;
 
-u32 apps_to_ipa_hdl, ipa_to_apps_hdl; 
+u32 apps_to_ipa_hdl, ipa_to_apps_hdl; /* get handler from ipa */
 static struct mutex ipa_to_apps_pipe_handle_guard;
 static int wwan_add_ul_flt_rule_to_ipa(void);
 static int wwan_del_ul_flt_rule_to_ipa(void);
@@ -90,6 +93,19 @@ struct ipa_rmnet_plat_drv_res {
 	bool ipa_advertise_sg_support;
 };
 
+/**
+ * struct wwan_private - WWAN private data
+ * @net: network interface struct implemented by this driver
+ * @stats: iface statistics
+ * @outstanding_pkts: number of packets sent to IPA without TX complete ACKed
+ * @outstanding_high: number of outstanding packets allowed
+ * @outstanding_low: number of outstanding packets which shall cause
+ * @ch_id: channel id
+ * @lock: spinlock for mutual exclusion
+ * @device_status: holds device status
+ *
+ * WWAN private - holds all relevant info about WWAN driver
+ */
 struct wwan_private {
 	struct net_device *net;
 	struct net_device_stats stats;
@@ -102,6 +118,14 @@ struct wwan_private {
 	enum wwan_device_status device_status;
 };
 
+/**
+* ipa_setup_a7_qmap_hdr() - Setup default a7 qmap hdr
+*
+* Return codes:
+* 0: success
+* -ENOMEM: failed to allocate memory
+* -EPERM: failed to add the tables
+*/
 static int ipa_setup_a7_qmap_hdr(void)
 {
 	struct ipa_ioc_add_hdr *hdr;
@@ -109,7 +133,7 @@ static int ipa_setup_a7_qmap_hdr(void)
 	u32 pyld_sz;
 	int ret;
 
-	
+	/* install the basic exception header */
 	pyld_sz = sizeof(struct ipa_ioc_add_hdr) + 1 *
 		      sizeof(struct ipa_hdr_add);
 	hdr = kzalloc(pyld_sz, GFP_KERNEL);
@@ -123,7 +147,7 @@ static int ipa_setup_a7_qmap_hdr(void)
 
 	strlcpy(hdr_entry->name, IPA_A7_QMAP_HDR_NAME,
 				IPA_RESOURCE_NAME_MAX);
-	hdr_entry->hdr_len = IPA_QMAP_HEADER_LENGTH; 
+	hdr_entry->hdr_len = IPA_QMAP_HEADER_LENGTH; /* 4 bytes */
 
 	if (ipa2_add_hdr(hdr)) {
 		IPAWANERR("fail to add IPA_A7_QMAP hdr\n");
@@ -244,7 +268,7 @@ static int ipa_add_qmap_hdr(uint32_t mux_id, uint32_t *hdr_hdl)
 	 strlcpy(hdr_entry->name, hdr_name,
 				IPA_RESOURCE_NAME_MAX);
 
-	hdr_entry->hdr_len = IPA_QMAP_HEADER_LENGTH; 
+	hdr_entry->hdr_len = IPA_QMAP_HEADER_LENGTH; /* 4 bytes */
 	hdr_entry->hdr[1] = (uint8_t) mux_id;
 	IPAWANDBG("header (%s) with mux-id: (%d)\n",
 		hdr_name,
@@ -268,6 +292,14 @@ bail:
 	return ret;
 }
 
+/**
+* ipa_setup_dflt_wan_rt_tables() - Setup default wan routing tables
+*
+* Return codes:
+* 0: success
+* -ENOMEM: failed to allocate memory
+* -EPERM: failed to add the tables
+*/
 static int ipa_setup_dflt_wan_rt_tables(void)
 {
 	struct ipa_ioc_add_rt_rule *rt_rule;
@@ -280,7 +312,7 @@ static int ipa_setup_dflt_wan_rt_tables(void)
 		IPAWANERR("fail to alloc mem\n");
 		return -ENOMEM;
 	}
-	
+	/* setup a default v4 route to point to Apps */
 	rt_rule->num_rules = 1;
 	rt_rule->commit = 1;
 	rt_rule->ip = IPA_IP_v4;
@@ -301,7 +333,7 @@ static int ipa_setup_dflt_wan_rt_tables(void)
 	IPAWANDBG("dflt v4 rt rule hdl=%x\n", rt_rule_entry->rt_rule_hdl);
 	dflt_v4_wan_rt_hdl = rt_rule_entry->rt_rule_hdl;
 
-	
+	/* setup a default v6 route to point to A5 */
 	rt_rule->ip = IPA_IP_v6;
 	if (ipa2_add_rt_rule(rt_rule)) {
 		IPAWANERR("fail to add dflt_wan v6 rule\n");
@@ -371,9 +403,9 @@ int copy_ul_filter_rule_to_ipa(struct ipa_install_fltr_rule_req_msg_v01
 		return -EINVAL;
 	}
 
-	
+	/* copy UL filter rules from Modem*/
 	for (i = 0; i < num_q6_rule; i++) {
-		
+		/* check if rules overside the cache*/
 		if (i == MAX_NUM_Q6_RULE) {
 			IPAWANERR("Reaching (%d) max cache ",
 				MAX_NUM_Q6_RULE);
@@ -381,7 +413,7 @@ int copy_ul_filter_rule_to_ipa(struct ipa_install_fltr_rule_req_msg_v01
 				num_q6_rule);
 			goto failure;
 		}
-		
+		/* construct UL_filter_rule handler QMI use-cas */
 		ipa_qmi_ctx->q6_ul_filter_rule[i].filter_hdl =
 			UL_FILTER_RULE_HANDLE_START + i;
 		rule_hdl[i] = ipa_qmi_ctx->q6_ul_filter_rule[i].filter_hdl;
@@ -605,7 +637,7 @@ static int wwan_add_ul_flt_rule_to_ipa(void)
 		= ipa_qmi_ctx->q6_ul_filter_rule[i].rt_tbl_idx;
 		flt_rule_entry.rule.retain_hdr = true;
 
-		
+		/* debug rt-hdl*/
 		IPAWANDBG("install-IPA index(%d),rt-tbl:(%d)\n",
 			i, flt_rule_entry.rule.rt_tbl_idx);
 		flt_rule_entry.rule.eq_attrib_type = true;
@@ -618,13 +650,13 @@ static int wwan_add_ul_flt_rule_to_ipa(void)
 			retval = -EFAULT;
 			IPAWANERR("add A7 UL filter rule(%d) failed\n", i);
 		} else {
-			
+			/* store the rule handler */
 			ipa_qmi_ctx->q6_ul_filter_rule_hdl[i] =
 				param->rules[0].flt_rule_hdl;
 		}
 	}
 
-	
+	/* send ipa_fltr_installed_notif_req_msg_v01 to Q6*/
 	req->source_pipe_index =
 		ipa2_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
 	req->install_status = QMI_RESULT_SUCCESS_V01;
@@ -674,7 +706,7 @@ static int wwan_del_ul_flt_rule_to_ipa(void)
 		param->ip = ipa_qmi_ctx->q6_ul_filter_rule[i].ip;
 		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_del));
 		flt_rule_entry.hdl = ipa_qmi_ctx->q6_ul_filter_rule_hdl[i];
-		
+		/* debug rt-hdl*/
 		IPAWANDBG("delete-IPA rule index(%d)\n", i);
 		memcpy(&(param->hdl[0]), &flt_rule_entry,
 			sizeof(struct ipa_flt_rule_del));
@@ -685,7 +717,7 @@ static int wwan_del_ul_flt_rule_to_ipa(void)
 		}
 	}
 
-	
+	/* set UL filter-rule add-indication */
 	a7_ul_flt_set = false;
 	old_num_q6_rule = 0;
 
@@ -751,7 +783,7 @@ static int wwan_register_to_ipa(int index)
 	tx_ipv6_property = &tx_properties.prop[1];
 	tx_ipv6_property->ip = IPA_IP_v6;
 	tx_ipv6_property->dst_pipe = IPA_CLIENT_APPS_WAN_CONS;
-	
+	/* no need use A2_MUX_HDR_NAME_V6_PREF, same header */
 	snprintf(tx_ipv6_property->hdr_name, IPA_RESOURCE_NAME_MAX, "%s%d",
 		 A2_MUX_HDR_NAME_V4_PREF,
 		 mux_channel[index].mux_id);
@@ -838,13 +870,13 @@ static void ipa_cleanup_deregister_intf(void)
 int wwan_update_mux_channel_prop(void)
 {
 	int ret = 0, i;
-	
+	/* install UL filter rules */
 	if (egress_set) {
 		if (ipa_qmi_ctx->modem_cfg_emb_pipe_flt == false) {
 			IPAWANDBG("setup UL filter rules\n");
 			if (a7_ul_flt_set) {
 				IPAWANDBG("del previous UL filter rules\n");
-				
+				/* delete rule hdlers */
 				ret = wwan_del_ul_flt_rule_to_ipa();
 				if (ret) {
 					IPAWANERR("failed to del old rules\n");
@@ -859,7 +891,7 @@ int wwan_update_mux_channel_prop(void)
 		else
 			a7_ul_flt_set = true;
 	}
-	
+	/* update Tx/Rx/Ext property */
 	IPAWANDBG("update Tx/Rx/Ext property in IPA\n");
 	if (rmnet_index == 0) {
 		IPAWANDBG("no Tx/Rx/Ext property registered in IPA\n");
@@ -886,7 +918,7 @@ int wwan_update_mux_channel_prop(void)
 
 #ifdef INIT_COMPLETION
 #define reinit_completion(x) INIT_COMPLETION(*(x))
-#endif 
+#endif /* INIT_COMPLETION */
 
 static int __ipa_wwan_open(struct net_device *dev)
 {
@@ -899,6 +931,16 @@ static int __ipa_wwan_open(struct net_device *dev)
 	return 0;
 }
 
+/**
+ * wwan_open() - Opens the wwan network interface. Opens logical
+ * channel on A2 MUX driver and starts the network stack queue
+ *
+ * @dev: network device
+ *
+ * Return codes:
+ * 0: success
+ * -ENODEV: Error while opening logical channel on A2 MUX driver
+ */
 static int ipa_wwan_open(struct net_device *dev)
 {
 	int rc = 0;
@@ -917,6 +959,8 @@ static int __ipa_wwan_close(struct net_device *dev)
 
 	if (wwan_ptr->device_status == WWAN_DEVICE_ACTIVE) {
 		wwan_ptr->device_status = WWAN_DEVICE_INACTIVE;
+		/* do not close wwan port once up,  this causes
+			remote side to hang if tried to open again */
 		reinit_completion(&wwan_ptr->resource_granted_completion);
 		rc = ipa2_deregister_intf(dev->name);
 		if (rc) {
@@ -930,6 +974,17 @@ static int __ipa_wwan_close(struct net_device *dev)
 	}
 }
 
+/**
+ * ipa_wwan_stop() - Stops the wwan network interface. Closes
+ * logical channel on A2 MUX driver and stops the network stack
+ * queue
+ *
+ * @dev: network device
+ *
+ * Return codes:
+ * 0: success
+ * -ENODEV: Error while opening logical channel on A2 MUX driver
+ */
 static int ipa_wwan_stop(struct net_device *dev)
 {
 	IPAWANDBG("[%s] ipa_wwan_stop()\n", dev->name);
@@ -948,6 +1003,18 @@ static int ipa_wwan_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
+/**
+ * ipa_wwan_xmit() - Transmits an skb.
+ *
+ * @skb: skb to be transmitted
+ * @dev: network device
+ *
+ * Return codes:
+ * 0: success
+ * NETDEV_TX_BUSY: Error while transmitting the skb. Try again
+ * later
+ * -EFAULT: Error while transmitting the skb
+ */
 static int ipa_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	int ret = 0;
@@ -957,7 +1024,7 @@ static int ipa_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		IPAWANERR("[%s]fatal: ipa_wwan_xmit stopped\n", dev->name);
 	return 0;
 	}
-	
+	/* IPA_RM checking start */
 	ret = ipa2_rm_inactivity_timer_request_resource(
 		IPA_RM_RESOURCE_WWAN_0_PROD);
 	if (ret == -EINPROGRESS) {
@@ -969,7 +1036,7 @@ static int ipa_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		       dev->name, ret);
 		return -EFAULT;
 	}
-	
+	/* IPA_RM checking end */
 	if (skb->protocol != htons(ETH_P_MAP)) {
 		IPAWANDBG
 		("SW filtering out none QMAP packet received from %s",
@@ -978,7 +1045,7 @@ static int ipa_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		goto out;
 	}
 
-	
+	/* checking High WM hit */
 	if (atomic_read(&wwan_ptr->outstanding_pkts) >=
 					wwan_ptr->outstanding_high) {
 		IPAWANDBG("Outstanding high (%d)- stopping\n",
@@ -1010,6 +1077,16 @@ static void ipa_wwan_tx_timeout(struct net_device *dev)
 	IPAWANERR("[%s] ipa_wwan_tx_timeout(), data stall in UL\n", dev->name);
 }
 
+/**
+ * apps_ipa_tx_complete_notify() - Rx notify
+ *
+ * @priv: driver context
+ * @evt: event type
+ * @data: data provided with event
+ *
+ * Check that the packet is the one we sent and release it
+ * This function will be called in defered context in IPA wq.
+ */
 static void apps_ipa_tx_complete_notify(void *priv,
 		enum ipa_dp_evt_type evt,
 		unsigned long data)
@@ -1046,6 +1123,15 @@ static void apps_ipa_tx_complete_notify(void *priv,
 		IPA_RM_RESOURCE_WWAN_0_PROD);
 }
 
+/**
+ * apps_ipa_packet_receive_notify() - Rx notify
+ *
+ * @priv: driver context
+ * @evt: event type
+ * @data: data provided with event
+ *
+ * IPA will pass a packet to the Linux network stack with skb->data
+ */
 static void apps_ipa_packet_receive_notify(void *priv,
 		enum ipa_dp_evt_type evt,
 		unsigned long data)
@@ -1083,6 +1169,21 @@ static void apps_ipa_packet_receive_notify(void *priv,
 
 static struct ipa_rmnet_plat_drv_res ipa_rmnet_res = {0, };
 
+/**
+ * ipa_wwan_ioctl() - I/O control for wwan network driver.
+ *
+ * @dev: network device
+ * @ifr: ignored
+ * @cmd: cmd to be excecuded. can be one of the following:
+ * IPA_WWAN_IOCTL_OPEN - Open the network interface
+ * IPA_WWAN_IOCTL_CLOSE - Close the network interface
+ *
+ * Return codes:
+ * 0: success
+ * NETDEV_TX_BUSY: Error while transmitting the skb. Try again
+ * later
+ * -EFAULT: Error while transmitting the skb
+ */
 static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	int rc = 0;
@@ -1094,46 +1195,46 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 	IPAWANDBG("rmnet_ipa got ioctl number 0x%08x", cmd);
 	switch (cmd) {
-	
+	/*  Set Ethernet protocol  */
 	case RMNET_IOCTL_SET_LLP_ETHERNET:
 		break;
-	
+	/*  Set RAWIP protocol  */
 	case RMNET_IOCTL_SET_LLP_IP:
 		break;
-	
+	/*  Get link protocol  */
 	case RMNET_IOCTL_GET_LLP:
 		ioctl_data.u.operation_mode = RMNET_MODE_LLP_IP;
 		if (copy_to_user(ifr->ifr_ifru.ifru_data, &ioctl_data,
 			sizeof(struct rmnet_ioctl_data_s)))
 			rc = -EFAULT;
 		break;
-	
+	/*  Set QoS header enabled  */
 	case RMNET_IOCTL_SET_QOS_ENABLE:
 		return -EINVAL;
-	
+	/*  Set QoS header disabled  */
 	case RMNET_IOCTL_SET_QOS_DISABLE:
 		break;
-	
+	/*  Get QoS header state  */
 	case RMNET_IOCTL_GET_QOS:
 		ioctl_data.u.operation_mode = RMNET_MODE_NONE;
 		if (copy_to_user(ifr->ifr_ifru.ifru_data, &ioctl_data,
 			sizeof(struct rmnet_ioctl_data_s)))
 			rc = -EFAULT;
 		break;
-	
+	/*  Get operation mode  */
 	case RMNET_IOCTL_GET_OPMODE:
 		ioctl_data.u.operation_mode = RMNET_MODE_LLP_IP;
 		if (copy_to_user(ifr->ifr_ifru.ifru_data, &ioctl_data,
 			sizeof(struct rmnet_ioctl_data_s)))
 			rc = -EFAULT;
 		break;
-	
+	/*  Open transport port  */
 	case RMNET_IOCTL_OPEN:
 		break;
-	
+	/*  Close transport port  */
 	case RMNET_IOCTL_CLOSE:
 		break;
-	
+	/*  Flow enable  */
 	case RMNET_IOCTL_FLOW_ENABLE:
 		IPAWANDBG("Received flow enable\n");
 		if (copy_from_user(&ioctl_data, ifr->ifr_ifru.ifru_data,
@@ -1144,7 +1245,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		ipa_flow_control(IPA_CLIENT_USB_PROD, true,
 			ioctl_data.u.tcm_handle);
 		break;
-	
+	/*  Flow disable  */
 	case RMNET_IOCTL_FLOW_DISABLE:
 		IPAWANDBG("Received flow disable\n");
 		if (copy_from_user(&ioctl_data, ifr->ifr_ifru.ifru_data,
@@ -1155,11 +1256,11 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		ipa_flow_control(IPA_CLIENT_USB_PROD, false,
 			ioctl_data.u.tcm_handle);
 		break;
-	
+	/*  Set flow handle  */
 	case RMNET_IOCTL_FLOW_SET_HNDL:
 		break;
 
-	
+	/*  Extended IOCTLs  */
 	case RMNET_IOCTL_EXTENDED:
 		IPAWANDBG("get ioctl: RMNET_IOCTL_EXTENDED\n");
 		if (copy_from_user(&extend_ioctl_data,
@@ -1170,7 +1271,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			break;
 		}
 		switch (extend_ioctl_data.extended_ioctl) {
-		
+		/*  Get features  */
 		case RMNET_IOCTL_GET_SUPPORTED_FEATURES:
 			IPAWANDBG("get RMNET_IOCTL_GET_SUPPORTED_FEATURES\n");
 			extend_ioctl_data.u.data =
@@ -1182,13 +1283,13 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				sizeof(struct rmnet_ioctl_extended_s)))
 				rc = -EFAULT;
 			break;
-		
+		/*  Set MRU  */
 		case RMNET_IOCTL_SET_MRU:
 			mru = extend_ioctl_data.u.data;
 			IPAWANDBG("get MRU size %d\n",
 				extend_ioctl_data.u.data);
 			break;
-		
+		/*  Get MRU  */
 		case RMNET_IOCTL_GET_MRU:
 			extend_ioctl_data.u.data = mru;
 			if (copy_to_user((u8 *)ifr->ifr_ifru.ifru_data,
@@ -1196,7 +1297,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				sizeof(struct rmnet_ioctl_extended_s)))
 				rc = -EFAULT;
 			break;
-		
+		/* GET SG support */
 		case RMNET_IOCTL_GET_SG_SUPPORT:
 			extend_ioctl_data.u.data =
 				ipa_rmnet_res.ipa_advertise_sg_support;
@@ -1205,7 +1306,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				sizeof(struct rmnet_ioctl_extended_s)))
 				rc = -EFAULT;
 			break;
-		
+		/*  Get endpoint ID  */
 		case RMNET_IOCTL_GET_EPID:
 			IPAWANDBG("get ioctl: RMNET_IOCTL_GET_EPID\n");
 			extend_ioctl_data.u.data = epid;
@@ -1223,7 +1324,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			IPAWANDBG("RMNET_IOCTL_GET_EPID return %d\n",
 					extend_ioctl_data.u.data);
 			break;
-		
+		/*  Endpoint pair  */
 		case RMNET_IOCTL_GET_EP_PAIR:
 			IPAWANDBG("get ioctl: RMNET_IOCTL_GET_EP_PAIR\n");
 			extend_ioctl_data.u.ipa_ep_pair.consumer_pipe_num =
@@ -1245,7 +1346,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			extend_ioctl_data.u.ipa_ep_pair.consumer_pipe_num,
 			extend_ioctl_data.u.ipa_ep_pair.producer_pipe_num);
 			break;
-		
+		/*  Get driver name  */
 		case RMNET_IOCTL_GET_DRIVER_NAME:
 			memcpy(&extend_ioctl_data.u.if_name,
 						ipa_netdevs[0]->name,
@@ -1255,7 +1356,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 					sizeof(struct rmnet_ioctl_extended_s)))
 				rc = -EFAULT;
 			break;
-		
+		/*  Add MUX ID  */
 		case RMNET_IOCTL_ADD_MUX_CHANNEL:
 			mux_index = find_mux_channel_index(
 				extend_ioctl_data.u.rmnet_mux_val.mux_id);
@@ -1273,7 +1374,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			IPAWANDBG("ADD_MUX_CHANNEL(%d, name: %s)\n",
 			extend_ioctl_data.u.rmnet_mux_val.mux_id,
 			extend_ioctl_data.u.rmnet_mux_val.vchannel_name);
-			
+			/* cache the mux name and id */
 			mux_channel[rmnet_index].mux_id =
 				extend_ioctl_data.u.rmnet_mux_val.mux_id;
 			memcpy(mux_channel[rmnet_index].vchannel_name,
@@ -1283,7 +1384,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				mux_channel[rmnet_index].vchannel_name,
 				mux_channel[rmnet_index].mux_id,
 				rmnet_index);
-			
+			/* check if UL filter rules coming*/
 			if (num_q6_rule != 0) {
 				IPAWANERR("dev(%s) register to IPA\n",
 					extend_ioctl_data.u.rmnet_mux_val.
@@ -1327,7 +1428,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 					IPA_BYPASS_AGGR;
 			apps_to_ipa_ep_cfg.ipa_ep_cfg.hdr.
 				hdr_ofst_metadata_valid = 1;
-			
+			/* modem want offset at 0! */
 			apps_to_ipa_ep_cfg.ipa_ep_cfg.hdr.hdr_ofst_metadata = 0;
 			apps_to_ipa_ep_cfg.ipa_ep_cfg.mode.dst =
 					IPA_CLIENT_APPS_LAN_WAN_PROD;
@@ -1347,7 +1448,7 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				IPAWANERR("failed to config egress endpoint\n");
 
 			if (num_q6_rule != 0) {
-				
+				/* already got Q6 UL filter rules*/
 				if (ipa_qmi_ctx->modem_cfg_emb_pipe_flt
 					== false)
 					rc = wwan_add_ul_flt_rule_to_ipa();
@@ -1359,13 +1460,13 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				else
 					a7_ul_flt_set = true;
 			} else {
-				
+				/* wait Q6 UL filter rules*/
 				egress_set = true;
 				IPAWANDBG("no UL-rules, egress_set(%d)\n",
 					egress_set);
 			}
 			break;
-		case RMNET_IOCTL_SET_INGRESS_DATA_FORMAT:
+		case RMNET_IOCTL_SET_INGRESS_DATA_FORMAT:/*  Set IDF  */
 			IPAWANDBG("get RMNET_IOCTL_SET_INGRESS_DATA_FORMAT\n");
 			if ((extend_ioctl_data.u.data) &
 					RMNET_IOCTL_INGRESS_FORMAT_CHECKSUM)
@@ -1458,28 +1559,28 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				kfree(wan_msg);
 			}
 			break;
-		
+		/*  Get agg count  */
 		case RMNET_IOCTL_GET_AGGREGATION_COUNT:
 			break;
-		
+		/*  Set agg count  */
 		case RMNET_IOCTL_SET_AGGREGATION_COUNT:
 			break;
-		
+		/*  Get agg size  */
 		case RMNET_IOCTL_GET_AGGREGATION_SIZE:
 			break;
-		
+		/*  Set agg size  */
 		case RMNET_IOCTL_SET_AGGREGATION_SIZE:
 			break;
-		
+		/*  Do flow control  */
 		case RMNET_IOCTL_FLOW_CONTROL:
 			break;
-		
+		/*  For legacy use  */
 		case RMNET_IOCTL_GET_DFLT_CONTROL_CHANNEL:
 			break;
-		
+		/*  Get HW/SW map  */
 		case RMNET_IOCTL_GET_HWSW_MAP:
 			break;
-		
+		/*  Set RX Headroom  */
 		case RMNET_IOCTL_SET_RX_HEADROOM:
 			break;
 		default:
@@ -1508,13 +1609,21 @@ static const struct net_device_ops ipa_wwan_ops_ip = {
 	.ndo_validate_addr = 0,
 };
 
+/**
+ * wwan_setup() - Setups the wwan network driver.
+ *
+ * @dev: network device
+ *
+ * Return codes:
+ * None
+ */
 
 static void ipa_wwan_setup(struct net_device *dev)
 {
 	dev->netdev_ops = &ipa_wwan_ops_ip;
 	ether_setup(dev);
-	
-	dev->header_ops = 0;  
+	/* set this after calling ether_setup */
+	dev->header_ops = 0;  /* No header */
 	dev->type = ARPHRD_RAWIP;
 	dev->hard_header_len = 0;
 	dev->mtu = WWAN_DATA_LEN;
@@ -1525,6 +1634,7 @@ static void ipa_wwan_setup(struct net_device *dev)
 	dev->watchdog_timeo = 1000;
 }
 
+/* IPA_RM related functions start*/
 static void q6_prod_rm_request_resource(struct work_struct *work);
 static DECLARE_DELAYED_WORK(q6_con_rm_request, q6_prod_rm_request_resource);
 static void q6_prod_rm_release_resource(struct work_struct *work);
@@ -1591,7 +1701,7 @@ static int q6_initialize_rm(void)
 	struct ipa_rm_perf_profile profile;
 	int result;
 
-	
+	/* Initialize IPA_RM workqueue */
 	ipa_rm_q6_workqueue = create_singlethread_workqueue("clnt_req");
 	if (!ipa_rm_q6_workqueue)
 		return -ENOMEM;
@@ -1609,12 +1719,12 @@ static int q6_initialize_rm(void)
 	result = ipa2_rm_create_resource(&create_params);
 	if (result)
 		goto create_rsrc_err2;
-	
+	/* add dependency*/
 	result = ipa2_rm_add_dependency(IPA_RM_RESOURCE_Q6_PROD,
 			IPA_RM_RESOURCE_APPS_CONS);
 	if (result)
 		goto add_dpnd_err;
-	
+	/* setup Performance profile */
 	memset(&profile, 0, sizeof(profile));
 	profile.max_supported_bandwidth_mbps = 100;
 	result = ipa2_rm_set_perf_profile(IPA_RM_RESOURCE_Q6_PROD,
@@ -1675,12 +1785,34 @@ static void wake_tx_queue(struct work_struct *work)
 	}
 }
 
+/**
+ * ipa_rm_resource_granted() - Called upon
+ * IPA_RM_RESOURCE_GRANTED event. Wakes up queue is was stopped.
+ *
+ * @work: work object supplied ny workqueue
+ *
+ * Return codes:
+ * None
+ */
 static void ipa_rm_resource_granted(void *dev)
 {
 	IPAWANDBG("Resource Granted - starting queue\n");
 	schedule_work(&ipa_tx_wakequeue_work);
 }
 
+/**
+ * ipa_rm_notify() - Callback function for RM events. Handles
+ * IPA_RM_RESOURCE_GRANTED and IPA_RM_RESOURCE_RELEASED events.
+ * IPA_RM_RESOURCE_GRANTED is handled in the context of shared
+ * workqueue.
+ *
+ * @dev: network device
+ * @event: IPA RM event
+ * @data: Additional data provided by IPA RM
+ *
+ * Return codes:
+ * None
+ */
 static void ipa_rm_notify(void *dev, enum ipa_rm_event event,
 			  unsigned long data)
 {
@@ -1703,6 +1835,7 @@ static void ipa_rm_notify(void *dev, enum ipa_rm_event event,
 	}
 }
 
+/* IPA_RM related functions end*/
 
 static int ssr_notifier_cb(struct notifier_block *this,
 			   unsigned long code,
@@ -1736,13 +1869,23 @@ static int get_ipa_rmnet_dts_configuration(struct platform_device *pdev,
 
 struct ipa_rmnet_context ipa_rmnet_ctx;
 
+/**
+ * ipa_wwan_probe() - Initialized the module and registers as a
+ * network interface to the network stack
+ *
+ * Return codes:
+ * 0: success
+ * -ENOMEM: No memory available
+ * -EFAULT: Internal error
+ * -ENODEV: IPA driver not loaded
+ */
 static int ipa_wwan_probe(struct platform_device *pdev)
 {
 	int ret, i;
 	struct net_device *dev;
 	struct wwan_private *wwan_ptr;
-	struct ipa_rm_create_params ipa_rm_params;	
-	struct ipa_rm_perf_profile profile;			
+	struct ipa_rm_create_params ipa_rm_params;	/* IPA_RM */
+	struct ipa_rm_perf_profile profile;			/* IPA_RM */
 
 	pr_info("rmnet_ipa started initialization\n");
 
@@ -1760,11 +1903,11 @@ static int ipa_wwan_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	
+	/* initialize tx/rx enpoint setup */
 	memset(&apps_to_ipa_ep_cfg, 0, sizeof(struct ipa_sys_connect_params));
 	memset(&ipa_to_apps_ep_cfg, 0, sizeof(struct ipa_sys_connect_params));
 
-	
+	/* initialize ex property setup */
 	num_q6_rule = 0;
 	old_num_q6_rule = 0;
 	rmnet_index = 0;
@@ -1773,15 +1916,15 @@ static int ipa_wwan_probe(struct platform_device *pdev)
 	for (i = 0; i < MAX_NUM_OF_MUX_CHANNEL; i++)
 		memset(&mux_channel[i], 0, sizeof(struct rmnet_mux_val));
 
-	
+	/* start A7 QMI service/client */
 	if (ipa_rmnet_res.ipa_loaduC)
-		
+		/* Android platform loads uC */
 		ipa_qmi_service_init(QMI_IPA_PLATFORM_TYPE_MSM_ANDROID_V01);
 	else
-		
+		/* LE platform not loads uC */
 		ipa_qmi_service_init(QMI_IPA_PLATFORM_TYPE_LE_V01);
 
-	
+	/* construct default WAN RT tbl for IPACM */
 	ret = ipa_setup_a7_qmap_hdr();
 	if (ret)
 		goto setup_a7_qmap_hdr_err;
@@ -1790,16 +1933,16 @@ static int ipa_wwan_probe(struct platform_device *pdev)
 		goto setup_dflt_wan_rt_tables_err;
 
 	if (!atomic_read(&is_ssr)) {
-		
+		/* Start transport-driver fd ioctl for ipacm for first init */
 		ret = wan_ioctl_init();
 		if (ret)
 			goto wan_ioctl_init_err;
 	} else {
-		
+		/* Enable sending QMI messages after SSR */
 		wan_ioctl_enable_qmi_messages();
 	}
 
-	
+	/* initialize wan-driver netdev */
 	dev = alloc_netdev(sizeof(struct wwan_private),
 			   IPA_WWAN_DEV_NAME,
 			   NET_NAME_UNKNOWN,
@@ -1821,7 +1964,7 @@ static int ipa_wwan_probe(struct platform_device *pdev)
 	init_completion(&wwan_ptr->resource_granted_completion);
 
 	if (!atomic_read(&is_ssr)) {
-		
+		/* IPA_RM configuration starts */
 		ret = q6_initialize_rm();
 		if (ret) {
 			IPAWANERR("%s: q6_initialize_rm failed, ret: %d\n",
@@ -1847,19 +1990,19 @@ static int ipa_wwan_probe(struct platform_device *pdev)
 		       __func__, ret, IPA_RM_RESOURCE_WWAN_0_PROD);
 		goto timer_init_err;
 	}
-	
+	/* add dependency */
 	ret = ipa2_rm_add_dependency(IPA_RM_RESOURCE_WWAN_0_PROD,
 			IPA_RM_RESOURCE_Q6_CONS);
 	if (ret)
 		goto add_dpnd_err;
-	
+	/* setup Performance profile */
 	memset(&profile, 0, sizeof(profile));
 	profile.max_supported_bandwidth_mbps = IPA_APPS_MAX_BW_IN_MBPS;
 	ret = ipa2_rm_set_perf_profile(IPA_RM_RESOURCE_WWAN_0_PROD,
 			&profile);
 	if (ret)
 		goto set_perf_err;
-	
+	/* IPA_RM configuration ends */
 
 	ret = register_netdev(dev);
 	if (ret) {
@@ -1877,7 +2020,7 @@ static int ipa_wwan_probe(struct platform_device *pdev)
 	}
 	atomic_set(&is_initialized, 1);
 	if (!atomic_read(&is_ssr)) {
-		
+		/* offline charging mode */
 		ipa2_proxy_clk_unvote();
 	}
 	atomic_set(&is_ssr, 0);
@@ -1895,7 +2038,7 @@ set_perf_err:
 			ret);
 add_dpnd_err:
 	ret = ipa2_rm_inactivity_timer_destroy(
-		IPA_RM_RESOURCE_WWAN_0_PROD); 
+		IPA_RM_RESOURCE_WWAN_0_PROD); /* IPA_RM */
 	if (ret)
 		IPAWANERR("Error ipa2_rm_inactivity_timer_destroy %d, ret=%d\n",
 		IPA_RM_RESOURCE_WWAN_0_PROD, ret);
@@ -1953,7 +2096,7 @@ static int ipa_wwan_remove(struct platform_device *pdev)
 	cancel_delayed_work(&ipa_tether_stats_poll_wakequeue_work);
 	free_netdev(ipa_netdevs[0]);
 	ipa_netdevs[0] = NULL;
-	
+	/* No need to remove wwan_ioctl during SSR */
 	if (!atomic_read(&is_ssr))
 		wan_ioctl_deinit();
 	ipa_del_dflt_wan_rt_tables();
@@ -1967,19 +2110,34 @@ static int ipa_wwan_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/**
+* rmnet_ipa_ap_suspend() - suspend callback for runtime_pm
+* @dev: pointer to device
+*
+* This callback will be invoked by the runtime_pm framework when an AP suspend
+* operation is invoked, usually by pressing a suspend button.
+*
+* Returns -EAGAIN to runtime_pm framework in case there are pending packets
+* in the Tx queue. This will postpone the suspend operation until all the
+* pending packets will be transmitted.
+*
+* In case there are no packets to send, releases the WWAN0_PROD entity.
+* As an outcome, the number of IPA active clients should be decremented
+* until IPA clocks can be gated.
+*/
 static int rmnet_ipa_ap_suspend(struct device *dev)
 {
 	struct net_device *netdev = ipa_netdevs[0];
 	struct wwan_private *wwan_ptr = netdev_priv(netdev);
 
 	IPAWANDBG("Enter...\n");
-	
+	/* Do not allow A7 to suspend in case there are oustanding packets */
 	if (atomic_read(&wwan_ptr->outstanding_pkts) != 0) {
 		IPAWANDBG("Outstanding packets, postponing AP suspend.\n");
 		return -EAGAIN;
 	}
 
-	
+	/* Make sure that there is no Tx operation ongoing */
 	netif_tx_lock_bh(netdev);
 	ipa2_rm_release_resource(IPA_RM_RESOURCE_WWAN_0_PROD);
 	netif_tx_unlock_bh(netdev);
@@ -1988,6 +2146,16 @@ static int rmnet_ipa_ap_suspend(struct device *dev)
 	return 0;
 }
 
+/**
+* rmnet_ipa_ap_resume() - resume callback for runtime_pm
+* @dev: pointer to device
+*
+* This callback will be invoked by the runtime_pm framework when an AP resume
+* operation is invoked.
+*
+* Enables the network interface queue and returns success to the
+* runtime_pm framework.
+*/
 static int rmnet_ipa_ap_resume(struct device *dev)
 {
 	struct net_device *netdev = ipa_netdevs[0];
@@ -2074,6 +2242,15 @@ static int ssr_notifier_cb(struct notifier_block *this,
 	return NOTIFY_DONE;
 }
 
+/**
+ * rmnet_ipa_free_msg() - Free the msg sent to user space via ipa2_send_msg
+ * @buff: pointer to buffer containing the message
+ * @len: message len
+ * @type: message type
+ *
+ * This function is invoked when ipa2_send_msg is complete (Provided as a
+ * free function pointer along with the message).
+ */
 static void rmnet_ipa_free_msg(void *buff, u32 len, u32 type)
 {
 	if (!buff) {
@@ -2089,6 +2266,12 @@ static void rmnet_ipa_free_msg(void *buff, u32 len, u32 type)
 	kfree(buff);
 }
 
+/**
+ * rmnet_ipa_get_stats_and_update(bool reset) - Gets pipe stats from Modem
+ *
+ * This function queries the IPA Modem driver for the pipe stats
+ * via QMI, and updates the user space IPA entity.
+ */
 static void rmnet_ipa_get_stats_and_update(bool reset)
 {
 	struct ipa_get_data_stats_req_msg_v01 req;
@@ -2129,16 +2312,29 @@ static void rmnet_ipa_get_stats_and_update(bool reset)
 	}
 }
 
+/**
+ * tethering_stats_poll_queue() - Stats polling function
+ * @work - Work entry
+ *
+ * This function is scheduled periodically (per the interval) in
+ * order to poll the IPA Modem driver for the pipe stats.
+ */
 static void tethering_stats_poll_queue(struct work_struct *work)
 {
 	rmnet_ipa_get_stats_and_update(false);
 
-	
+	/* Schedule again only if there's an active polling interval */
 	if (0 != ipa_rmnet_ctx.polling_interval)
 		schedule_delayed_work(&ipa_tether_stats_poll_wakequeue_work,
 			msecs_to_jiffies(ipa_rmnet_ctx.polling_interval*1000));
 }
 
+/**
+ * rmnet_ipa_get_network_stats_and_update() - Get network stats from IPA Modem
+ *
+ * This function retrieves the data usage (used quota) from the IPA Modem driver
+ * via QMI, and updates IPA user space entity.
+ */
 static void rmnet_ipa_get_network_stats_and_update(void)
 {
 	struct ipa_get_apn_data_stats_req_msg_v01 req;
@@ -2176,6 +2372,18 @@ static void rmnet_ipa_get_network_stats_and_update(void)
 	}
 }
 
+/**
+ * rmnet_ipa_poll_tethering_stats() - Tethering stats polling IOCTL handler
+ * @data - IOCTL data
+ *
+ * This function handles WAN_IOC_POLL_TETHERING_STATS.
+ * In case polling interval received is 0, polling will stop
+ * (If there's a polling in progress, it will allow it to finish), and then will
+ * fetch network stats, and update the IPA user space.
+ *
+ * Return codes:
+ * 0: Success
+ */
 int rmnet_ipa_poll_tethering_stats(struct wan_ioctl_poll_tethering_stats *data)
 {
 	ipa_rmnet_ctx.polling_interval = data->polling_interval_secs;
@@ -2193,6 +2401,19 @@ int rmnet_ipa_poll_tethering_stats(struct wan_ioctl_poll_tethering_stats *data)
 	return 0;
 }
 
+/**
+ * rmnet_ipa_set_data_quota() - Data quota setting IOCTL handler
+ * @data - IOCTL data
+ *
+ * This function handles WAN_IOC_SET_DATA_QUOTA.
+ * It translates the given interface name to the Modem MUX ID and
+ * sends the request of the quota to the IPA Modem driver via QMI.
+ *
+ * Return codes:
+ * 0: Success
+ * -EFAULT: Invalid interface name provided
+ * other: See ipa_qmi_set_data_quota
+ */
 int rmnet_ipa_set_data_quota(struct wan_ioctl_set_data_quota *data)
 {
 	u32 mux_id;
@@ -2223,6 +2444,18 @@ int rmnet_ipa_set_data_quota(struct wan_ioctl_set_data_quota *data)
 	return ipa_qmi_set_data_quota(&req);
 }
 
+ /* rmnet_ipa_set_tether_client_pipe() -
+ * @data - IOCTL data
+ *
+ * This function handles WAN_IOC_SET_DATA_QUOTA.
+ * It translates the given interface name to the Modem MUX ID and
+ * sends the request of the quota to the IPA Modem driver via QMI.
+ *
+ * Return codes:
+ * 0: Success
+ * -EFAULT: Invalid interface name provided
+ * other: See ipa_qmi_set_data_quota
+ */
 int rmnet_ipa_set_tether_client_pipe(
 	struct wan_ioctl_set_tether_client_pipe *data)
 {
@@ -2287,7 +2520,7 @@ int rmnet_ipa_query_tethering_stats(struct wan_ioctl_query_tether_stats *data,
 		req->reset_stats = true;
 		IPAWANERR("reset the pipe stats\n");
 	} else {
-		
+		/* print tethered-client enum */
 		IPAWANDBG("Tethered-client enum(%d)\n", data->ipa_client);
 	}
 
@@ -2328,7 +2561,7 @@ int rmnet_ipa_query_tethering_stats(struct wan_ioctl_query_tether_stats *data,
 				if (data->ipa_client == ipa_get_client(resp->
 					dl_dst_pipe_stats_list[pipe_len].
 					pipe_index)) {
-					
+					/* update the DL stats */
 					data->ipv4_rx_packets += resp->
 					dl_dst_pipe_stats_list[pipe_len].
 					num_ipv4_packets;
@@ -2377,7 +2610,7 @@ int rmnet_ipa_query_tethering_stats(struct wan_ioctl_query_tether_stats *data,
 				if (data->ipa_client == ipa_get_client(resp->
 				ul_src_pipe_stats_list[pipe_len].
 				pipe_index)) {
-					
+					/* update the DL stats */
 					data->ipv4_tx_packets += resp->
 					ul_src_pipe_stats_list[pipe_len].
 					num_ipv4_packets;
@@ -2404,6 +2637,15 @@ int rmnet_ipa_query_tethering_stats(struct wan_ioctl_query_tether_stats *data,
 	return 0;
 }
 
+/**
+ * ipa_broadcast_quota_reach_ind() - Send Netlink broadcast on Quota
+ * @mux_id - The MUX ID on which the quota has been reached
+ *
+ * This function broadcasts a Netlink event using the kobject of the
+ * rmnet_ipa interface in order to alert the user space that the quota
+ * on the specific interface which matches the mux_id has been reached.
+ *
+ */
 void ipa_broadcast_quota_reach_ind(u32 mux_id)
 {
 	char alert_msg[IPA_QUOTA_REACH_ALERT_MAX_SIZE];
@@ -2427,14 +2669,14 @@ void ipa_broadcast_quota_reach_ind(u32 mux_id)
 		IPAWANERR("message too long (%d)", res);
 		return;
 	}
-	
+	/* posting msg for L-release for CNE */
 	res = snprintf(iface_name_l, IPA_QUOTA_REACH_IF_NAME_MAX_SIZE,
 		       "UPSTREAM=%s", mux_channel[index].vchannel_name);
 	if (IPA_QUOTA_REACH_IF_NAME_MAX_SIZE <= res) {
 		IPAWANERR("message too long (%d)", res);
 		return;
 	}
-	
+	/* posting msg for M-release for CNE */
 	res = snprintf(iface_name_m, IPA_QUOTA_REACH_IF_NAME_MAX_SIZE,
 		       "INTERFACE=%s", mux_channel[index].vchannel_name);
 	if (IPA_QUOTA_REACH_IF_NAME_MAX_SIZE <= res) {
@@ -2447,15 +2689,35 @@ void ipa_broadcast_quota_reach_ind(u32 mux_id)
 	kobject_uevent_env(&(ipa_netdevs[0]->dev.kobj), KOBJ_CHANGE, envp);
 }
 
+/**
+ * ipa_q6_handshake_complete() - Perform operations once Q6 is up
+ * @ssr_bootup - Indicates whether this is a cold boot-up or post-SSR.
+ *
+ * This function is invoked once the handshake between the IPA AP driver
+ * and IPA Q6 driver is complete. At this point, it is possible to perform
+ * operations which can't be performed until IPA Q6 driver is up.
+ *
+ */
 void ipa_q6_handshake_complete(bool ssr_bootup)
 {
-	
+	/* It is required to recover the network stats after SSR recovery */
 	if (ssr_bootup) {
+		/*
+		 * In case the uC is required to be loaded by the Modem,
+		 * the proxy vote will be removed only when uC loading is
+		 * complete and indication is received by the AP. After SSR,
+		 * uC is already loaded. Therefore, proxy vote can be removed
+		 * once Modem init is complete.
+		 */
 		ipa2_proxy_clk_unvote();
 
+		/*
+		 * It is required to recover the network stats after
+		 * SSR recovery
+		 */
 		rmnet_ipa_get_network_stats_and_update();
 
-		
+		/* Enable holb monitoring on Q6 pipes. */
 		ipa_q6_monitor_holb_mitigation(true);
 	}
 }
@@ -2467,7 +2729,7 @@ static int __init ipa_wwan_init(void)
 
 	mutex_init(&ipa_to_apps_pipe_handle_guard);
 	ipa_to_apps_hdl = -1;
-	
+	/* Register for Modem SSR */
 	subsys_notify_handle = subsys_notif_register_notifier(SUBSYS_MODEM,
 						&ssr_notifier);
 	if (!IS_ERR(subsys_notify_handle))

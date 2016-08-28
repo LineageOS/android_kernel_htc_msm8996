@@ -28,7 +28,12 @@
 #include <soc/qcom/clock-local2.h>
 #include <soc/qcom/msm-clock-controller.h>
 
+/*
+ * When enabling/disabling a clock, check the halt bit up to this number
+ * number of times (with a 1 us delay in between) before continuing.
+ */
 #define HALT_CHECK_MAX_LOOPS	500
+/* For clock without halt checking, wait this long after enables/disables. */
 #define HALT_CHECK_DELAY_US	500
 
 #define RCG_FORCE_DISABLE_DELAY_US	100
@@ -51,6 +56,9 @@ struct clk_freq_tbl rcg_dummy_freq = F_END;
 #define DIV_REG(x)	(*(x)->base + (x)->offset)
 #define MUX_REG(x)	(*(x)->base + (x)->offset)
 
+/*
+ * Important clock bit positions and masks
+ */
 #define CMD_RCGR_ROOT_ENABLE_BIT	BIT(1)
 #define CBCR_BRANCH_ENABLE_BIT		BIT(0)
 #define CBCR_BRANCH_OFF_BIT		BIT(31)
@@ -84,7 +92,15 @@ struct div_map {
 	int div;
 };
 
+/*
+ * RCG functions
+ */
 
+/*
+ * Update an RCG with a new configuration. This may include a new M, N, or D
+ * value, source selection or pre-divider value.
+ *
+ */
 static void rcg_update_config(struct rcg_clk *rcg)
 {
 	u32 cmd_rcgr_regval, count;
@@ -93,7 +109,7 @@ static void rcg_update_config(struct rcg_clk *rcg)
 	cmd_rcgr_regval |= CMD_RCGR_CONFIG_UPDATE_BIT;
 	writel_relaxed(cmd_rcgr_regval, CMD_RCGR_REG(rcg));
 
-	
+	/* Wait for update to take effect */
 	for (count = UPDATE_CHECK_MAX_LOOPS; count > 0; count--) {
 		if (!(readl_relaxed(CMD_RCGR_REG(rcg)) &
 				CMD_RCGR_CONFIG_UPDATE_BIT))
@@ -108,7 +124,7 @@ static void rcg_on_check(struct rcg_clk *rcg)
 {
 	int count;
 
-	
+	/* Wait for RCG to turn on */
 	for (count = UPDATE_CHECK_MAX_LOOPS; count > 0; count--) {
 		if (!(readl_relaxed(CMD_RCGR_REG(rcg)) &
 				CMD_RCGR_ROOT_STATUS_BIT))
@@ -118,6 +134,7 @@ static void rcg_on_check(struct rcg_clk *rcg)
 	CLK_WARN(&rcg->c, count == 0, "rcg didn't turn on.");
 }
 
+/* RCG set rate function for clocks with Half Integer Dividers. */
 static void __set_rate_hid(struct rcg_clk *rcg, struct clk_freq_tbl *nf)
 {
 	u32 cfg_regval;
@@ -138,6 +155,7 @@ void set_rate_hid(struct rcg_clk *rcg, struct clk_freq_tbl *nf)
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 }
 
+/* RCG set rate function for clocks with MND & Half Integer Dividers. */
 static void __set_rate_mnd(struct rcg_clk *rcg, struct clk_freq_tbl *nf)
 {
 	u32 cfg_regval;
@@ -151,7 +169,7 @@ static void __set_rate_mnd(struct rcg_clk *rcg, struct clk_freq_tbl *nf)
 	cfg_regval &= ~(CFG_RCGR_DIV_MASK | CFG_RCGR_SRC_SEL_MASK);
 	cfg_regval |= nf->div_src_val;
 
-	
+	/* Activate or disable the M/N:D divider as necessary */
 	cfg_regval &= ~MND_MODE_MASK;
 	if (nf->n_val != 0)
 		cfg_regval |= MND_DUAL_EDGE_MODE_BVAL;
@@ -210,6 +228,12 @@ static int rcg_clk_enable(struct clk *c)
 
 	if (!rcg->non_local_children || rcg->current_freq == &rcg_dummy_freq)
 		return 0;
+	/*
+	 * Switch from CXO to saved mux value. Force enable/disable while
+	 * switching. The current parent is already prepared and enabled
+	 * at this point, and the CXO source is always-on. Therefore the
+	 * RCG can safely execute a dynamic switch.
+	 */
 	rcg_set_force_enable(rcg);
 	rcg->set_rate(rcg, rcg->current_freq);
 	rcg_clear_force_enable(rcg);
@@ -229,6 +253,12 @@ static void rcg_clk_disable(struct clk *c)
 	if (!rcg->non_local_children)
 		return;
 
+	/*
+	 * Save mux select and switch to CXO. Force enable/disable while
+	 * switching. The current parent is still prepared and enabled at this
+	 * point, and the CXO source is always-on. Therefore the RCG can safely
+	 * execute a dynamic switch.
+	 */
 	rcg_set_force_enable(rcg);
 	rcg->set_rate(rcg, &cxo_f);
 	rcg_clear_force_enable(rcg);
@@ -269,6 +299,11 @@ static int rcg_clk_set_rate(struct clk *c, unsigned long rate)
 	} else if (!rcg->non_local_children) {
 		rcg->set_rate(rcg, nf);
 	}
+	/*
+	 * If non_local_children is set and the RCG is not enabled,
+	 * the following operations switch parent in software and cache
+	 * the frequency. The mux switch will occur when the RCG is enabled.
+	 */
 	rcg->current_freq = nf;
 	c->parent = nf->src_clk;
 
@@ -277,6 +312,11 @@ static int rcg_clk_set_rate(struct clk *c, unsigned long rate)
 	return 0;
 }
 
+/*
+ * Return a supported rate that's at least the specified rate or
+ * the max supported rate if the specified rate is larger than the
+ * max supported rate.
+ */
 static long rcg_clk_round_rate(struct clk *c, unsigned long rate)
 {
 	struct rcg_clk *rcg = to_rcg_clk(c);
@@ -290,6 +330,7 @@ static long rcg_clk_round_rate(struct clk *c, unsigned long rate)
 	return f->freq_hz;
 }
 
+/* Return the nth supported frequency for a given clock. */
 static long rcg_clk_list_rate(struct clk *c, unsigned n)
 {
 	struct rcg_clk *rcg = to_rcg_clk(c);
@@ -314,19 +355,26 @@ static struct clk *_rcg_clk_get_parent(struct rcg_clk *rcg, bool has_mnd,
 		return NULL;
 	}
 
-	
+	/* Is there a pending configuration? */
 	cmd_rcgr_regval = readl_relaxed(CMD_RCGR_REG(rcg));
 	if (cmd_rcgr_regval & CMD_RCGR_CONFIG_DIRTY_MASK) {
 		WARN(1, "Pending transaction for rcg %s\n", rcg->c.dbg_name);
 		return NULL;
 	}
 
-	
+	/* Get values of m, n, d, div and src_sel registers. */
 	if (has_mnd) {
 		m_regval = readl_relaxed(M_REG(rcg));
 		n_regval = readl_relaxed(N_REG(rcg));
 		d_regval = readl_relaxed(D_REG(rcg));
 
+		/*
+		 * The n and d values stored in the frequency tables are sign
+		 * extended to 32 bits. The n and d values in the registers are
+		 * sign extended to 8 or 16 bits. Sign extend the values read
+		 * from the registers so that they can be compared to the
+		 * values in the frequency tables.
+		 */
 		n_regval |= (n_regval >> 8) ? BM(31, 16) : BM(31, 8);
 		d_regval |= (d_regval >> 8) ? BM(31, 16) : BM(31, 8);
 	}
@@ -335,21 +383,30 @@ static struct clk *_rcg_clk_get_parent(struct rcg_clk *rcg, bool has_mnd,
 	cfg_regval &= CFG_RCGR_SRC_SEL_MASK | CFG_RCGR_DIV_MASK
 				| MND_MODE_MASK;
 
-	
+	/* If mnd counter is present, check if it's in use. */
 	has_mnd = (has_mnd) &&
 		((cfg_regval & MND_MODE_MASK) == MND_DUAL_EDGE_MODE_BVAL);
 
+	/*
+	 * Clear out the mn counter mode bits since we now want to compare only
+	 * the source mux selection and pre-divider values in the registers.
+	 */
 	cfg_regval &= ~MND_MODE_MASK;
 
-	
+	/* Figure out what rate the rcg is running at */
 	for (freq = rcg->freq_tbl; freq->freq_hz != FREQ_END; freq++) {
-		
+		/* source select does not match */
 		if ((freq->div_src_val & CFG_RCGR_SRC_SEL_MASK)
 		    != (cfg_regval & CFG_RCGR_SRC_SEL_MASK))
 			continue;
+		/*
+		 * Stop if we found the required parent in the frequency table
+		 * and only care if the source matches but dont care if the
+		 * frequency matches
+		 */
 		if (!match_rate)
 			break;
-		
+		/* divider does not match */
 		div = freq->div_src_val & CFG_RCGR_DIV_MASK;
 		div_regval = cfg_regval & CFG_RCGR_DIV_MASK;
 		if (div != div_regval && (div > 1 || div_regval > 1))
@@ -368,8 +425,13 @@ static struct clk *_rcg_clk_get_parent(struct rcg_clk *rcg, bool has_mnd,
 		break;
 	}
 
-	
+	/* No known frequency found */
 	if (freq->freq_hz == FREQ_END) {
+		/*
+		 * If we can't recognize the frequency and non_local_children is
+		 * set, switch to safe frequency. It is assumed the current
+		 * parent has been turned on by the bootchain if the RCG is on.
+		 */
 		if (rcg->non_local_children) {
 			rcg->set_rate(rcg, &cxo_f);
 			WARN(1, "don't recognize rcg frequency for %s\n",
@@ -389,7 +451,7 @@ static enum handoff _rcg_clk_handoff(struct rcg_clk *rcg)
 	if (rcg->current_freq && rcg->current_freq->freq_hz != FREQ_END)
 		rcg->c.rate = rcg->current_freq->freq_hz;
 
-	
+	/* Is the root enabled? */
 	cmd_rcgr_regval = readl_relaxed(CMD_RCGR_REG(rcg));
 	if ((cmd_rcgr_regval & CMD_RCGR_ROOT_STATUS_BIT))
 		return HANDOFF_DISABLED_CLK;
@@ -462,11 +524,20 @@ static void __iomem *rcg_mnd_clk_list_registers(struct clk *c, int n,
 #define BRANCH_OFF_VAL		BVAL(31, 28, 0x8)
 #define BRANCH_NOC_FSM_ON_VAL	BVAL(31, 28, 0x2)
 
+/*
+ * Branch clock functions
+ */
 static void branch_clk_halt_check(struct clk *c, u32 halt_check,
 			void __iomem *cbcr_reg, enum branch_state br_status)
 {
 	char *status_str = (br_status == BRANCH_ON) ? "off" : "on";
 
+	/*
+	 * Use a memory barrier since some halt status registers are
+	 * not within the same 1K segment as the branch/root enable
+	 * registers.  It's also needed in the udelay() case to ensure
+	 * the delay starts after the branch disable.
+	 */
 	mb();
 
 	if (halt_check == DELAY || halt_check == HALT_VOTED) {
@@ -522,7 +593,7 @@ static int cbcr_set_flags(void * __iomem regaddr, unsigned flags)
 		ret = -EINVAL;
 	}
 	writel_relaxed(cbcr_val, regaddr);
-	
+	/* Make sure power is enabled before returning. */
 	mb();
 	udelay(delay_us);
 
@@ -552,10 +623,15 @@ static int branch_clk_enable(struct clk *c)
 	writel_relaxed(cbcr_val, CBCR_REG(branch));
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
+	/*
+	 * For clocks controlled by other masters via voting registers,
+	 * delay polling for the status bit to allow previous clk_disable
+	 * by the GDS controller to go through.
+	 */
 	if (branch->no_halt_check_on_disable)
 		udelay(5);
 
-	
+	/* Wait for clock to enable before continuing. */
 	branch_clk_halt_check(c, branch->halt_check, CBCR_REG(branch),
 				BRANCH_ON);
 
@@ -574,7 +650,7 @@ static void branch_clk_disable(struct clk *c)
 	writel_relaxed(reg_val, CBCR_REG(branch));
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
-	
+	/* Wait for clock to disable before continuing. */
 	if (!branch->no_halt_check_on_disable)
 		branch_clk_halt_check(c, branch->halt_check, CBCR_REG(branch),
 					BRANCH_OFF);
@@ -652,7 +728,7 @@ static long branch_clk_list_rate(struct clk *c, unsigned n)
 	if (!parent || !parent->ops->list_rate)
 		return -ENXIO;
 
-	
+	/* Find max frequency supported within voltage constraints. */
 	if (!parent->vdd_class) {
 		fmax = ULONG_MAX;
 	} else {
@@ -675,7 +751,7 @@ static enum handoff branch_clk_handoff(struct clk *c)
 
 	cbcr_regval = readl_relaxed(CBCR_REG(branch));
 
-	
+	/* Set the cdiv to c->rate for fixed divider branch clock */
 	if (c->rate && (c->rate < branch->max_div)) {
 		cbcr_regval &= ~BM(CBCR_CDIV_MSB, CBCR_CDIV_LSB);
 		cbcr_regval |= BVAL(CBCR_CDIV_MSB, CBCR_CDIV_LSB, c->rate);
@@ -725,7 +801,7 @@ static int __branch_clk_reset(void __iomem *bcr_reg,
 	writel_relaxed(reg_val, bcr_reg);
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
-	
+	/* Make sure write is issued before returning. */
 	mb();
 
 	return ret;
@@ -755,6 +831,9 @@ static void __iomem *branch_clk_list_registers(struct clk *c, int n,
 	return CBCR_REG(branch);
 }
 
+/*
+ * Voteable clock functions
+ */
 static int local_vote_clk_reset(struct clk *c, enum clk_reset_action action)
 {
 	struct local_vote_clk *vclk = to_local_vote_clk(c);
@@ -802,7 +881,7 @@ static enum handoff local_vote_clk_handoff(struct clk *c)
 	struct local_vote_clk *vclk = to_local_vote_clk(c);
 	u32 vote_regval;
 
-	
+	/* Is the branch voted on by apps? */
 	vote_regval = readl_relaxed(VOTE_REG(vclk));
 	if (!(vote_regval & vclk->en_mask))
 		return HANDOFF_DISABLED_CLK;
@@ -810,25 +889,30 @@ static enum handoff local_vote_clk_handoff(struct clk *c)
 	return HANDOFF_ENABLED_CLK;
 }
 
+/* Sample clock for 'ticks' reference clock ticks. */
 static u32 run_measurement(unsigned ticks, void __iomem *ctl_reg,
 				void __iomem *status_reg)
 {
-	
+	/* Stop counters and set the XO4 counter start value. */
 	writel_relaxed(ticks, ctl_reg);
 
-	
+	/* Wait for timer to become ready. */
 	while ((readl_relaxed(status_reg) & BIT(25)) != 0)
 		cpu_relax();
 
-	
+	/* Run measurement and wait for completion. */
 	writel_relaxed(BIT(20)|ticks, ctl_reg);
 	while ((readl_relaxed(status_reg) & BIT(25)) == 0)
 		cpu_relax();
 
-	
+	/* Return measured ticks. */
 	return readl_relaxed(status_reg) & BM(24, 0);
 }
 
+/*
+ * Perform a hardware rate measurement for a given clock.
+ * FOR DEBUG USE ONLY: Measurements take ~15 ms!
+ */
 unsigned long measure_get_rate(struct clk *c)
 {
 	unsigned long flags;
@@ -840,7 +924,7 @@ unsigned long measure_get_rate(struct clk *c)
 	struct measure_clk_data *data = to_mux_clk(c)->priv;
 
 	regval = readl_relaxed(MUX_REG(to_mux_clk(c)));
-	
+	/* clear post divider bits */
 	regval &= ~BM(15, 12);
 	writel_relaxed(regval, MUX_REG(to_mux_clk(c)));
 
@@ -852,16 +936,22 @@ unsigned long measure_get_rate(struct clk *c)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
-	
+	/* Enable CXO/4 and RINGOSC branch. */
 	gcc_xo4_reg = readl_relaxed(*data->base + data->xo_div4_cbcr);
 	gcc_xo4_reg |= CBCR_BRANCH_ENABLE_BIT;
 	writel_relaxed(gcc_xo4_reg, *data->base + data->xo_div4_cbcr);
 
+	/*
+	 * The ring oscillator counter will not reset if the measured clock
+	 * is not running.  To detect this, run a short measurement before
+	 * the full measurement.  If the raw results of the two are the same
+	 * then the clock must be off.
+	 */
 
-	
+	/* Run a short measurement. (~1 ms) */
 	raw_count_short = run_measurement(0x1000, *data->base + data->ctl_reg,
 					  *data->base + data->status_reg);
-	
+	/* Run a full measurement. (~14 ms) */
 	raw_count_full = run_measurement(sample_ticks,
 					 *data->base + data->ctl_reg,
 					 *data->base + data->status_reg);
@@ -869,11 +959,11 @@ unsigned long measure_get_rate(struct clk *c)
 	gcc_xo4_reg &= ~CBCR_BRANCH_ENABLE_BIT;
 	writel_relaxed(gcc_xo4_reg, *data->base + data->xo_div4_cbcr);
 
-	
+	/* Return 0 if the clock is off. */
 	if (raw_count_full == raw_count_short) {
 		ret = 0;
 	} else {
-		
+		/* Compute rate in Hz. */
 		raw_count_full = ((raw_count_full * 10) + 15) * 4800000;
 		do_div(raw_count_full, ((sample_ticks * 10) + 35));
 		ret = (raw_count_full * multiplier);
@@ -916,25 +1006,25 @@ static void __iomem *local_vote_clk_list_registers(struct clk *c, int n,
 	}
 }
 
-static struct frac_entry frac_table_675m[] = {	
-	{52, 295},	
-	{11, 57},	
-	{63, 307},	
-	{11, 50},	
-	{47, 206},	
-	{31, 100},	
-	{107, 269},	
+static struct frac_entry frac_table_675m[] = {	/* link rate of 270M */
+	{52, 295},	/* 119 M */
+	{11, 57},	/* 130.25 M */
+	{63, 307},	/* 138.50 M */
+	{11, 50},	/* 148.50 M */
+	{47, 206},	/* 154 M */
+	{31, 100},	/* 205.25 M */
+	{107, 269},	/* 268.50 M */
 	{0, 0},
 };
 
-static struct frac_entry frac_table_810m[] = { 
-	{31, 211},	
-	{32, 199},	
-	{63, 307},	
-	{11, 60},	
-	{50, 263},	
-	{31, 120},	
-	{119, 359},	
+static struct frac_entry frac_table_810m[] = { /* Link rate of 162M */
+	{31, 211},	/* 119 M */
+	{32, 199},	/* 130.25 M */
+	{63, 307},	/* 138.50 M */
+	{11, 60},	/* 148.50 M */
+	{50, 263},	/* 154 M */
+	{31, 120},	/* 205.25 M */
+	{119, 359},	/* 268.50 M */
 	{0, 0},
 };
 
@@ -943,7 +1033,7 @@ static bool is_same_rcg_config(struct rcg_clk *rcg, struct clk_freq_tbl *freq,
 {
 	u32 cfg;
 
-	
+	/* RCG update pending */
 	if (readl_relaxed(CMD_RCGR_REG(rcg)) & CMD_RCGR_CONFIG_DIRTY_MASK)
 		return false;
 	if (has_mnd)
@@ -951,6 +1041,10 @@ static bool is_same_rcg_config(struct rcg_clk *rcg, struct clk_freq_tbl *freq,
 		    readl_relaxed(N_REG(rcg)) != freq->n_val ||
 		    readl_relaxed(D_REG(rcg)) != freq->d_val)
 			return false;
+	/*
+	 * Both 0 and 1 represent same divider value in HW.
+	 * Always use 0 to simplify comparison.
+	 */
 	if ((freq->div_src_val & CFG_RCGR_DIV_MASK) == 1)
 		freq->div_src_val &= ~CFG_RCGR_DIV_MASK;
 	cfg = readl_relaxed(CFG_RCGR_REG(rcg));
@@ -1013,7 +1107,7 @@ enum handoff byte_rcg_handoff(struct clk *clk)
 	u32 div_val;
 	unsigned long pre_div_rate, parent_rate = clk_get_rate(clk->parent);
 
-	
+	/* If the pre-divider is used, find the rate after the division */
 	div_val = readl_relaxed(CFG_RCGR_REG(rcg)) & CFG_RCGR_DIV_MASK;
 	if (div_val > 1)
 		pre_div_rate = parent_rate / ((div_val + 1) >> 1);
@@ -1051,6 +1145,10 @@ static int set_rate_byte(struct clk *clk, unsigned long rate)
 	if (div > CFG_RCGR_DIV_MASK)
 		return -EINVAL;
 
+	/*
+	 * Both 0 and 1 represent same divider value in HW.
+	 * Always use 0 to simplify comparison.
+	 */
 	div = (div == 1) ? 0 : div;
 
 	byte_freq->div_src_val &= ~CFG_RCGR_DIV_MASK;
@@ -1072,7 +1170,7 @@ enum handoff pixel_rcg_handoff(struct clk *clk)
 
 	cfg_regval = readl_relaxed(CFG_RCGR_REG(rcg));
 
-	
+	/* If the pre-divider is used, find the rate after the division */
 	div_val = cfg_regval & CFG_RCGR_DIV_MASK;
 	if (div_val > 1)
 		pre_div_rate = parent_rate / ((div_val + 1) >> 1);
@@ -1081,12 +1179,16 @@ enum handoff pixel_rcg_handoff(struct clk *clk)
 
 	clk->rate = pre_div_rate;
 
+	/*
+	 * Pixel clocks have one frequency entry in their frequency table.
+	 * Update that entry.
+	 */
 	if (rcg->current_freq) {
 		rcg->current_freq->div_src_val &= ~CFG_RCGR_DIV_MASK;
 		rcg->current_freq->div_src_val |= div_val;
 	}
 
-	
+	/* If MND is used, find the rate after the MND division */
 	if ((cfg_regval & MND_MODE_MASK) == MND_DUAL_EDGE_MODE_BVAL) {
 		mval = readl_relaxed(M_REG(rcg));
 		nval = readl_relaxed(N_REG(rcg));
@@ -1178,7 +1280,7 @@ static int rcg_clk_set_parent(struct clk *clk, struct clk *parent_clk)
 	u32 m_val, n_val, d_val, div_val;
 	u32 cfg_regval;
 
-	
+	/* Find the source clock freq tbl for the requested parent */
 	if (!rcg->freq_tbl)
 		return -ENXIO;
 
@@ -1187,6 +1289,10 @@ static int rcg_clk_set_parent(struct clk *clk, struct clk *parent_clk)
 			return -ENXIO;
 	}
 
+	/* This implementation recommends that the RCG be unprepared
+	 * when switching RCG source since the divider configuration
+	 * remains unchanged.
+	 */
 	WARN(clk->prepare_count,
 		"Trying to switch RCG source while it is prepared!\n");
 
@@ -1196,7 +1302,7 @@ static int rcg_clk_set_parent(struct clk *clk, struct clk *parent_clk)
 	if (div_val)
 		parent_rate /= ((div_val + 1) >> 1);
 
-	
+	/* Update divisor. Source select bits should already be as expected */
 	nf->div_src_val &= ~CFG_RCGR_DIV_MASK;
 	nf->div_src_val |= div_val;
 
@@ -1207,6 +1313,9 @@ static int rcg_clk_set_parent(struct clk *clk, struct clk *parent_clk)
 		n_val = readl_relaxed(N_REG(rcg));
 		d_val = readl_relaxed(D_REG(rcg));
 
+		/* Sign extend the n and d values as those in registers are not
+		 * sign extended.
+		 */
 		n_val |= (n_val >> 8) ? BM(31, 16) : BM(31, 8);
 		d_val |= (d_val >> 8) ? BM(31, 16) : BM(31, 8);
 
@@ -1222,6 +1331,9 @@ static int rcg_clk_set_parent(struct clk *clk, struct clk *parent_clk)
 	} else
 		rate = parent_rate;
 
+	/* Warn if switching to the new parent with the current m, n ,d values
+	 * violates the voltage constraints for the RCG.
+	 */
 	WARN(!is_rate_valid(clk, rate) && clk->prepare_count,
 		"Switch to new RCG parent violates voltage requirement!\n");
 
@@ -1229,7 +1341,7 @@ static int rcg_clk_set_parent(struct clk *clk, struct clk *parent_clk)
 	if (rc)
 		return rc;
 
-	
+	/* Switch RCG source */
 	rcg->set_rate(rcg, nf);
 
 	rcg->current_freq = nf;
@@ -1241,6 +1353,10 @@ static int rcg_clk_set_parent(struct clk *clk, struct clk *parent_clk)
 	return 0;
 }
 
+/*
+ * Unlike other clocks, the HDMI rate is adjusted through PLL
+ * re-programming. It is also routed through an HID divider.
+ */
 static int rcg_clk_set_rate_hdmi(struct clk *c, unsigned long rate)
 {
 	struct rcg_clk *rcg = to_rcg_clk(c);
@@ -1263,7 +1379,7 @@ static struct clk *rcg_hdmi_clk_get_parent(struct clk *c)
 	struct clk_freq_tbl *freq = rcg->freq_tbl;
 	u32 cmd_rcgr_regval;
 
-	
+	/* Is there a pending configuration? */
 	cmd_rcgr_regval = readl_relaxed(CMD_RCGR_REG(rcg));
 	if (cmd_rcgr_regval & CMD_RCGR_CONFIG_DIRTY_MASK)
 		return NULL;
@@ -1304,12 +1420,12 @@ static struct clk *edp_clk_get_parent(struct clk *c)
 	unsigned long rate;
 	u32 cmd_rcgr_regval;
 
-	
+	/* Is there a pending configuration? */
 	cmd_rcgr_regval = readl_relaxed(CMD_RCGR_REG(rcg));
 	if (cmd_rcgr_regval & CMD_RCGR_CONFIG_DIRTY_MASK)
 		return NULL;
 
-	
+	/* Figure out what rate the rcg is running at */
 	for (freq = rcg->freq_tbl; freq->freq_hz != FREQ_END; freq++) {
 		clk = freq->src_clk;
 		if (clk && clk->ops->get_rate) {
@@ -1319,7 +1435,7 @@ static struct clk *edp_clk_get_parent(struct clk *c)
 		}
 	}
 
-	
+	/* No known frequency found */
 	if (freq->freq_hz == FREQ_END)
 		return NULL;
 
@@ -1432,7 +1548,7 @@ static int mux_reg_enable(struct mux_clk *clk)
 	regval = readl_relaxed(*clk->base + clk->en_offset);
 	regval |= clk->en_mask;
 	writel_relaxed(regval, *clk->base + clk->en_offset);
-	
+	/* Ensure enable request goes through before returning */
 	mb();
 	spin_unlock_irqrestore(&mux_reg_lock, flags);
 
@@ -1464,7 +1580,7 @@ static int mux_reg_set_mux_sel(struct mux_clk *clk, int sel)
 	regval &= ~(clk->mask << clk->shift);
 	regval |= (sel & clk->mask) << clk->shift;
 	writel_relaxed(regval, MUX_REG(clk));
-	
+	/* Ensure switch request goes through before returning */
 	mb();
 	spin_unlock_irqrestore(&mux_reg_lock, flags);
 
@@ -1498,6 +1614,7 @@ static void __iomem *mux_clk_list_registers(struct mux_clk *clk, int n,
 	return *clk->base + clk->offset;
 }
 
+/* PLL post-divider setting for each divider value */
 static struct div_map postdiv_map[] = {
 	{  0x0, 1  },
 	{  0x1, 2  },
@@ -1517,7 +1634,7 @@ static int postdiv_reg_set_div(struct div_clk *clk, int div)
 	unsigned int mask = -1;
 	int i, ret = 0;
 
-	
+	/* Divider is not configurable */
 	if (!clk->mask)
 		return 0;
 
@@ -1540,7 +1657,7 @@ static int postdiv_reg_set_div(struct div_clk *clk, int div)
 	regval &= ~(clk->mask << clk->shift);
 	regval |= (mask & clk->mask) << clk->shift;
 	writel_relaxed(regval, DIV_REG(clk));
-	
+	/* Ensure switch request goes through before returning */
 	mb();
 
 	if (parent->count && parent->ops->enable) {
@@ -1558,7 +1675,7 @@ static int postdiv_reg_get_div(struct div_clk *clk)
 	u32 regval;
 	int i, div = 0;
 
-	
+	/* Divider is not configurable */
 	if (!clk->mask)
 		return clk->data.div;
 
@@ -1581,7 +1698,7 @@ static int div_reg_set_div(struct div_clk *clk, int div)
 	u32 regval;
 	unsigned long flags;
 
-	
+	/* Divider is not configurable */
 	if (!clk->mask)
 		return 0;
 
@@ -1589,7 +1706,7 @@ static int div_reg_set_div(struct div_clk *clk, int div)
 	regval = readl_relaxed(*clk->base + clk->offset);
 	regval &= ~(clk->mask << clk->shift);
 	regval |= (div & clk->mask) << clk->shift;
-	
+	/* Ensure switch request goes through before returning */
 	mb();
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
@@ -1599,7 +1716,7 @@ static int div_reg_set_div(struct div_clk *clk, int div)
 static int div_reg_get_div(struct div_clk *clk)
 {
 	u32 regval;
-	
+	/* Divider is not configurable */
 	if (!clk->mask)
 		return clk->data.div;
 
@@ -1607,6 +1724,7 @@ static int div_reg_get_div(struct div_clk *clk)
 	return (regval >> clk->shift) & clk->mask;
 }
 
+/* =================Half-integer RCG without MN counter================= */
 #define RCGR_CMD_REG(x) ((x)->base + (x)->div_offset)
 #define RCGR_DIV_REG(x) ((x)->base + (x)->div_offset + 4)
 #define RCGR_SRC_REG(x) ((x)->base + (x)->div_offset + 4)
@@ -1619,7 +1737,7 @@ static int rcg_mux_div_update_config(struct mux_div_clk *md)
 	regval |= CMD_RCGR_CONFIG_UPDATE_BIT;
 	writel_relaxed(regval, RCGR_CMD_REG(md));
 
-	
+	/* Wait for update to take effect */
 	for (count = UPDATE_CHECK_MAX_LOOPS; count > 0; count--) {
 		if (!(readl_relaxed(RCGR_CMD_REG(md)) &
 			    CMD_RCGR_CONFIG_UPDATE_BIT))
@@ -1638,7 +1756,7 @@ static void rcg_get_src_div(struct mux_div_clk *md, u32 *src_sel, u32 *div)
 	unsigned long flags;
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
-	
+	/* Is there a pending configuration? */
 	regval = readl_relaxed(RCGR_CMD_REG(md));
 	if (regval & CMD_RCGR_CONFIG_DIRTY_MASK) {
 		CLK_WARN(&md->c, true, "it's a pending configuration.");
@@ -1650,10 +1768,10 @@ static void rcg_get_src_div(struct mux_div_clk *md, u32 *src_sel, u32 *div)
 	regval &= (md->div_mask << md->div_shift);
 	*div = regval >> md->div_shift;
 
-	
+	/* bypass */
 	if (*div == 0)
 		*div = 1;
-	
+	/* the div is doubled here*/
 	*div += 1;
 
 	regval = readl_relaxed(RCGR_SRC_REG(md));
@@ -1673,7 +1791,7 @@ static void mux_div_set_force_enable(struct mux_div_clk *md)
 	regval |= CMD_RCGR_ROOT_ENABLE_BIT;
 	writel_relaxed(regval, RCGR_CMD_REG(md));
 
-	
+	/* Wait for RCG to turn ON */
 	for (count = UPDATE_CHECK_MAX_LOOPS; count > 0; count--) {
 		if (!(readl_relaxed(RCGR_CMD_REG(md)) &
 				CMD_RCGR_CONFIG_UPDATE_BIT))
@@ -1703,7 +1821,7 @@ static int rcg_set_src_div(struct mux_div_clk *md, u32 src_sel, u32 div)
 	unsigned long flags;
 	int ret;
 
-	
+	/* for half-integer divider, div here is doubled */
 	if (div)
 		div -= 1;
 
@@ -1965,7 +2083,7 @@ static void *cbc_dt_parser(struct device *dev, struct device_node *np)
 		return ERR_PTR(rc);
 	}
 
-	
+	/* Optional property */
 	of_property_read_u32(np, "qcom,bcr-offset", &branch_clk->bcr_reg);
 
 	branch_clk->has_sibling = of_property_read_bool(np,
@@ -2017,7 +2135,7 @@ static void *local_vote_clk_dt_parser(struct device *dev,
 
 	vote_clk->c.ops = &clk_ops_vote;
 
-	
+	/* Optional property */
 	of_property_read_u32(np, "qcom,bcr-offset", &vote_clk->bcr_reg);
 
 	return msmclk_generic_clk_init(dev, np, &vote_clk->c);
@@ -2054,7 +2172,7 @@ static void *gate_clk_dt_parser(struct device *dev, struct device_node *np)
 	}
 	gate_clk->en_mask = BIT(en_bit);
 
-	
+	/* Optional Property */
 	rc = of_property_read_u32(np, "qcom,delay", &gate_clk->delay_us);
 	if (rc)
 		gate_clk->delay_us = 0;
@@ -2084,7 +2202,7 @@ static inline u32 rcg_calc_duty_cycle(u32 m, u32 n)
 static inline u32 rcg_calc_div_src(u32 div_int, u32 div_frac, u32 src_sel)
 {
 	int div = 2 * div_int + (div_frac ? 1 : 0) - 1;
-	
+	/* set bypass mode instead of a divider of 1 */
 	div = (div != 1) ? div : 0;
 	return BVAL(4, 0, max(div, 0))
 			| BVAL(10, 8, src_sel);
@@ -2122,7 +2240,7 @@ struct clk_src *msmclk_parse_clk_src(struct device *dev,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	
+	/* Assume that u32 and phandle have the same size */
 	for (i = 0; i < num_parents; i++) {
 		phandle p;
 		struct clk_src *a = &clks[i];
@@ -2170,7 +2288,7 @@ static int rcg_parse_freq_tbl(struct device *dev,
 	}
 
 	num_rows = prop_len / 6;
-	
+	/* Array is null terminated. */
 	rcg->freq_tbl = devm_kzalloc(dev,
 				sizeof(*rcg->freq_tbl) * (num_rows + 1),
 				GFP_KERNEL);
@@ -2213,7 +2331,7 @@ static int rcg_parse_freq_tbl(struct device *dev,
 		tbl->div_src_val = rcg_calc_div_src(div_int, div_frac,
 								src_sel);
 	}
-	
+	/* End table with special value */
 	tbl->freq_hz = FREQ_END;
 	return 0;
 }
@@ -2358,7 +2476,7 @@ static void *mux_reg_clk_dt_parser(struct device *dev, struct device_node *np)
 	mux->c.ops = &clk_ops_gen_mux;
 	mux->ops = &mux_reg_ops;
 
-	
+	/* Optional Properties */
 	of_property_read_u32(np, "qcom,en-offset", &mux->en_offset);
 	of_property_read_u32(np, "qcom,en-mask", &mux->en_mask);
 
@@ -2429,7 +2547,7 @@ static void *measure_clk_dt_parser(struct device *dev,
 
 	mux->c.ops = clk_ops_measure_mux;
 
-	
+	/* Already did generic clk init */
 	return &mux->c;
 };
 MSMCLK_PARSER(measure_clk_dt_parser, "qcom,measure-mux", 0);

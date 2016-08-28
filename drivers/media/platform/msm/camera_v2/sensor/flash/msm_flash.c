@@ -225,7 +225,7 @@ static int32_t msm_flash_i2c_init(
 		flash_ctrl->power_setting_array.power_setting =
 			compat_ptr(power_setting_array32->power_setting);
 
-		
+		/* Validate power_up array size and power_down array size */
 		if ((!flash_ctrl->power_setting_array.size) ||
 			(flash_ctrl->power_setting_array.size >
 			MAX_POWER_CONFIG) ||
@@ -240,7 +240,7 @@ static int32_t msm_flash_i2c_init(
 			power_setting_array32 = NULL;
 			return -EINVAL;
 		}
-		
+		/* Copy the settings from compat struct to regular struct */
 		msm_flash_copy_power_settings_compat(
 			flash_ctrl->power_setting_array.power_setting_a,
 			power_setting_array32->power_setting_a,
@@ -579,7 +579,7 @@ static int32_t msm_flash_low(
 		if (flash_ctrl->flash_trigger[i])
 			led_trigger_event(flash_ctrl->flash_trigger[i], 0);
 
-	
+	/* Turn on flash triggers */
 	for (i = 0; i < flash_ctrl->torch_num_sources; i++) {
 		if (flash_ctrl->torch_trigger[i]) {
 			max_current = flash_ctrl->torch_max_current[i];
@@ -656,7 +656,7 @@ static int32_t msm_flash_high(
 		if (flash_ctrl->torch_trigger[i])
 			led_trigger_event(flash_ctrl->torch_trigger[i], 0);
 
-	
+	/* Turn on flash triggers */
 	for (i = 0; i < flash_ctrl->flash_num_sources; i++) {
 		if (flash_ctrl->flash_trigger[i]) {
 			max_current = flash_ctrl->flash_max_current[i];
@@ -940,7 +940,7 @@ static int32_t msm_flash_get_pmic_source_info(
 			CDBG("default trigger %s\n",
 				fctrl->flash_trigger_name[i]);
 
-			
+			/* Read operational-current */
 			rc = of_property_read_u32(flash_src_node,
 				"qcom,current",
 				&fctrl->flash_op_current[i]);
@@ -950,7 +950,7 @@ static int32_t msm_flash_get_pmic_source_info(
 				continue;
 			}
 
-			
+			/* Read max-current */
 			rc = of_property_read_u32(flash_src_node,
 				"qcom,max-current",
 				&fctrl->flash_max_current[i]);
@@ -960,14 +960,14 @@ static int32_t msm_flash_get_pmic_source_info(
 				continue;
 			}
 
-			
+			/* Read max-duration */
 			rc = of_property_read_u32(flash_src_node,
 				"qcom,duration",
 				&fctrl->flash_max_duration[i]);
 			if (rc < 0) {
 				pr_err("duration: read failed\n");
 				of_node_put(flash_src_node);
-				
+				/* Non-fatal; this property is optional */
 			}
 
 			of_node_put(flash_src_node);
@@ -1020,7 +1020,7 @@ static int32_t msm_flash_get_pmic_source_info(
 			CDBG("default trigger %s\n",
 				fctrl->torch_trigger_name[i]);
 
-			
+			/* Read operational-current */
 			rc = of_property_read_u32(torch_src_node,
 				"qcom,current",
 				&fctrl->torch_op_current[i]);
@@ -1030,7 +1030,7 @@ static int32_t msm_flash_get_pmic_source_info(
 				continue;
 			}
 
-			
+			/* Read max-current */
 			rc = of_property_read_u32(torch_src_node,
 				"qcom,max-current",
 				&fctrl->torch_max_current[i]);
@@ -1070,7 +1070,7 @@ static int32_t msm_flash_get_dt_data(struct device_node *of_node,
 		return -EINVAL;
 	}
 
-	
+	/* Read the sub device */
 	rc = of_property_read_u32(of_node, "cell-index", &fctrl->pdev->id);
 	if (rc < 0) {
 		pr_err("failed rc %d\n", rc);
@@ -1081,20 +1081,20 @@ static int32_t msm_flash_get_dt_data(struct device_node *of_node,
 
 	fctrl->flash_driver_type = FLASH_DRIVER_DEFAULT;
 
-	
+	/* Read the CCI master. Use M0 if not available in the node */
 	rc = of_property_read_u32(of_node, "qcom,cci-master",
 		&fctrl->cci_i2c_master);
 	CDBG("%s qcom,cci-master %d, rc %d\n", __func__, fctrl->cci_i2c_master,
 		rc);
 	if (rc < 0) {
-		
+		/* Set default master 0 */
 		fctrl->cci_i2c_master = MASTER_0;
 		rc = 0;
 	} else {
 		fctrl->flash_driver_type = FLASH_DRIVER_I2C;
 	}
 
-	
+	/* Read the gpio information from device tree */
 	rc = msm_flash_get_gpio_dt_data(of_node, fctrl);
 	if (rc < 0) {
 		pr_err("%s:%d msm_flash_get_gpio_dt_data failed rc %d\n",
@@ -1102,7 +1102,7 @@ static int32_t msm_flash_get_dt_data(struct device_node *of_node,
 		return rc;
 	}
 
-	
+	/* Read the flash and torch source info from device tree node */
 	rc = msm_flash_get_pmic_source_info(of_node, fctrl);
 	if (rc < 0) {
 		pr_err("%s:%d msm_flash_get_pmic_source_info failed rc %d\n",
@@ -1240,7 +1240,7 @@ static int32_t msm_flash_platform_probe(struct platform_device *pdev)
 	cci_client->cci_subdev = msm_cci_get_subdev();
 	cci_client->cci_i2c_master = flash_ctrl->cci_i2c_master;
 
-	
+	/* Initialize sub device */
 	v4l2_subdev_init(&flash_ctrl->msm_sd.sd, &msm_flash_subdev_ops);
 	v4l2_set_subdevdata(&flash_ctrl->msm_sd.sd, flash_ctrl);
 
