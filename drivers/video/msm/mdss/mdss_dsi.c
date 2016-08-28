@@ -463,6 +463,13 @@ static int mdss_dsi_panel_power_on_hx8396c2(struct mdss_panel_data *pdata)
 			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
 		return ret;
 	}
+
+	/*
+	 * If continuous splash screen feature is enabled, then we need to
+	 * request all the GPIOs that have already been configured in the
+	 * bootloader. This needs to be done irresepective of whether
+	 * the lp11_init flag is set or not.
+	 */
 	if (pdata->panel_info.cont_splash_enabled ||
 		!pdata->panel_info.mipi.lp11_init) {
 		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
