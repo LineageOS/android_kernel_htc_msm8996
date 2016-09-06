@@ -299,9 +299,6 @@ static int snd_ctl_elem_read_user_compat(struct snd_card *card,
 		return -ENOMEM;
 
 	if ((err = copy_ctl_value_from_user(card, data, data32, &type, &count)) < 0) {
-#ifdef CONFIG_HTC_DEBUG_DSP
-		pr_aud_err("%s: copy from user fail\n", __func__);
-#endif
 		goto error;
 	}
 
@@ -309,10 +306,6 @@ static int snd_ctl_elem_read_user_compat(struct snd_card *card,
 	err = snd_power_wait(card, SNDRV_CTL_POWER_D0);
 	if (err >= 0)
 		err = snd_ctl_elem_read(card, data);
-#ifdef CONFIG_HTC_DEBUG_DSP
-	else
-		pr_aud_err("%s: snd_power_wait fail\n", __func__);
-#endif
 	snd_power_unlock(card);
 	if (err >= 0)
 		err = copy_ctl_value_to_user(data32, data, type, count);
@@ -328,18 +321,11 @@ static int snd_ctl_elem_write_user_compat(struct snd_ctl_file *file,
 	struct snd_card *card = file->card;
 	int err, type, count;
 
-#ifdef CONFIG_HTC_DEBUG_DSP
-	pr_aud_info("%s: Enter \n", __func__);
-#endif
-
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (data == NULL)
 		return -ENOMEM;
 
 	if ((err = copy_ctl_value_from_user(card, data, data32, &type, &count)) < 0) {
-#ifdef CONFIG_HTC_DEBUG_DSP
-		pr_aud_err("%s: copy from user fail\n", __func__);
-#endif
 		goto error;
 	}
 
@@ -347,17 +333,9 @@ static int snd_ctl_elem_write_user_compat(struct snd_ctl_file *file,
 	err = snd_power_wait(card, SNDRV_CTL_POWER_D0);
 	if (err >= 0)
 		err = snd_ctl_elem_write(card, file, data);
-#ifdef CONFIG_HTC_DEBUG_DSP
-	else
-		pr_aud_err("%s: snd_power_wait fail\n", __func__);
-#endif
 	snd_power_unlock(card);
 	if (err >= 0)
 		err = copy_ctl_value_to_user(data32, data, type, count);
-#ifdef CONFIG_HTC_DEBUG_DSP
-	else
-		pr_aud_err("%s: snd_clt_elem_write fail\n", __func__);
-#endif
  error:
 	kfree(data);
 	return err;

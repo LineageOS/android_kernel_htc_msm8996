@@ -193,12 +193,6 @@ config I2C_RT5503
 	help
 	  Say Y to enable RT5503 SPK Amp support.
 
-config HTC_AUDIO_DEBUG
-	bool "Trigger Ramdump if enable"
-	default n
-	help
-	  Say Y to enable HTC Audio DEBUG
-
 config USE_CODEC_MBHC
 	bool "MBHC support"
 	depends on ARCH_MSM8996

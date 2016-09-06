@@ -52,11 +52,6 @@ static int snd_ctl_open(struct inode *inode, struct file *file)
 	struct snd_ctl_file *ctl;
 	int err;
 
-#ifdef CONFIG_HTC_DEBUG_DSP
-	pr_info("[AUD] %s: trigger dump stack for debug\n", __func__);
-	dump_stack();
-#endif
-
 	err = nonseekable_open(inode, file);
 	if (err < 0)
 		return err;
@@ -125,11 +120,6 @@ static int snd_ctl_release(struct inode *inode, struct file *file)
 	struct snd_ctl_file *ctl;
 	struct snd_kcontrol *control;
 	unsigned int idx;
-
-#ifdef CONFIG_HTC_DEBUG_DSP
-	pr_info("[AUD] %s: trigger dump stack for debug\n", __func__);
-	dump_stack();
-#endif
 
 	ctl = file->private_data;
 	file->private_data = NULL;
@@ -857,10 +847,6 @@ static int snd_ctl_elem_read(struct snd_card *card,
 	down_read(&card->controls_rwsem);
 	kctl = snd_ctl_find_id(card, &control->id);
 	if (kctl == NULL) {
-#ifdef CONFIG_HTC_DEBUG_DSP
-		if (snd_BUG_ON(&control->id))
-			pr_aud_err("%s: kctl not find: %d\n", __func__, control->id.numid); 
-#endif
 		result = -ENOENT;
 	} else {
 		index_offset = snd_ctl_get_ioff(kctl, &control->id);
@@ -909,10 +895,6 @@ static int snd_ctl_elem_write(struct snd_card *card, struct snd_ctl_file *file,
 	down_read(&card->controls_rwsem);
 	kctl = snd_ctl_find_id(card, &control->id);
 	if (kctl == NULL) {
-#ifdef CONFIG_HTC_DEBUG_DSP
-		if (snd_BUG_ON(&control->id))
-			pr_aud_err("%s: kctl not find: %d\n", __func__, control->id.numid); 
-#endif
 		result = -ENOENT;
 	} else {
 		index_offset = snd_ctl_get_ioff(kctl, &control->id);
@@ -921,17 +903,7 @@ static int snd_ctl_elem_write(struct snd_card *card, struct snd_ctl_file *file,
 		    kctl->put == NULL ||
 		    (file && vd->owner && vd->owner != file)) {
 			result = -EPERM;
-#ifdef CONFIG_HTC_DEBUG_DSP
-			pr_aud_err("%s: kctl invalid: %d\n", __func__, control->id.numid); 
-#endif
 		} else {
-#ifdef CONFIG_HTC_DEBUG_DSP
-			pr_aud_info("%s: control %i:%s value:%ld \n",
-					__func__,
-					kctl->id.numid,
-					kctl->id.name,
-					control->value.integer.value[0]);
-#endif
 			snd_ctl_build_ioff(&control->id, kctl, index_offset);
 			result = kctl->put(kctl, control);
 		}
