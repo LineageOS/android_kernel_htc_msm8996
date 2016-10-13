@@ -113,6 +113,12 @@ enum mdss_mdp_mixer_mux {
 	MDSS_MDP_MIXER_MUX_RIGHT,
 };
 
+enum mdss_sd_transition {
+	SD_TRANSITION_NONE,
+	SD_TRANSITION_SECURE_TO_NON_SECURE,
+	SD_TRANSITION_NON_SECURE_TO_SECURE
+};
+
 static inline enum mdss_mdp_sspp_index get_pipe_num_from_ndx(u32 ndx)
 {
 	u32 id;
@@ -826,6 +832,8 @@ struct mdss_overlay_private {
 
 	bool allow_kickoff;
 
+	u8 sd_transition_state;
+
 	void *splash_mem_vaddr;
 	dma_addr_t splash_mem_dma;
 };
@@ -1124,7 +1132,7 @@ static inline struct clk *mdss_mdp_get_clk(u32 clk_idx)
 }
 
 static inline void mdss_update_sd_client(struct mdss_data_type *mdata,
-							bool status)
+							unsigned int status)
 {
 	if (status)
 		atomic_inc(&mdata->sd_client_count);
@@ -1423,7 +1431,8 @@ unsigned long mdss_mdp_get_clk_rate(u32 clk_idx, bool locked);
 int mdss_mdp_vsync_clk_enable(int enable, bool locked);
 void mdss_mdp_clk_ctrl(int enable);
 struct mdss_data_type *mdss_mdp_get_mdata(void);
-int mdss_mdp_secure_display_ctrl(unsigned int enable);
+int mdss_mdp_secure_display_ctrl(struct mdss_data_type *mdata,
+	unsigned int enable);
 
 int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd);
 int mdss_mdp_dfps_update_params(struct msm_fb_data_type *mfd,
