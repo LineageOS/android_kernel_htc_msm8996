@@ -27,7 +27,7 @@
 #include <sound/q6afe-v2.h>
 #include <sound/msm-dai-q6-v2.h>
 #include <sound/pcm_params.h>
-#include <sound/htc_acoustic_alsa.h>
+#include <sound/htc_acoustic_alsa.h>//HTC_AUD
 
 #define MSM_DAI_PRI_AUXPCM_DT_DEV_ID 1
 #define MSM_DAI_SEC_AUXPCM_DT_DEV_ID 2
@@ -59,10 +59,10 @@ static const struct afe_clk_cfg lpass_clk_cfg_default = {
 	0,
 };
 enum {
-	STATUS_PORT_STARTED, 
-	
+	STATUS_PORT_STARTED, /* track if AFE port has started */
+	/* track AFE Tx port status for bi-directional transfers */
 	STATUS_TX_PORT,
-	
+	/* track AFE Rx port status for bi-directional transfers */
 	STATUS_RX_PORT,
 	STATUS_MAX
 };
@@ -182,15 +182,15 @@ struct msm_dai_q6_mi2s_dai_data {
 };
 
 struct msm_dai_q6_auxpcm_dai_data {
-	
+	/* BITMAP to track Rx and Tx port usage count */
 	DECLARE_BITMAP(auxpcm_port_status, STATUS_MAX);
-	struct mutex rlock; 
-	u16 rx_pid; 
-	u16 tx_pid; 
+	struct mutex rlock; /* auxpcm dev resource lock */
+	u16 rx_pid; /* AUXPCM RX AFE port ID */
+	u16 tx_pid; /* AUXPCM TX AFE port ID */
 	u16 afe_clk_ver;
-	struct afe_clk_cfg clk_cfg; 
-	struct afe_clk_set clk_set; 
-	struct msm_dai_q6_dai_data bdai_data; 
+	struct afe_clk_cfg clk_cfg; /* hold LPASS clock configuration */
+	struct afe_clk_set clk_set; /* hold LPASS clock configuration */
+	struct msm_dai_q6_dai_data bdai_data; /* incoporate base DAI data */
 };
 
 struct msm_dai_q6_tdm_dai_data {
@@ -198,11 +198,17 @@ struct msm_dai_q6_tdm_dai_data {
 	u32 rate;
 	u32 channels;
 	u32 bitwidth;
-	struct afe_clk_set clk_set; 
-	union afe_port_group_config group_cfg; 
-	struct afe_tdm_port_config port_cfg; 
+	struct afe_clk_set clk_set; /* hold LPASS clock config. */
+	union afe_port_group_config group_cfg; /* hold tdm group config */
+	struct afe_tdm_port_config port_cfg; /* hold tdm config */
 };
 
+/* MI2S format field for AFE_PORT_CMD_I2S_CONFIG command
+ *  0: linear PCM
+ *  1: non-linear PCM
+ *  2: PCM data in IEC 60968 container
+ *  3: compressed data in IEC 60958 container
+ */
 static const char *const mi2s_format[] = {
 	"LPCM",
 	"Compr",
@@ -243,6 +249,7 @@ static DEFINE_MUTEX(tdm_mutex);
 
 static atomic_t tdm_group_ref[IDX_GROUP_TDM_MAX];
 
+/* cache of group cfg per parent node */
 static struct afe_param_id_group_device_tdm_cfg tdm_group_cfg = {
 	AFE_API_VERSION_GROUP_DEVICE_TDM_CONFIG,
 	AFE_GROUP_DEVICE_ID_QUATERNARY_TDM_RX,
@@ -496,6 +503,9 @@ int msm_dai_q6_get_port_idx(u16 id)
 
 static u16 msm_dai_q6_max_num_slot(int frame_rate)
 {
+	/* Max num of slots is bits per frame divided
+	 * by bits per sample which is 16
+	 */
 	switch (frame_rate) {
 	case AFE_PORT_PCM_BITS_PER_FRAME_8:
 		return 0;
@@ -577,7 +587,7 @@ static int msm_dai_q6_auxpcm_hw_params(
 
 	if (test_bit(STATUS_TX_PORT, aux_dai_data->auxpcm_port_status) ||
 	    test_bit(STATUS_RX_PORT, aux_dai_data->auxpcm_port_status)) {
-		
+		/* AUXPCM DAI in use */
 		if (dai_data->rate != params_rate(params)) {
 			dev_err(dai->dev, "%s: rate mismatch of running DAI\n",
 			__func__);
@@ -745,7 +755,7 @@ static void msm_dai_q6_auxpcm_shutdown(struct snd_pcm_substream *substream,
 	dev_dbg(dai->dev, "%s: dai->id = %d closing PCM AFE ports\n",
 			__func__, dai->id);
 
-	rc = afe_close(aux_dai_data->rx_pid); 
+	rc = afe_close(aux_dai_data->rx_pid); /* can block */
 	if (IS_ERR_VALUE(rc))
 		dev_err(dai->dev, "fail to close PCM_RX  AFE port\n");
 
@@ -908,7 +918,7 @@ static int msm_dai_q6_auxpcm_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
-		
+		/* afe_open will be called from prepare */
 		return 0;
 
 	case SNDRV_PCM_TRIGGER_STOP:
@@ -937,7 +947,7 @@ static int msm_dai_q6_dai_auxpcm_remove(struct snd_soc_dai *dai)
 
 	if (test_bit(STATUS_TX_PORT, aux_dai_data->auxpcm_port_status) ||
 	    test_bit(STATUS_RX_PORT, aux_dai_data->auxpcm_port_status)) {
-		rc = afe_close(aux_dai_data->rx_pid); 
+		rc = afe_close(aux_dai_data->rx_pid); /* can block */
 		if (IS_ERR_VALUE(rc))
 			dev_err(dai->dev, "fail to close AUXPCM RX AFE port\n");
 		rc = afe_close(aux_dai_data->tx_pid);
@@ -1273,9 +1283,9 @@ static int msm_dai_q6_spdif_dai_remove(struct snd_soc_dai *dai)
 
 	dai_data = dev_get_drvdata(dai->dev);
 
-	
+	/* If AFE port is still up, close it */
 	if (test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
-		rc = afe_close(dai->id); 
+		rc = afe_close(dai->id); /* can block */
 
 		if (IS_ERR_VALUE(rc))
 			dev_err(dai->dev, "fail to close AFE port\n");
@@ -1419,7 +1429,7 @@ static int msm_dai_q6_i2s_hw_params(struct snd_pcm_hw_params *params,
 	dai_data->port_config.i2s.i2s_cfg_minor_version =
 						AFE_API_VERSION_I2S_CONFIG;
 	dai_data->port_config.i2s.data_format =  AFE_LINEAR_PCM_DATA;
-	
+	/* Q6 only supports 16 as now */
 	dai_data->port_config.i2s.bit_width = 16;
 	dai_data->port_config.i2s.channel_mode = 1;
 
@@ -1510,7 +1520,7 @@ static int msm_dai_q6_afe_rtproxy_hw_params(struct snd_pcm_hw_params *params,
 
 	dai_data->port_config.rtproxy.rt_proxy_cfg_minor_version =
 				AFE_API_VERSION_RT_PROXY_CONFIG;
-	dai_data->port_config.rtproxy.bit_width = 16; 
+	dai_data->port_config.rtproxy.bit_width = 16; /* Q6 only supports 16 */
 	dai_data->port_config.rtproxy.interleaved = 1;
 	dai_data->port_config.rtproxy.frame_size = params_period_bytes(params);
 	dai_data->port_config.rtproxy.jitter_allowance =
@@ -1529,7 +1539,7 @@ static int msm_dai_q6_psuedo_port_hw_params(struct snd_pcm_hw_params *params,
 	dai_data->channels = params_channels(params);
 	dai_data->rate = params_rate(params);
 
-	
+	/* Q6 only supports 16 as now */
 	dai_data->port_config.pseudo_port.pseud_port_cfg_minor_version =
 				AFE_API_VERSION_PSEUDO_PORT_CONFIG;
 	dai_data->port_config.pseudo_port.num_channels =
@@ -1551,6 +1561,10 @@ static int msm_dai_q6_psuedo_port_hw_params(struct snd_pcm_hw_params *params,
 	return 0;
 }
 
+/* Current implementation assumes hw_param is called once
+ * This may not be the case but what to do when ADM and AFE
+ * port are already opened and parameter changes
+ */
 static int msm_dai_q6_hw_params(struct snd_pcm_substream *substream,
 				struct snd_pcm_hw_params *params,
 				struct snd_soc_dai *dai)
@@ -1619,7 +1633,7 @@ static void msm_dai_q6_shutdown(struct snd_pcm_substream *substream,
 
 	if (test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
 		pr_debug("%s: stop pseudo port:%d\n", __func__,  dai->id);
-		rc = afe_close(dai->id); 
+		rc = afe_close(dai->id); /* can block */
 
 		if (IS_ERR_VALUE(rc))
 			dev_err(dai->dev, "fail to close AFE port\n");
@@ -1635,10 +1649,10 @@ static int msm_dai_q6_cdc_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
-		dai_data->port_config.i2s.ws_src = 1; 
+		dai_data->port_config.i2s.ws_src = 1; /* CPU is master */
 		break;
 	case SND_SOC_DAIFMT_CBM_CFM:
-		dai_data->port_config.i2s.ws_src = 0; 
+		dai_data->port_config.i2s.ws_src = 0; /* CPU is slave */
 		break;
 	default:
 		pr_err("%s: fmt 0x%x\n",
@@ -1689,6 +1703,12 @@ static int msm_dai_q6_set_channel_map(struct snd_soc_dai *dai,
 	case SLIMBUS_4_RX:
 	case SLIMBUS_5_RX:
 	case SLIMBUS_6_RX:
+		/*
+		 * channel number to be between 128 and 255.
+		 * For RX port use channel numbers
+		 * from 138 to 144 for pre-Taiko
+		 * from 144 to 159 for Taiko
+		 */
 		if (!rx_slot) {
 			pr_err("%s: rx slot not found\n", __func__);
 			return -EINVAL;
@@ -1713,6 +1733,12 @@ static int msm_dai_q6_set_channel_map(struct snd_soc_dai *dai,
 	case SLIMBUS_4_TX:
 	case SLIMBUS_5_TX:
 	case SLIMBUS_6_TX:
+		/*
+		 * channel number to be between 128 and 255.
+		 * For TX port use channel numbers
+		 * from 128 to 137 for pre-Taiko
+		 * from 128 to 143 for Taiko
+		 */
 		if (!tx_slot) {
 			pr_err("%s: tx slot not found\n", __func__);
 			return -EINVAL;
@@ -1745,6 +1771,17 @@ static struct snd_soc_dai_ops msm_dai_q6_ops = {
 	.set_channel_map = msm_dai_q6_set_channel_map,
 };
 
+/*
+ * For single CPU DAI registration, the dai id needs to be
+ * set explicitly in the dai probe as ASoC does not read
+ * the cpu->driver->id field rather it assigns the dai id
+ * from the device name that is in the form %s.%d. This dai
+ * id should be assigned to back-end AFE port id and used
+ * during dai prepare. For multiple dai registration, it
+ * is not required to call this function, however the dai->
+ * driver->id field must be defined and set to corresponding
+ * AFE Port id.
+ */
 static inline void msm_dai_q6_set_dai_id(struct snd_soc_dai *dai)
 {
 	if (!dai->driver->id) {
@@ -1901,10 +1938,10 @@ static int msm_dai_q6_dai_remove(struct snd_soc_dai *dai)
 
 	dai_data = dev_get_drvdata(dai->dev);
 
-	
+	/* If AFE port is still up, close it */
 	if (test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
 		pr_debug("%s: stop pseudo port:%d\n", __func__,  dai->id);
-		rc = afe_close(dai->id); 
+		rc = afe_close(dai->id); /* can block */
 
 		if (IS_ERR_VALUE(rc))
 			dev_err(dai->dev, "fail to close AFE port\n");
@@ -2358,9 +2395,11 @@ static int msm_auxpcm_dev_probe(struct platform_device *pdev)
 		goto fail_reg_dai;
 	}
 
+//HTC_AUD_START: Store PRI_AUX device for FTM pinctrl
 	if (!strncmp(intf_name, "primary", sizeof("primary"))) {
 		register_htc_ftm_dev(&pdev->dev);
 	}
+//HTC_AUD_END
 
 	return rc;
 
@@ -2816,10 +2855,10 @@ static int msm_dai_q6_dai_mi2s_remove(struct snd_soc_dai *dai)
 		dev_get_drvdata(dai->dev);
 	int rc;
 
-	
+	/* If AFE port is still up, close it */
 	if (test_bit(STATUS_PORT_STARTED,
 		     mi2s_dai_data->rx_dai.mi2s_dai_data.status_mask)) {
-		rc = afe_close(MI2S_RX); 
+		rc = afe_close(MI2S_RX); /* can block */
 		if (IS_ERR_VALUE(rc))
 			dev_err(dai->dev, "fail to close MI2S_RX port\n");
 		clear_bit(STATUS_PORT_STARTED,
@@ -2827,7 +2866,7 @@ static int msm_dai_q6_dai_mi2s_remove(struct snd_soc_dai *dai)
 	}
 	if (test_bit(STATUS_PORT_STARTED,
 		     mi2s_dai_data->tx_dai.mi2s_dai_data.status_mask)) {
-		rc = afe_close(MI2S_TX); 
+		rc = afe_close(MI2S_TX); /* can block */
 		if (IS_ERR_VALUE(rc))
 			dev_err(dai->dev, "fail to close MI2S_TX port\n");
 		clear_bit(STATUS_PORT_STARTED,
@@ -2937,6 +2976,9 @@ static int msm_dai_q6_mi2s_prepare(struct snd_pcm_substream *substream,
 		dai->id, port_id, dai_data->channels, dai_data->rate);
 
 	if (!test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
+		/* PORT START should be set if prepare called
+		 * in active state.
+		 */
 		rc = afe_port_start(port_id, &dai_data->port_config,
 				    dai_data->rate);
 
@@ -3177,6 +3219,7 @@ static struct snd_soc_dai_ops msm_dai_q6_mi2s_ops = {
 	.shutdown	= msm_dai_q6_mi2s_shutdown,
 };
 
+/* Channel min and max are initialized base on platform data */
 static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 	{
 		.playback = {
@@ -3955,7 +3998,7 @@ static int msm_dai_tdm_q6_probe(struct platform_device *pdev)
 	uint32_t array_length = 0;
 	int i = 0;
 
-	
+	/* extract tdm group info into static */
 	rc = of_property_read_u32(pdev->dev.of_node,
 		"qcom,msm-cpudai-tdm-group-id",
 		(u32 *)&tdm_group_cfg.group_id);
@@ -4007,12 +4050,12 @@ static int msm_dai_tdm_q6_probe(struct platform_device *pdev)
 	for (i = 0; i < num_ports; i++)
 		tdm_group_cfg.port_id[i] =
 			(u16)be32_to_cpu(port_id_array[i]);
-	
+	/* Unused index should be filled with 0 or AFE_PORT_INVALID */
 	for (i = num_ports; i < AFE_GROUP_DEVICE_NUM_PORTS; i++)
 		tdm_group_cfg.port_id[i] =
 			AFE_PORT_INVALID;
 
-	
+	/* extract tdm clk info into static */
 	rc = of_property_read_u32(pdev->dev.of_node,
 		"qcom,msm-cpudai-tdm-clk-rate",
 		&tdm_clk_set.clk_freq_in_hz);
@@ -4024,7 +4067,7 @@ static int msm_dai_tdm_q6_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "%s: Clk Rate from DT file %d\n",
 		__func__, tdm_clk_set.clk_freq_in_hz);
 
-	
+	/* probe child node info */
 	rc = of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);
 	if (rc) {
 		dev_err(&pdev->dev, "%s: failed to add child nodes, rc=%d\n",
@@ -4926,7 +4969,7 @@ static int msm_dai_q6_dai_tdm_probe(struct snd_soc_dai *dai)
 
 	rc = msm_dai_q6_dai_add_route(dai);
 
-	
+	/* other initializations */
 	for (i = 0; i < IDX_GROUP_TDM_MAX; i++)
 		atomic_set(&tdm_group_ref[i], 0);
 
@@ -4953,9 +4996,9 @@ static int msm_dai_q6_dai_tdm_remove(struct snd_soc_dai *dai)
 
 	group_ref = &tdm_group_ref[group_idx];
 
-	
+	/* If AFE port is still up, close it */
 	if (test_bit(STATUS_PORT_STARTED, tdm_dai_data->status_mask)) {
-		rc = afe_close(dai->id); 
+		rc = afe_close(dai->id); /* can block */
 		if (IS_ERR_VALUE(rc)) {
 			dev_err(dai->dev, "%s: fail to close AFE port 0x%x\n",
 				__func__, dai->id);
@@ -4997,14 +5040,14 @@ static int msm_dai_q6_tdm_set_tdm_slot(struct snd_soc_dai *dai,
 
 	dev_dbg(dai->dev, "%s: dai id = 0x%x\n", __func__, dai->id);
 
-	
+	/* HW only supports 16 and 32 bit slot width configuration */
 	if ((slot_width != 16) && (slot_width != 32)) {
 		dev_err(dai->dev, "%s: invalid slot_width %d\n",
 			__func__, slot_width);
 		return -EINVAL;
 	}
 
-	
+	/* HW only supports 16 and 8 slots configuration */
 	switch (slots) {
 	case 8:
 		cap_mask = 0xFF;
@@ -5271,6 +5314,10 @@ static int msm_dai_q6_tdm_hw_params(struct snd_pcm_substream *substream,
 	dai_data->channels = params_channels(params);
 	dai_data->rate = params_rate(params);
 
+	/*
+	 * update tdm group config param
+	 * NOTE: group config is set to the same as slot config.
+	 */
 	tdm_group->bit_width = tdm_group->slot_width;
 	tdm_group->num_channels = tdm_group->nslots_per_frame;
 	tdm_group->sample_rate = dai_data->rate;
@@ -5298,9 +5345,17 @@ static int msm_dai_q6_tdm_hw_params(struct snd_pcm_substream *substream,
 		tdm_group->port_id[6],
 		tdm_group->port_id[7]);
 
+	/*
+	 * update tdm config param
+	 * NOTE: channels/rate/bitwidth are per stream property
+	 */
 	tdm->num_channels = dai_data->channels;
 	tdm->sample_rate = dai_data->rate;
 	tdm->bit_width = dai_data->bitwidth;
+	/*
+	 * port slot config is the same as group slot config
+	 * port slot mask should be set according to offset
+	 */
 	tdm->nslots_per_frame = tdm_group->nslots_per_frame;
 	tdm->slot_width = tdm_group->slot_width;
 	tdm->slot_mask = tdm_group->slot_mask;
@@ -5324,6 +5379,10 @@ static int msm_dai_q6_tdm_hw_params(struct snd_pcm_substream *substream,
 		tdm->ctrl_invert_sync_pulse,
 		tdm->ctrl_sync_data_delay);
 
+	/*
+	 * update slot mapping config param
+	 * NOTE: channels/rate/bitwidth are per stream property
+	 */
 	slot_mapping->bitwidth = dai_data->bitwidth;
 
 	pr_debug("%s: SLOT MAPPING:\n"
@@ -5345,6 +5404,11 @@ static int msm_dai_q6_tdm_hw_params(struct snd_pcm_substream *substream,
 		slot_mapping->offset[6],
 		slot_mapping->offset[7]);
 
+	/*
+	 * update custom header config param
+	 * NOTE: channels/rate/bitwidth are per playback stream property.
+	 * custom tdm header only applicable to playback stream.
+	 */
 	if (custom_tdm_header->header_type !=
 		AFE_CUSTOM_TDM_HEADER_TYPE_INVALID) {
 		pr_debug("%s: CUSTOM TDM HEADER:\n"
@@ -5394,7 +5458,12 @@ static int msm_dai_q6_tdm_prepare(struct snd_pcm_substream *substream,
 	group_ref = &tdm_group_ref[group_idx];
 
 	if (!test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
+		/* PORT START should be set if prepare called
+		in active state. */
 		if (atomic_read(group_ref) == 0) {
+			/* TX and RX share the same clk.
+			AFE clk is enabled per group to simplify the logic.
+			DSP will monitor the clk count. */
 			rc = msm_dai_q6_tdm_set_clk(dai_data,
 				dai->id, true);
 			if (IS_ERR_VALUE(rc)) {
@@ -5428,8 +5497,8 @@ static int msm_dai_q6_tdm_prepare(struct snd_pcm_substream *substream,
 			atomic_inc(group_ref);
 		}
 
-		
-		
+		/* TODO: need to monitor PCM/MI2S/TDM HW status */
+		/* NOTE: AFE should error out if HW resource contention */
 
 	}
 
@@ -5484,8 +5553,8 @@ static void msm_dai_q6_tdm_shutdown(struct snd_pcm_substream *substream,
 			}
 		}
 
-		
-		
+		/* TODO: need to monitor PCM/MI2S/TDM HW status */
+		/* NOTE: AFE should error out if HW resource contention */
 
 	}
 
@@ -6667,7 +6736,7 @@ static int msm_dai_q6_tdm_dev_probe(struct platform_device *pdev)
 	u32 tdm_dev_id = 0;
 	int port_idx = 0;
 
-	
+	/* retrieve device/afe id */
 	rc = of_property_read_u32(pdev->dev.of_node,
 		"qcom,msm-cpudai-tdm-dev-id",
 		&tdm_dev_id);
@@ -6699,7 +6768,7 @@ static int msm_dai_q6_tdm_dev_probe(struct platform_device *pdev)
 	}
 	memset(dai_data, 0, sizeof(*dai_data));
 
-	
+	/* TDM CFG */
 	rc = of_property_read_u32(pdev->dev.of_node,
 		"qcom,msm-cpudai-tdm-sync-mode",
 		(u32 *)&dai_data->port_cfg.tdm.sync_mode);
@@ -6755,12 +6824,12 @@ static int msm_dai_q6_tdm_dev_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "%s: Data Delay from DT file 0x%x\n",
 		__func__, dai_data->port_cfg.tdm.ctrl_sync_data_delay);
 
-	
+	/* TDM CFG -- set default */
 	dai_data->port_cfg.tdm.data_format = AFE_LINEAR_PCM_DATA;
 	dai_data->port_cfg.tdm.tdm_cfg_minor_version =
 		AFE_API_VERSION_TDM_CONFIG;
 
-	
+	/* TDM SLOT MAPPING CFG */
 	rc = of_property_read_u32(pdev->dev.of_node,
 		"qcom,msm-cpudai-tdm-data-align",
 		&dai_data->port_cfg.slot_mapping.data_align_type);
@@ -6773,11 +6842,11 @@ static int msm_dai_q6_tdm_dev_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "%s: Data Align from DT file 0x%x\n",
 		__func__, dai_data->port_cfg.slot_mapping.data_align_type);
 
-	
+	/* TDM SLOT MAPPING CFG -- set default */
 	dai_data->port_cfg.slot_mapping.minor_version =
 		AFE_API_VERSION_SLOT_MAPPING_CONFIG;
 
-	
+	/* CUSTOM TDM HEADER CFG */
 	custom_tdm_header = &dai_data->port_cfg.custom_tdm_header;
 	if (of_find_property(pdev->dev.of_node,
 			"qcom,msm-cpudai-tdm-header-start-offset", NULL) &&
@@ -6785,7 +6854,7 @@ static int msm_dai_q6_tdm_dev_probe(struct platform_device *pdev)
 			"qcom,msm-cpudai-tdm-header-width", NULL) &&
 		of_find_property(pdev->dev.of_node,
 			"qcom,msm-cpudai-tdm-header-num-frame-repeat", NULL)) {
-		
+		/* if the property exist */
 		rc = of_property_read_u32(pdev->dev.of_node,
 			"qcom,msm-cpudai-tdm-header-start-offset",
 			(u32 *)&custom_tdm_header->start_offset);
@@ -6821,7 +6890,7 @@ static int msm_dai_q6_tdm_dev_probe(struct platform_device *pdev)
 		dev_dbg(&pdev->dev, "%s: Header Num Frame Repeat from DT file 0x%x\n",
 			__func__, custom_tdm_header->num_frame_repeat);
 
-		
+		/* CUSTOM TDM HEADER CFG -- set default */
 		custom_tdm_header->minor_version =
 			AFE_API_VERSION_CUSTOM_TDM_HEADER_CONFIG;
 		custom_tdm_header->header_type =
@@ -6829,15 +6898,15 @@ static int msm_dai_q6_tdm_dev_probe(struct platform_device *pdev)
 	} else {
 		dev_info(&pdev->dev,
 			"%s: Custom tdm header not supported\n", __func__);
-		
+		/* CUSTOM TDM HEADER CFG -- set default */
 		custom_tdm_header->header_type =
 			AFE_CUSTOM_TDM_HEADER_TYPE_INVALID;
-		
+		/* proceed with probe */
 	}
 
-	
+	/* copy static clk per parent node */
 	dai_data->clk_set = tdm_clk_set;
-	
+	/* copy static group cfg per parent node */
 	dai_data->group_cfg.tdm_cfg = tdm_group_cfg;
 
 	dev_set_drvdata(&pdev->dev, dai_data);
@@ -6979,5 +7048,6 @@ static void __exit msm_dai_q6_exit(void)
 }
 module_exit(msm_dai_q6_exit);
 
+/* Module information */
 MODULE_DESCRIPTION("MSM DSP DAI driver");
 MODULE_LICENSE("GPL v2");

@@ -16,6 +16,7 @@
 #include "slimport_tx_drv.h"
 
 #define CO2_CABLE_DET_MODE 
+/*//#define CHANGE_TX_P0_ADDR*/
 
 #ifdef SP_REGISTER_SET_TEST
 #define sp_tx_link_phy_initialization() do { \

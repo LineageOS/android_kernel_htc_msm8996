@@ -16,7 +16,7 @@ static int htc_nc_probe(struct platform_device *pdev)
 
 	pr_info("== NC_probe ==\n");
 
-	
+	// Init NC wake_host_pin
 	nc_pinctrl = devm_pinctrl_get(&pdev->dev);
 	if (IS_ERR(nc_pinctrl)) {
 		if (PTR_ERR(nc_pinctrl) == -EPROBE_DEFER)

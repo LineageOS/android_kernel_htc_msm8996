@@ -184,16 +184,16 @@ static void traverse_report_descriptor(unsigned int *index)
 
 	size = buf[*index] & MASK_2BIT;
 	switch (size) {
-	case 0: 
+	case 0: /* 0 bytes */
 		*index += 1;
 		break;
-	case 1: 
+	case 1: /* 1 byte */
 		*index += 2;
 		break;
-	case 2: 
+	case 2: /* 2 bytes */
 		*index += 3;
 		break;
-	case 3: 
+	case 3: /* 4 bytes */
 		*index += 5;
 		break;
 	default:
@@ -312,7 +312,7 @@ static int switch_to_rmi(struct synaptics_rmi4_data *rmi4_data)
 
 	check_buffer(&buffer.write, &buffer.write_size, 11);
 
-	
+	/* set rmi mode */
 	buffer.write[0] = hid_dd.command_register_index & MASK_8BIT;
 	buffer.write[1] = hid_dd.command_register_index >> 8;
 	buffer.write[2] = (FEATURE_REPORT_TYPE << 4) | hid_report.set_mode_id;
@@ -390,7 +390,7 @@ static int hid_i2c_init(struct synaptics_rmi4_data *rmi4_data)
 
 	check_buffer(&buffer.write, &buffer.write_size, 6);
 
-	
+	/* read device descriptor */
 	buffer.write[0] = bdata->device_descriptor_addr & MASK_8BIT;
 	buffer.write[1] = bdata->device_descriptor_addr >> 8;
 	retval = generic_write(i2c, 2);
@@ -405,7 +405,7 @@ static int hid_i2c_init(struct synaptics_rmi4_data *rmi4_data)
 	if (retval < 0)
 		goto exit;
 
-	
+	/* set power */
 	buffer.write[0] = hid_dd.command_register_index & MASK_8BIT;
 	buffer.write[1] = hid_dd.command_register_index >> 8;
 	buffer.write[2] = 0x00;
@@ -414,7 +414,7 @@ static int hid_i2c_init(struct synaptics_rmi4_data *rmi4_data)
 	if (retval < 0)
 		goto exit;
 
-	
+	/* reset */
 	buffer.write[0] = hid_dd.command_register_index & MASK_8BIT;
 	buffer.write[1] = hid_dd.command_register_index >> 8;
 	buffer.write[2] = 0x00;
@@ -430,7 +430,7 @@ static int hid_i2c_init(struct synaptics_rmi4_data *rmi4_data)
 	if (retval < 0)
 		goto exit;
 
-	
+	/* get blob */
 	buffer.write[0] = hid_dd.command_register_index & MASK_8BIT;
 	buffer.write[1] = hid_dd.command_register_index >> 8;
 	buffer.write[2] = (FEATURE_REPORT_TYPE << 4) | hid_report.get_blob_id;

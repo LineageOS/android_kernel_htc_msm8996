@@ -222,15 +222,15 @@ static int apen_pressure(struct synaptics_rmi4_f12_query_8 *query_8)
 
 	for (ii = 0; ii < 6; ii++) {
 		if (!(data_reg_presence & (1 << ii)))
-			continue; 
-		data_desc++; 
+			continue; /* The data register is not present */
+		data_desc++; /* Jump over the size entry */
 		while (*data_desc & (1 << 7))
 			data_desc++;
-		data_desc++; 
+		data_desc++; /* Go to the next descriptor */
 	}
 
-	data_desc++; 
-	
+	data_desc++; /* Jump over the size entry */
+	/* Check for the presence of subpackets 1 and 2 */
 	if ((*data_desc & (3 << 1)) == (3 << 1))
 		apen->max_pressure = ACTIVE_PEN_MAX_PRESSURE_16BIT;
 	else

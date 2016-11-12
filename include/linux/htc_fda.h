@@ -18,6 +18,7 @@
 #ifndef __HTC_FDA_H
 #define __HTC_FDA_H
 
+/* Performance maintained log trigger */
 #define fda_log_cpu(fmt, ...)	pr_err("[Perf_FDA][CPU] " fmt, ##__VA_ARGS__)
 #define fda_log_pnp(fmt, ...)	pr_err("[Perf_FDA][PNP] " fmt, ##__VA_ARGS__)
 #define fda_log_sched(fmt, ...)	pr_err("[Perf_FDA][SCHED] " fmt, ##__VA_ARGS__)

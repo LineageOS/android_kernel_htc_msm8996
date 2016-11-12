@@ -326,6 +326,7 @@ int32_t msm_camera_cci_i2c_write_table_w_microdelay(
 	return rc;
 }
 
+/* HTC_START */
 int32_t msm_camera_cci_i2c_write_table_w_microdelay_htc(
 	struct msm_camera_i2c_client *client,
 	struct msm_camera_i2c_reg_setting *write_setting)
@@ -358,6 +359,7 @@ int32_t msm_camera_cci_i2c_write_table_w_microdelay_htc(
 
 	return rc;
 }
+/* HTC_END */
 
 static int32_t msm_camera_cci_i2c_compare(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t data,

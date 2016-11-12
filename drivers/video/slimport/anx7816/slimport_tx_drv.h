@@ -15,11 +15,16 @@
 #ifndef _SP_TX_DRV_H
 #define _SP_TX_DRV_H
 
+/*---SlimPort macro define for some feature---*/
+/* #define DEMO_4K_2K */
 
+/*---End---*/
 
 #include "slimport_tx_reg.h"
 
+/* #define CEC_PHYCISAL_ADDRESS_INSERT */
 
+/* #define CEC_DBG_MSG_ENABLED */
 
 #ifdef DEMO_4K_2K
 #define FW_VERSION 0xA4
@@ -45,6 +50,7 @@
 #define _bit7_(val)  ((bit)(val & _BIT7))
 
 #ifdef SP_REGISTER_SET_TEST
+/* For Slimport test */
 
 extern unchar val_SP_TX_LT_CTRL_REG0;
 extern unchar val_SP_TX_LT_CTRL_REG10;
@@ -226,6 +232,7 @@ enum xtal_enum {
 	XTAL_CLK_NUM
 };
 
+/*  SSC settings */
 
 enum SP_SSC_DEP {
 	SSC_DEP_DISABLE = 0x0,
@@ -306,6 +313,9 @@ void sp_tx_initialization(void);
 unchar sp_tx_cur_bw(void);
 void sp_tx_set_bw(unchar bw);
 
+/* ***************************************************************** */
+/* Functions protoype for slimport_rx anx7730 */
+/* ***************************************************************** */
 bool source_aux_read_7730dpcd(long addr, unchar cCount, unchar *pBuf);
 bool source_aux_write_7730dpcd(long addr, unchar cCount, unchar *pBuf);
 bool i2c_master_read_reg(unchar Sink_device_sel, unchar offset, unchar *Buf);

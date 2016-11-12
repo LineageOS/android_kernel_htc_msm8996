@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,6 +22,9 @@
 #include "soc/qcom/msm-core.h"
 
 #define MAX_PSTATES 50
+#define NUM_OF_PENTRY 3 
+#define NUM_OF_EENTRY 2 
+
 
 enum arg_offset {
 	CPU_OFFSET,
@@ -130,13 +133,15 @@ void add_to_ptable(uint64_t *arg)
 }
 EXPORT_SYMBOL(add_to_ptable);
 
-static int split_ptable_args(char *line, uint64_t *arg)
+static int split_ptable_args(char *line, uint64_t *arg, uint32_t n)
 {
 	char *args;
 	int i;
 	int ret = 0;
 
-	for (i = 0; line; i++) {
+	for (i = 0; i < n; i++) {
+		if (!line)
+			break;
 		args = strsep(&line, " ");
 		ret = kstrtoull(args, 10, &arg[i]);
 	}
@@ -162,7 +167,7 @@ static ssize_t msm_core_ptable_write(struct file *file,
 		goto done;
 	}
 	kbuf[len] = '\0';
-	ret = split_ptable_args(kbuf, arg);
+	ret = split_ptable_args(kbuf, arg, NUM_OF_PENTRY);
 	if (!ret) {
 		add_to_ptable(arg);
 		ret = len;
@@ -226,7 +231,7 @@ static ssize_t msm_core_enable_write(struct file *file,
 		goto done;
 	}
 	kbuf[len] = '\0';
-	ret = split_ptable_args(kbuf, arg);
+	ret = split_ptable_args(kbuf, arg, NUM_OF_EENTRY);
 	if (ret)
 		goto done;
 	cpu = arg[CPU_OFFSET];

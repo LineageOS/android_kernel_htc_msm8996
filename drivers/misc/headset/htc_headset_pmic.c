@@ -42,7 +42,7 @@
 #elif defined HTC_HEADSET_CONFIG_QPNP_ADC
 #include <linux/qpnp/qpnp-adc.h>
 #endif
-#include <linux/qdsp6v2/apr.h> 
+#include <linux/qdsp6v2/apr.h> //HTC_AUD
 
 #define DRIVER_NAME "HS_PMIC"
 
@@ -60,6 +60,7 @@ struct htc_hs_pmic_data {
 
 static struct workqueue_struct *detect_wq;
 static void detect_pmic_work_func(struct work_struct *work);
+//static DECLARE_DELAYED_WORK(detect_pmic_work, detect_pmic_work_func);
 
 static void irq_init_work_func(struct work_struct *work);
 static DECLARE_DELAYED_WORK(irq_init_work, irq_init_work_func);
@@ -82,18 +83,18 @@ static struct msm_rpc_endpoint *endpoint_current;
 
 static struct hs_pmic_current_threshold current_threshold_lut[] = {
 	{
-		.adc_max = 14909, 
-		.adc_min = 0, 
+		.adc_max = 14909, /* 0x3A3D */
+		.adc_min = 0, /* 0x0000 */
 		.current_uA = 500,
 	},
 	{
-		.adc_max = 29825, 
-		.adc_min = 14910, 
+		.adc_max = 29825, /* 0x7481 */
+		.adc_min = 14910, /* 0x3A3E */
 		.current_uA = 600,
 	},
 	{
-		.adc_max = 65535, 
-		.adc_min = 29826, 
+		.adc_max = 65535, /* 0xFFFF */
+		.adc_min = 29826, /* 0x7482 */
 		.current_uA = 500,
 	},
 };
@@ -201,7 +202,7 @@ static int hs_pmic_remote_adc_pm8921(int *adc)
 	pm8xxx_adc_mpp_config_read(hi->pdata.adc_mpp, hi->pdata.adc_amux,
 				   &result);
 	*adc = (int) result.physical;
-	*adc = *adc / 1000; 
+	*adc = *adc / 1000; /* uA to mA */
 	HS_LOG("Remote ADC %d (%#X)", *adc, *adc);
 
 	return 1;
@@ -227,7 +228,10 @@ static int hs_qpnp_remote_adc(int *adc)
 	}
 
 	*adc = (int) result.physical;
-	*adc = *adc / 1000; 
+	*adc = *adc / 1000; /* uA to mA */
+	/*HS_LOG("chan=%d, adc_code=%d, measurement=%lld, \
+		physical=%lld translate voltage %d", result.chan,
+		result.adc_code, result.measurement, result.physical, *adc);*/
 	HS_LOG("Remote ADC %d (%#X)", *adc, *adc);
 
 	return 1;
@@ -319,11 +323,13 @@ static void hs_pmic_key_enable(int enable)
 
 static void detect_pmic_work_func(struct work_struct *work)
 {
+//	int insert = 0;
 	struct detect_pmic_work_info *detect_pmic_work_ptr;
 	detect_pmic_work_ptr = container_of(work, struct detect_pmic_work_info, hpin_work.work);
 
 	HS_DBG();
 
+//	insert = gpio_get_value_cansleep(hi->pdata.hpin_gpio) ? 0 : 1;
 	hs_notify_plug_event(detect_pmic_work_ptr->insert, detect_pmic_work_ptr->intr_count);
 }
 
@@ -554,7 +560,7 @@ int register_attributes(void)
 		hi->pmic_dev = NULL;
 	}
 
-	
+	/*register the attributes */
 	ret = device_create_file(hi->pmic_dev, &dev_attr_pmic_headset_adc);
 	if (ret)
 		goto err_create_pmic_device_file;
@@ -647,14 +653,16 @@ static int htc_headset_pmic_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct htc_hs_pmic_data *dtinfo;
-	struct htc_headset_pmic_platform_data *pdata;
+	struct htc_headset_pmic_platform_data *pdata;/* = pdev->dev.platform_data;*/
 #ifdef HTC_HEADSET_CONFIG_MSM_RPC
 	uint32_t vers = 0;
 #endif
 	printk(KERN_ERR "htc_headset_pmic_probe ++\n");
+//HTC_AUD_START
 	if(!get_htc_headset_mgr_status()) {
 		return -EPROBE_DEFER;
 	}
+//HTC_AUD_END
 
 	HS_LOG("++++++++++++++++++++");
 
@@ -704,6 +712,7 @@ static int htc_headset_pmic_probe(struct platform_device *pdev)
 	hi->htc_accessory_class   = hs_get_attribute_class();
 	hpin_count_global         = 0;
 
+//HTC_AUD_START
 	if (!(hi->htc_accessory_class)) {
 		printk(KERN_ERR "htc_headset_pmic_probe: hi->htc_accessory_class is null\n");
 
@@ -716,6 +725,7 @@ static int htc_headset_pmic_probe(struct platform_device *pdev)
 
 		return -ENOMEM;
 	}
+//HTC_AUD_END
 
 	register_attributes();
 	INIT_DELAYED_WORK(&detect_pmic_work.hpin_work, detect_pmic_work_func);
@@ -786,7 +796,7 @@ static int htc_headset_pmic_probe(struct platform_device *pdev)
 
 #ifdef HTC_HEADSET_CONFIG_MSM_RPC
 	if (hi->pdata.driver_flag & DRIVER_HS_PMIC_RPC_KEY) {
-		
+		/* Register ADC RPC client */
 		endpoint_adc = msm_rpc_connect(HS_RPC_CLIENT_PROG,
 					       HS_RPC_CLIENT_VERS, 0);
 		if (IS_ERR(endpoint_adc)) {
@@ -797,7 +807,7 @@ static int htc_headset_pmic_probe(struct platform_device *pdev)
 	}
 
 	if (hi->pdata.driver_flag & DRIVER_HS_PMIC_DYNAMIC_THRESHOLD) {
-		
+		/* Register threshold RPC client */
 		vers = HS_PMIC_RPC_CLIENT_VERS_3_1;
 		endpoint_current = msm_rpc_connect_compatible(
 				   HS_PMIC_RPC_CLIENT_PROG, vers, 0);
@@ -908,7 +918,7 @@ static struct platform_driver htc_headset_pmic_driver = {
 
 static void __init htc_headset_pmic_init_async(void *unused, async_cookie_t cookie)
 {
-	
+	//async_synchronize_cookie(cookie);
 	platform_driver_register(&htc_headset_pmic_driver);
 }
 

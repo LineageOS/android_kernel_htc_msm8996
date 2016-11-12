@@ -17,12 +17,12 @@ struct notifier_block;
 
 struct bio;
 
-#define SWAP_FLAG_PREFER	0x8000	
+#define SWAP_FLAG_PREFER	0x8000	/* set if swap priority specified */
 #define SWAP_FLAG_PRIO_MASK	0x7fff
 #define SWAP_FLAG_PRIO_SHIFT	0
-#define SWAP_FLAG_DISCARD	0x10000 
-#define SWAP_FLAG_DISCARD_ONCE	0x20000 
-#define SWAP_FLAG_DISCARD_PAGES 0x40000 
+#define SWAP_FLAG_DISCARD	0x10000 /* enable discard for swap */
+#define SWAP_FLAG_DISCARD_ONCE	0x20000 /* discard swap area at swapon-time */
+#define SWAP_FLAG_DISCARD_PAGES 0x40000 /* discard page-clusters after use */
 
 #define SWAP_FLAGS_VALID	(SWAP_FLAG_PRIO_MASK | SWAP_FLAG_PREFER | \
 				 SWAP_FLAG_DISCARD | SWAP_FLAG_DISCARD_ONCE | \
@@ -33,9 +33,25 @@ static inline int current_is_kswapd(void)
 	return current->flags & PF_KSWAPD;
 }
 
+/*
+ * MAX_SWAPFILES defines the maximum number of swaptypes: things which can
+ * be swapped to.  The swap type and the offset into that swap type are
+ * encoded into pte's and into pgoff_t's in the swapcache.  Using five bits
+ * for the type means that the maximum number of swapcache pages is 27 bits
+ * on 32-bit-pgoff_t architectures.  And that assumes that the architecture packs
+ * the type/offset into the pte as 5/27 as well.
+ */
 #define MAX_SWAPFILES_SHIFT	5
 
+/*
+ * Use some of the swap files numbers for other purposes. This
+ * is a convenient way to hook into the VM to trigger special
+ * actions on faults.
+ */
 
+/*
+ * NUMA node memory migration support
+ */
 #ifdef CONFIG_MIGRATION
 #define SWP_MIGRATION_NUM 2
 #define SWP_MIGRATION_READ	(MAX_SWAPFILES + SWP_HWPOISON_NUM)
@@ -44,6 +60,9 @@ static inline int current_is_kswapd(void)
 #define SWP_MIGRATION_NUM 0
 #endif
 
+/*
+ * Handling of hardware poisoned pages with memory corruption.
+ */
 #ifdef CONFIG_MEMORY_FAILURE
 #define SWP_HWPOISON_NUM 1
 #define SWP_HWPOISON		MAX_SWAPFILES
@@ -54,13 +73,25 @@ static inline int current_is_kswapd(void)
 #define MAX_SWAPFILES \
 	((1 << MAX_SWAPFILES_SHIFT) - SWP_MIGRATION_NUM - SWP_HWPOISON_NUM)
 
+/*
+ * Magic header for a swap area. The first part of the union is
+ * what the swap magic looks like for the old (limited to 128MB)
+ * swap area format, the second part of the union adds - in the
+ * old reserved area - some extra information. Note that the first
+ * kilobyte is reserved for boot loader or disk label stuff...
+ *
+ * Having the magic at the end of the PAGE_SIZE makes detecting swap
+ * areas somewhat tricky on machines that support multiple page sizes.
+ * For 2.5 we'll probably want to move the magic to just beyond the
+ * bootbits...
+ */
 union swap_header {
 	struct {
 		char reserved[PAGE_SIZE - 10];
-		char magic[10];			
+		char magic[10];			/* SWAP-SPACE or SWAPSPACE2 */
 	} magic;
 	struct {
-		char		bootbits[1024];	
+		char		bootbits[1024];	/* Space for disklabel etc. */
 		__u32		version;
 		__u32		last_page;
 		__u32		nr_badpages;
@@ -71,10 +102,18 @@ union swap_header {
 	} info;
 };
 
+ /* A swap entry has to fit into a "unsigned long", as
+  * the entry is hidden in the "index" field of the
+  * swapper address space.
+  */
 typedef struct {
 	unsigned long val;
 } swp_entry_t;
 
+/*
+ * current->reclaim_state points to one of these when a task is running
+ * memory reclaim
+ */
 struct reclaim_state {
 	unsigned long reclaimed_slab;
 	int trigger_lmk;
@@ -87,6 +126,14 @@ struct sysinfo;
 struct writeback_control;
 struct zone;
 
+/*
+ * A swap extent maps a range of a swapfile's PAGE_SIZE pages onto a range of
+ * disk blocks.  A list of swap extents maps the entire swapfile.  (Where the
+ * term `swapfile' refers to either a blockdevice or an IS_REG file.  Apart
+ * from setup, they're handled identically.
+ *
+ * We always assume that blocks are of size PAGE_SIZE.
+ */
 struct swap_extent {
 	struct list_head list;
 	pgoff_t start_page;
@@ -94,83 +141,124 @@ struct swap_extent {
 	sector_t start_block;
 };
 
+/*
+ * Max bad pages in the new format..
+ */
 #define __swapoffset(x) ((unsigned long)&((union swap_header *)0)->x)
 #define MAX_SWAP_BADPAGES \
 	((__swapoffset(magic.magic) - __swapoffset(info.badpages)) / sizeof(int))
 
 enum {
-	SWP_USED	= (1 << 0),	
-	SWP_WRITEOK	= (1 << 1),	
-	SWP_DISCARDABLE = (1 << 2),	
-	SWP_DISCARDING	= (1 << 3),	
-	SWP_SOLIDSTATE	= (1 << 4),	
-	SWP_CONTINUED	= (1 << 5),	
-	SWP_BLKDEV	= (1 << 6),	
-	SWP_FILE	= (1 << 7),	
-	SWP_AREA_DISCARD = (1 << 8),	
-	SWP_PAGE_DISCARD = (1 << 9),	
-					
-	SWP_FAST	= (1 << 10),	
-	SWP_SCANNING	= (1 << 11),	
+	SWP_USED	= (1 << 0),	/* is slot in swap_info[] used? */
+	SWP_WRITEOK	= (1 << 1),	/* ok to write to this swap?	*/
+	SWP_DISCARDABLE = (1 << 2),	/* blkdev support discard */
+	SWP_DISCARDING	= (1 << 3),	/* now discarding a free cluster */
+	SWP_SOLIDSTATE	= (1 << 4),	/* blkdev seeks are cheap */
+	SWP_CONTINUED	= (1 << 5),	/* swap_map has count continuation */
+	SWP_BLKDEV	= (1 << 6),	/* its a block device */
+	SWP_FILE	= (1 << 7),	/* set after swap_activate success */
+	SWP_AREA_DISCARD = (1 << 8),	/* single-time swap area discards */
+	SWP_PAGE_DISCARD = (1 << 9),	/* freed swap page-cluster discards */
+					/* add others here before... */
+	SWP_FAST	= (1 << 10),	/* blkdev access is fast and cheap */
+	SWP_SCANNING	= (1 << 11),	/* refcount in scan_swap_map */
 };
 
 #define SWAP_CLUSTER_MAX 32UL
 #define COMPACT_CLUSTER_MAX SWAP_CLUSTER_MAX
 
+/*
+ * Ratio between zone->managed_pages and the "gap" that above the per-zone
+ * "high_wmark". While balancing nodes, We allow kswapd to shrink zones that
+ * do not meet the (high_wmark + gap) watermark, even which already met the
+ * high_wmark, in order to provide better per-zone lru behavior. We are ok to
+ * spend not more than 1% of the memory for this zone balancing "gap".
+ */
 #define KSWAPD_ZONE_BALANCE_GAP_RATIO 100
 
-#define SWAP_MAP_MAX	0x3e	
-#define SWAP_MAP_BAD	0x3f	
-#define SWAP_HAS_CACHE	0x40	
-#define SWAP_CONT_MAX	0x7f	
-#define COUNT_CONTINUED	0x80	
-#define SWAP_MAP_SHMEM	0xbf	
+#define SWAP_MAP_MAX	0x3e	/* Max duplication count, in first swap_map */
+#define SWAP_MAP_BAD	0x3f	/* Note pageblock is bad, in first swap_map */
+#define SWAP_HAS_CACHE	0x40	/* Flag page is cached, in first swap_map */
+#define SWAP_CONT_MAX	0x7f	/* Max count, in each swap_map continuation */
+#define COUNT_CONTINUED	0x80	/* See swap_map continuation for full count */
+#define SWAP_MAP_SHMEM	0xbf	/* Owned by shmem/tmpfs, in first swap_map */
 
+/*
+ * We use this to track usage of a cluster. A cluster is a block of swap disk
+ * space with SWAPFILE_CLUSTER pages long and naturally aligns in disk. All
+ * free clusters are organized into a list. We fetch an entry from the list to
+ * get a free cluster.
+ *
+ * The data field stores next cluster if the cluster is free or cluster usage
+ * counter otherwise. The flags field determines if a cluster is free. This is
+ * protected by swap_info_struct.lock.
+ */
 struct swap_cluster_info {
 	unsigned int data:24;
 	unsigned int flags:8;
 };
-#define CLUSTER_FLAG_FREE 1 
-#define CLUSTER_FLAG_NEXT_NULL 2 
+#define CLUSTER_FLAG_FREE 1 /* This cluster is free */
+#define CLUSTER_FLAG_NEXT_NULL 2 /* This cluster has no next cluster */
 
+/*
+ * We assign a cluster to each CPU, so each CPU can allocate swap entry from
+ * its own cluster and swapout sequentially. The purpose is to optimize swapout
+ * throughput.
+ */
 struct percpu_cluster {
-	struct swap_cluster_info index; 
-	unsigned int next; 
+	struct swap_cluster_info index; /* Current cluster index */
+	unsigned int next; /* Likely next allocation offset */
 };
 
+/*
+ * The in-memory structure used to track swap areas.
+ */
 struct swap_info_struct {
-	unsigned long	flags;		
-	signed short	prio;		
-	struct plist_node list;		
-	struct plist_node avail_list;	
-	signed char	type;		
-	unsigned int	max;		
-	unsigned char *swap_map;	
-	struct swap_cluster_info *cluster_info; 
-	struct swap_cluster_info free_cluster_head; 
-	struct swap_cluster_info free_cluster_tail; 
-	unsigned int lowest_bit;	
-	unsigned int highest_bit;	
-	unsigned int pages;		
-	unsigned int inuse_pages;	
-	unsigned int cluster_next;	
-	unsigned int cluster_nr;	
-	struct percpu_cluster __percpu *percpu_cluster; 
+	unsigned long	flags;		/* SWP_USED etc: see above */
+	signed short	prio;		/* swap priority of this type */
+	struct plist_node list;		/* entry in swap_active_head */
+	struct plist_node avail_list;	/* entry in swap_avail_head */
+	signed char	type;		/* strange name for an index */
+	unsigned int	max;		/* extent of the swap_map */
+	unsigned char *swap_map;	/* vmalloc'ed array of usage counts */
+	struct swap_cluster_info *cluster_info; /* cluster info. Only for SSD */
+	struct swap_cluster_info free_cluster_head; /* free cluster list head */
+	struct swap_cluster_info free_cluster_tail; /* free cluster list tail */
+	unsigned int lowest_bit;	/* index of first free in swap_map */
+	unsigned int highest_bit;	/* index of last free in swap_map */
+	unsigned int pages;		/* total of usable pages of swap */
+	unsigned int inuse_pages;	/* number of those currently in use */
+	unsigned int cluster_next;	/* likely index for next allocation */
+	unsigned int cluster_nr;	/* countdown to next cluster search */
+	struct percpu_cluster __percpu *percpu_cluster; /* per cpu's swap location */
 	struct swap_extent *curr_swap_extent;
 	struct swap_extent first_swap_extent;
-	struct block_device *bdev;	
-	struct file *swap_file;		
-	unsigned int old_block_size;	
+	struct block_device *bdev;	/* swap device or bdev of swap file */
+	struct file *swap_file;		/* seldom referenced */
+	unsigned int old_block_size;	/* seldom referenced */
 #ifdef CONFIG_FRONTSWAP
-	unsigned long *frontswap_map;	
-	atomic_t frontswap_pages;	
+	unsigned long *frontswap_map;	/* frontswap in-use, one bit per page */
+	atomic_t frontswap_pages;	/* frontswap pages in-use counter */
 #endif
-	spinlock_t lock;		
-	struct work_struct discard_work; 
-	struct swap_cluster_info discard_cluster_head; 
-	struct swap_cluster_info discard_cluster_tail; 
+	spinlock_t lock;		/*
+					 * protect map scan related fields like
+					 * swap_map, lowest_bit, highest_bit,
+					 * inuse_pages, cluster_next,
+					 * cluster_nr, lowest_alloc,
+					 * highest_alloc, free/discard cluster
+					 * list. other fields are only changed
+					 * at swapon/swapoff, so are protected
+					 * by swap_lock. changing flags need
+					 * hold this lock and swap_lock. If
+					 * both locks need hold, hold swap_lock
+					 * first.
+					 */
+	struct work_struct discard_work; /* discard worker */
+	struct swap_cluster_info discard_cluster_head; /* list head of discard clusters */
+	struct swap_cluster_info discard_cluster_tail; /* list tail of discard clusters */
 };
 
+/* linux/mm/workingset.c */
 void *workingset_eviction(struct address_space *mapping, struct page *page);
 bool workingset_refault(void *shadow);
 void workingset_activation(struct page *page);
@@ -206,15 +294,18 @@ static inline void workingset_node_shadows_dec(struct radix_tree_node *node)
 	node->count -= 1U << RADIX_TREE_COUNT_SHIFT;
 }
 
+/* linux/mm/page_alloc.c */
 extern unsigned long totalram_pages;
 extern unsigned long totalreserve_pages;
 extern unsigned long dirty_balance_reserve;
 extern unsigned long nr_free_buffer_pages(void);
 extern unsigned long nr_free_pagecache_pages(void);
 
+/* Definition of global_page_state not available yet */
 #define nr_free_pages() global_page_state(NR_FREE_PAGES)
 
 
+/* linux/mm/swap.c */
 extern void lru_cache_add(struct page *);
 extern void lru_cache_add_anon(struct page *page);
 extern void lru_cache_add_file(struct page *page);
@@ -234,6 +325,7 @@ extern void add_page_to_unevictable_list(struct page *page);
 extern void lru_cache_add_active_or_unevictable(struct page *page,
 						struct vm_area_struct *vma);
 
+/* linux/mm/vmscan.c */
 extern unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 					gfp_t gfp_mask, nodemask_t *mask);
 extern int __isolate_lru_page(struct page *page, isolate_mode_t mode);
@@ -288,6 +380,7 @@ static inline void mem_cgroup_uncharge_swap(swp_entry_t entry)
 }
 #endif
 #ifdef CONFIG_SWAP
+/* linux/mm/page_io.c */
 extern int swap_readpage(struct page *);
 extern int swap_writepage(struct page *page, struct writeback_control *wbc);
 extern void end_swap_bio_write(struct bio *bio, int err);
@@ -301,6 +394,7 @@ int add_swap_extent(struct swap_info_struct *sis, unsigned long start_page,
 int generic_swapfile_activate(struct swap_info_struct *, struct file *,
 		sector_t *);
 
+/* linux/mm/swap_state.c */
 extern struct address_space swapper_spaces[];
 #define swap_address_space(entry) (&swapper_spaces[swp_type(entry)])
 extern unsigned long total_swapcache_pages(void);
@@ -318,12 +412,18 @@ extern struct page *read_swap_cache_async(swp_entry_t, gfp_t,
 extern struct page *swapin_readahead(swp_entry_t, gfp_t,
 			struct vm_area_struct *vma, unsigned long addr);
 
+/* linux/mm/swapfile.c */
 extern atomic_long_t nr_swap_pages;
 extern long total_swap_pages;
 extern bool is_swap_fast(swp_entry_t entry);
 
+/* Swap 50% full? Release swapcache more aggressively.. */
 static inline bool vm_swap_full(struct swap_info_struct *si)
 {
+	/*
+	 * If the swap device is fast, return true
+	 * not to delay swap free.
+	 */
 	if (si->flags & SWP_FAST)
 		return true;
 
@@ -365,7 +465,7 @@ mem_cgroup_uncharge_swapcache(struct page *page, swp_entry_t ent, bool swapout)
 }
 #endif
 
-#else 
+#else /* CONFIG_SWAP */
 
 #define swap_address_space(entry)		(NULL)
 #define get_nr_swap_pages()			0L
@@ -375,6 +475,8 @@ mem_cgroup_uncharge_swapcache(struct page *page, swp_entry_t ent, bool swapout)
 
 #define si_swapinfo(val) \
 	do { (val)->freeswap = (val)->totalswap = 0; } while (0)
+/* only sparc can not include linux/pagemap.h in this file
+ * so leave page_cache_release and release_pages undeclared... */
 #define free_page_and_swap_cache(page) \
 	page_cache_release(page)
 #define free_pages_and_swap_cache(pages, nr) \
@@ -468,6 +570,6 @@ mem_cgroup_uncharge_swapcache(struct page *page, swp_entry_t ent)
 {
 }
 
-#endif 
-#endif 
-#endif 
+#endif /* CONFIG_SWAP */
+#endif /* __KERNEL__*/
+#endif /* _LINUX_SWAP_H */

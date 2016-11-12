@@ -19,11 +19,11 @@
 #define __ARCH_ARM_MACH_PNPMGR_H
 
 enum {
-	USER_PERF_LVL_LOWEST,	
-	USER_PERF_LVL_LOW,		
-	USER_PERF_LVL_MEDIUM,	
-	USER_PERF_LVL_HIGH,		
-	USER_PERF_LVL_HIGHEST,	
+	USER_PERF_LVL_LOWEST,	/* Lowest performance */
+	USER_PERF_LVL_LOW,		/* Low performance */
+	USER_PERF_LVL_MEDIUM,	/* Medium performance */
+	USER_PERF_LVL_HIGH,		/* High performance */
+	USER_PERF_LVL_HIGHEST,	/* Highest performance */
 	USER_PERF_LVL_TOTAL,
 };
 

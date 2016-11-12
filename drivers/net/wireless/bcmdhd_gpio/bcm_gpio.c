@@ -251,28 +251,28 @@ static int htc_wifi_gpio_probe(struct platform_device *pdev)
 	printk("[WLAN] %s enter\n", __FUNCTION__);
     gdev = pdev;
 
-	
+	/* For WLAN ENABLE */
 	gpio_wl_en.name = WLAN_EN_GPIO_NAME;
 	gpio_wl_en.num = 0;
 	gpio_wl_en.state = WLAN_EN_LOW;
 	gpio_wl_en.init = WLAN_EN_LOW;
 	gpio_wl_en.prop = false;
 
-	
+	/* For OOB IRQ */
 	gpio_irq.name = WLAN_IRQ_GPIO_NAME;
 	gpio_irq.num = 0;
 	gpio_irq.state = WLAN_EN_LOW;
 	gpio_irq.init = WLAN_EN_LOW;
 	gpio_irq.prop = false;
 
-	
+	/* For SECI IN */
 	gpio_seci_in.name = WLAN_SECI_IN_NAME;
 	gpio_seci_in.num = 0;
 	gpio_seci_in.state = WLAN_EN_LOW;
 	gpio_seci_in.init = WLAN_EN_LOW;
 	gpio_seci_in.prop = false;
 
-	
+	/* For SECI OUT */
 	gpio_seci_out.name = WLAN_SECI_OUT_NAME;
 	gpio_seci_out.num = 0;
 	gpio_seci_out.state = WLAN_EN_LOW;
@@ -313,7 +313,7 @@ static int htc_wifi_gpio_probe(struct platform_device *pdev)
     }
 
 #ifdef BCM_ENUMERATE
-    
+    //Enumerate PCIe
 	htc_wifi_gpio_set(&gpio_wl_en, WLAN_EN_HIGH);
 	usleep(WLAN_ENABLE_DELAY);
 
@@ -362,7 +362,7 @@ static struct platform_driver htc_wifi_gpio_driver = {
 
 static int __init htc_wifi_init(void)
 {
-	
+	/* Register platform device */
 	htc_wifi_dev_init();
 
 	return platform_driver_register(&htc_wifi_gpio_driver);

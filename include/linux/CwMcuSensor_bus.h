@@ -39,4 +39,4 @@ int mcu_spi_rx_cmd(const struct cwmcu_bus_client *mcu_client, u8 cmd, u8 *data, 
 
 
 
-#endif 
+#endif /* __CWMCUSENSOR_BUS_H__ */

@@ -22,6 +22,8 @@
 #define RX_P0				0x7e
 #define RX_P1				0x80
 
+/***************************************************************/
+/*Register definition of device address 0x7e*/
 #define HDMI_RX_PORT_SEL_REG		0x10
 #define DDC_EN				0x10
 #define TMDS_EN				0x01
@@ -259,6 +261,8 @@
 #define RX_PACKET_REV_STA		0XF3
 #define AVI_RCVD			0X40
 #define VSI_RCVD			0X20
+/***************************************************************/
+/*Register definition of device address 0x80*/
 #define HDCP_BCAPS_SHADOW 0x2A
 #define REPEATER_M 0x40
 
@@ -313,9 +317,12 @@
 #define HDMI_RX_MPEG_VS_INFO_CTRL	0XFF
 
 
+/***************************************************************/
+/*Register definition of device address 0x70*/
 #define SP_TX_HDCP_STATUS		0x00
 #define SP_TX_HDCP_AUTH_PASS		0x02
 #define SP_TX_HDCP_AUTH_FAIL	0x40
+/*bit defination*/
 #define SP_TX_HDCP_PASSED_STATUS 0x0F
 #define TX_HDCP_FUNCTION_ENABLE 0x0F
 
@@ -507,6 +514,8 @@
 #define BUF_DATA_0			0xF0
 
 
+/***************************************************************/
+/*Register definition of device address 0x72*/
 #define SP_TX_VND_IDL_REG		0x00
 #define SP_TX_VND_IDH_REG		0x01
 #define SP_TX_DEV_IDL_REG		0x02
@@ -675,6 +684,8 @@
 #define SP_TX_INT_CTRL_REG		0xFF
 
 
+/***************************************************************/
+/*Register definition of device address 0x7a*/
 
 #define SP_TX_LT_CTRL_REG0		0x30
 #define SP_TX_LT_CTRL_REG1		0x31
@@ -714,6 +725,8 @@
 #define FW_VER_REG			0xB7
 
 
+/***************************************************************/
+/*Definition of DPCD*/
 
 
 #define DOWN_R_TERM_DET _BIT6

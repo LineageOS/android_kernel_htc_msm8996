@@ -265,13 +265,13 @@ enum f54_report_types {
 struct f54_query {
 	union {
 		struct {
-			
+			/* query 0 */
 			unsigned char num_of_rx_electrodes;
 
-			
+			/* query 1 */
 			unsigned char num_of_tx_electrodes;
 
-			
+			/* query 2 */
 			unsigned char f54_query2_b0__1:2;
 			unsigned char has_baseline:1;
 			unsigned char has_image8:1;
@@ -279,17 +279,17 @@ struct f54_query {
 			unsigned char has_image16:1;
 			unsigned char f54_query2_b7:1;
 
-			
+			/* queries 3.0 and 3.1 */
 			unsigned short clock_rate;
 
-			
+			/* query 4 */
 			unsigned char touch_controller_family;
 
-			
+			/* query 5 */
 			unsigned char has_pixel_touch_threshold_adjustment:1;
 			unsigned char f54_query5_b1__7:7;
 
-			
+			/* query 6 */
 			unsigned char has_sensor_assignment:1;
 			unsigned char has_interference_metric:1;
 			unsigned char has_sense_frequency_control:1;
@@ -299,11 +299,11 @@ struct f54_query {
 			unsigned char has_one_byte_report_rate:1;
 			unsigned char has_relaxation_control:1;
 
-			
+			/* query 7 */
 			unsigned char curve_compensation_mode:2;
 			unsigned char f54_query7_b2__7:6;
 
-			
+			/* query 8 */
 			unsigned char f54_query8_b0:1;
 			unsigned char has_iir_filter:1;
 			unsigned char has_cmn_removal:1;
@@ -313,7 +313,7 @@ struct f54_query {
 			unsigned char has_per_frequency_noise_control:1;
 			unsigned char has_enhanced_stretch:1;
 
-			
+			/* query 9 */
 			unsigned char has_force_fast_relaxation:1;
 			unsigned char has_multi_metric_state_machine:1;
 			unsigned char has_signal_clarity:1;
@@ -323,7 +323,7 @@ struct f54_query {
 			unsigned char has_status:1;
 			unsigned char has_slew_metric:1;
 
-			
+			/* query 10 */
 			unsigned char has_h_blank:1;
 			unsigned char has_v_blank:1;
 			unsigned char has_long_h_blank:1;
@@ -333,7 +333,7 @@ struct f54_query {
 			unsigned char has_noise_state:1;
 			unsigned char has_energy_ratio_relaxation:1;
 
-			
+			/* query 11 */
 			unsigned char has_excessive_noise_reporting:1;
 			unsigned char has_slew_option:1;
 			unsigned char has_two_overhead_bursts:1;
@@ -343,7 +343,7 @@ struct f54_query {
 			unsigned char has_ctrl88:1;
 			unsigned char has_query15:1;
 
-			
+			/* query 12 */
 			unsigned char number_of_sensing_frequencies:4;
 			unsigned char f54_query12_b4__7:4;
 		} __packed;
@@ -760,13 +760,13 @@ struct synaptics_rmi4_f54_handle {
 struct f55_query {
 	union {
 		struct {
-			
+			/* query 0 */
 			unsigned char num_of_rx_electrodes;
 
-			
+			/* query 1 */
 			unsigned char num_of_tx_electrodes;
 
-			
+			/* query 2 */
 			unsigned char has_sensor_assignment:1;
 			unsigned char has_edge_compensation:1;
 			unsigned char curve_compensation_mode:2;
@@ -2245,27 +2245,27 @@ static int test_set_controls(void)
 
 	num_of_sensing_freqs = f54->query.number_of_sensing_frequencies;
 
-	
+	/* control 0 */
 	reg_addr += CONTROL_0_SIZE;
 
-	
+	/* control 1 */
 	if ((f54->query.touch_controller_family == 0) ||
 			(f54->query.touch_controller_family == 1))
 		reg_addr += CONTROL_1_SIZE;
 
-	
+	/* control 2 */
 	reg_addr += CONTROL_2_SIZE;
 
-	
+	/* control 3 */
 	if (f54->query.has_pixel_touch_threshold_adjustment == 1)
 		reg_addr += CONTROL_3_SIZE;
 
-	
+	/* controls 4 5 6 */
 	if ((f54->query.touch_controller_family == 0) ||
 			(f54->query.touch_controller_family == 1))
 		reg_addr += CONTROL_4_6_SIZE;
 
-	
+	/* control 7 */
 	if (f54->query.touch_controller_family == 1) {
 		control->reg_7 = kzalloc(sizeof(*(control->reg_7)),
 				GFP_KERNEL);
@@ -2275,73 +2275,73 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_7_SIZE;
 	}
 
-	
+	/* controls 8 9 */
 	if ((f54->query.touch_controller_family == 0) ||
 			(f54->query.touch_controller_family == 1))
 		reg_addr += CONTROL_8_9_SIZE;
 
-	
+	/* control 10 */
 	if (f54->query.has_interference_metric == 1)
 		reg_addr += CONTROL_10_SIZE;
 
-	
+	/* control 11 */
 	if (f54->query.has_ctrl11 == 1)
 		reg_addr += CONTROL_11_SIZE;
 
-	
+	/* controls 12 13 */
 	if (f54->query.has_relaxation_control == 1)
 		reg_addr += CONTROL_12_13_SIZE;
 
-	
+	/* controls 14 15 16 */
 	if (f54->query.has_sensor_assignment == 1) {
 		reg_addr += CONTROL_14_SIZE;
 		reg_addr += CONTROL_15_SIZE * f54->query.num_of_rx_electrodes;
 		reg_addr += CONTROL_16_SIZE * f54->query.num_of_tx_electrodes;
 	}
 
-	
+	/* controls 17 18 19 */
 	if (f54->query.has_sense_frequency_control == 1) {
 		reg_addr += CONTROL_17_SIZE * num_of_sensing_freqs;
 		reg_addr += CONTROL_18_SIZE * num_of_sensing_freqs;
 		reg_addr += CONTROL_19_SIZE * num_of_sensing_freqs;
 	}
 
-	
+	/* control 20 */
 	reg_addr += CONTROL_20_SIZE;
 
-	
+	/* control 21 */
 	if (f54->query.has_sense_frequency_control == 1)
 		reg_addr += CONTROL_21_SIZE;
 
-	
+	/* controls 22 23 24 25 26 */
 	if (f54->query.has_firmware_noise_mitigation == 1)
 		reg_addr += CONTROL_22_26_SIZE;
 
-	
+	/* control 27 */
 	if (f54->query.has_iir_filter == 1)
 		reg_addr += CONTROL_27_SIZE;
 
-	
+	/* control 28 */
 	if (f54->query.has_firmware_noise_mitigation == 1)
 		reg_addr += CONTROL_28_SIZE;
 
-	
+	/* control 29 */
 	if (f54->query.has_cmn_removal == 1)
 		reg_addr += CONTROL_29_SIZE;
 
-	
+	/* control 30 */
 	if (f54->query.has_cmn_maximum == 1)
 		reg_addr += CONTROL_30_SIZE;
 
-	
+	/* control 31 */
 	if (f54->query.has_touch_hysteresis == 1)
 		reg_addr += CONTROL_31_SIZE;
 
-	
+	/* controls 32 33 34 35 */
 	if (f54->query.has_edge_compensation == 1)
 		reg_addr += CONTROL_32_35_SIZE;
 
-	
+	/* control 36 */
 	if ((f54->query.curve_compensation_mode == 1) ||
 			(f54->query.curve_compensation_mode == 2)) {
 		if (f54->query.curve_compensation_mode == 1) {
@@ -2353,18 +2353,18 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_36_SIZE * length;
 	}
 
-	
+	/* control 37 */
 	if (f54->query.curve_compensation_mode == 2)
 		reg_addr += CONTROL_37_SIZE * f54->query.num_of_tx_electrodes;
 
-	
+	/* controls 38 39 40 */
 	if (f54->query.has_per_frequency_noise_control == 1) {
 		reg_addr += CONTROL_38_SIZE * num_of_sensing_freqs;
 		reg_addr += CONTROL_39_SIZE * num_of_sensing_freqs;
 		reg_addr += CONTROL_40_SIZE * num_of_sensing_freqs;
 	}
 
-	
+	/* control 41 */
 	if (f54->query.has_signal_clarity == 1) {
 		control->reg_41 = kzalloc(sizeof(*(control->reg_41)),
 				GFP_KERNEL);
@@ -2374,19 +2374,19 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_41_SIZE;
 	}
 
-	
+	/* control 42 */
 	if (f54->query.has_variance_metric == 1)
 		reg_addr += CONTROL_42_SIZE;
 
-	
+	/* controls 43 44 45 46 47 48 49 50 51 52 53 54 */
 	if (f54->query.has_multi_metric_state_machine == 1)
 		reg_addr += CONTROL_43_54_SIZE;
 
-	
+	/* controls 55 56 */
 	if (f54->query.has_0d_relaxation_control == 1)
 		reg_addr += CONTROL_55_56_SIZE;
 
-	
+	/* control 57 */
 	if (f54->query.has_0d_acquisition_control == 1) {
 		control->reg_57 = kzalloc(sizeof(*(control->reg_57)),
 				GFP_KERNEL);
@@ -2396,21 +2396,21 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_57_SIZE;
 	}
 
-	
+	/* control 58 */
 	if (f54->query.has_0d_acquisition_control == 1)
 		reg_addr += CONTROL_58_SIZE;
 
-	
+	/* control 59 */
 	if (f54->query.has_h_blank == 1)
 		reg_addr += CONTROL_59_SIZE;
 
-	
+	/* controls 60 61 62 */
 	if ((f54->query.has_h_blank == 1) ||
 			(f54->query.has_v_blank == 1) ||
 			(f54->query.has_long_h_blank == 1))
 		reg_addr += CONTROL_60_62_SIZE;
 
-	
+	/* control 63 */
 	if ((f54->query.has_h_blank == 1) ||
 			(f54->query.has_v_blank == 1) ||
 			(f54->query.has_long_h_blank == 1) ||
@@ -2419,44 +2419,44 @@ static int test_set_controls(void)
 			(f54->query.has_noise_mitigation2 == 1))
 		reg_addr += CONTROL_63_SIZE;
 
-	
+	/* controls 64 65 66 67 */
 	if (f54->query.has_h_blank == 1)
 		reg_addr += CONTROL_64_67_SIZE * 7;
 	else if ((f54->query.has_v_blank == 1) ||
 			(f54->query.has_long_h_blank == 1))
 		reg_addr += CONTROL_64_67_SIZE;
 
-	
+	/* controls 68 69 70 71 72 73 */
 	if ((f54->query.has_h_blank == 1) ||
 			(f54->query.has_v_blank == 1) ||
 			(f54->query.has_long_h_blank == 1))
 		reg_addr += CONTROL_68_73_SIZE;
 
-	
+	/* control 74 */
 	if (f54->query.has_slew_metric == 1)
 		reg_addr += CONTROL_74_SIZE;
 
-	
+	/* control 75 */
 	if (f54->query.has_enhanced_stretch == 1)
 		reg_addr += CONTROL_75_SIZE * num_of_sensing_freqs;
 
-	
+	/* control 76 */
 	if (f54->query.has_startup_fast_relaxation == 1)
 		reg_addr += CONTROL_76_SIZE;
 
-	
+	/* controls 77 78 */
 	if (f54->query.has_esd_control == 1)
 		reg_addr += CONTROL_77_78_SIZE;
 
-	
+	/* controls 79 80 81 82 83 */
 	if (f54->query.has_noise_mitigation2 == 1)
 		reg_addr += CONTROL_79_83_SIZE;
 
-	
+	/* controls 84 85 */
 	if (f54->query.has_energy_ratio_relaxation == 1)
 		reg_addr += CONTROL_84_85_SIZE;
 
-	
+	/* control 86 */
 	if ((f54->query.has_query13 == 1) && (f54->query_13.has_ctrl86 == 1)) {
 		control->reg_86 = kzalloc(sizeof(*(control->reg_86)),
 				GFP_KERNEL);
@@ -2466,11 +2466,11 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_86_SIZE;
 	}
 
-	
+	/* control 87 */
 	if ((f54->query.has_query13 == 1) && (f54->query_13.has_ctrl87 == 1))
 		reg_addr += CONTROL_87_SIZE;
 
-	
+	/* control 88 */
 	if (f54->query.has_ctrl88 == 1) {
 		control->reg_88 = kzalloc(sizeof(*(control->reg_88)),
 				GFP_KERNEL);
@@ -2480,132 +2480,132 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_88_SIZE;
 	}
 
-	
+	/* control 89 */
 	if ((f54->query.has_query13 == 1) &&
 			(f54->query_13.has_cidim == 1 ||
 			f54->query_13.has_noise_mitigation_enhancement ||
 			f54->query_13.has_rail_im))
 		reg_addr += CONTROL_89_SIZE;
 
-	
+	/* control 90 */
 	if ((f54->query.has_query15) && (f54->query_15.has_ctrl90))
 		reg_addr += CONTROL_90_SIZE;
 
-	
+	/* control 91 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query21) &&
 			(f54->query_21.has_ctrl91))
 		reg_addr += CONTROL_91_SIZE;
 
-	
+	/* control 92 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query16) &&
 			(f54->query_16.has_ctrl92))
 		reg_addr += CONTROL_92_SIZE;
 
-	
+	/* control 93 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query16) &&
 			(f54->query_16.has_ctrl93))
 		reg_addr += CONTROL_93_SIZE;
 
-	
+	/* control 94 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query16) &&
 			(f54->query_16.has_ctrl94_query18))
 		reg_addr += CONTROL_94_SIZE;
 
-	
+	/* control 95 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query16) &&
 			(f54->query_16.has_ctrl95_query19))
 		reg_addr += CONTROL_95_SIZE;
 
-	
+	/* control 96 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query21) &&
 			(f54->query_21.has_ctrl96))
 		reg_addr += CONTROL_96_SIZE;
 
-	
+	/* control 97 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query21) &&
 			(f54->query_21.has_ctrl97))
 		reg_addr += CONTROL_97_SIZE;
 
-	
+	/* control 98 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query21) &&
 			(f54->query_21.has_ctrl98))
 		reg_addr += CONTROL_98_SIZE;
 
-	
+	/* control 99 */
 	if (f54->query.touch_controller_family == 2)
 		reg_addr += CONTROL_99_SIZE;
 
-	
+	/* control 100 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query16) &&
 			(f54->query_16.has_ctrl100))
 		reg_addr += CONTROL_100_SIZE;
 
-	
+	/* control 101 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query22) &&
 			(f54->query_22.has_ctrl101))
 		reg_addr += CONTROL_101_SIZE;
 
 
-	
+	/* control 102 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query22) &&
 			(f54->query_22.has_query23) &&
 			(f54->query_23.has_ctrl102))
 		reg_addr += CONTROL_102_SIZE;
 
-	
+	/* control 103 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query22) &&
 			(f54->query_22.has_ctrl103_query26))
 		reg_addr += CONTROL_103_SIZE;
 
-	
+	/* control 104 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query22) &&
 			(f54->query_22.has_ctrl104))
 		reg_addr += CONTROL_104_SIZE;
 
-	
+	/* control 105 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query22) &&
 			(f54->query_22.has_ctrl105))
 		reg_addr += CONTROL_105_SIZE;
 
-	
+	/* control 106 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_ctrl106))
 		reg_addr += CONTROL_106_SIZE;
 
-	
+	/* control 107 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_ctrl107))
 		reg_addr += CONTROL_107_SIZE;
 
-	
+	/* control 108 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_ctrl108))
 		reg_addr += CONTROL_108_SIZE;
 
-	
+	/* control 109 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_ctrl109))
 		reg_addr += CONTROL_109_SIZE;
 
-	
+	/* control 110 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2618,35 +2618,35 @@ static int test_set_controls(void)
 		reg_addr += CONTROL_110_SIZE;
 	}
 
-	
+	/* control 111 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
 			(f54->query_27.has_ctrl111))
 		reg_addr += CONTROL_111_SIZE;
 
-	
+	/* control 112 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
 			(f54->query_27.has_ctrl112))
 		reg_addr += CONTROL_112_SIZE;
 
-	
+	/* control 113 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
 			(f54->query_27.has_ctrl113))
 		reg_addr += CONTROL_113_SIZE;
 
-	
+	/* control 114 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
 			(f54->query_27.has_ctrl114))
 		reg_addr += CONTROL_114_SIZE;
 
-	
+	/* control 115 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2654,7 +2654,7 @@ static int test_set_controls(void)
 			(f54->query_29.has_ctrl115))
 		reg_addr += CONTROL_115_SIZE;
 
-	
+	/* control 116 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2662,7 +2662,7 @@ static int test_set_controls(void)
 			(f54->query_29.has_ctrl116))
 		reg_addr += CONTROL_116_SIZE;
 
-	
+	/* control 117 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2670,7 +2670,7 @@ static int test_set_controls(void)
 			(f54->query_29.has_ctrl117))
 		reg_addr += CONTROL_117_SIZE;
 
-	
+	/* control 118 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2679,7 +2679,7 @@ static int test_set_controls(void)
 			(f54->query_30.has_ctrl118))
 		reg_addr += CONTROL_118_SIZE;
 
-	
+	/* control 119 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2688,7 +2688,7 @@ static int test_set_controls(void)
 			(f54->query_30.has_ctrl119))
 		reg_addr += CONTROL_119_SIZE;
 
-	
+	/* control 120 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2697,7 +2697,7 @@ static int test_set_controls(void)
 			(f54->query_30.has_ctrl120))
 		reg_addr += CONTROL_120_SIZE;
 
-	
+	/* control 121 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2706,7 +2706,7 @@ static int test_set_controls(void)
 			(f54->query_30.has_ctrl121))
 		reg_addr += CONTROL_121_SIZE;
 
-	
+	/* control 122 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2715,7 +2715,7 @@ static int test_set_controls(void)
 			(f54->query_30.has_ctrl122_query31))
 		reg_addr += CONTROL_122_SIZE;
 
-	
+	/* control 123 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2724,9 +2724,9 @@ static int test_set_controls(void)
 			(f54->query_30.has_ctrl123))
 		reg_addr += CONTROL_123_SIZE;
 
-	
+	/* control 124 reserved */
 
-	
+	/* control 125 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2736,7 +2736,7 @@ static int test_set_controls(void)
 			(f54->query_32.has_ctrl125))
 		reg_addr += CONTROL_125_SIZE;
 
-	
+	/* control 126 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2746,7 +2746,7 @@ static int test_set_controls(void)
 			(f54->query_32.has_ctrl126))
 		reg_addr += CONTROL_126_SIZE;
 
-	
+	/* control 127 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2756,9 +2756,9 @@ static int test_set_controls(void)
 			(f54->query_32.has_ctrl127))
 		reg_addr += CONTROL_127_SIZE;
 
-	
+	/* controls 128 129 130 131 reserved */
 
-	
+	/* control 132 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2769,7 +2769,7 @@ static int test_set_controls(void)
 			(f54->query_33.has_ctrl132))
 		reg_addr += CONTROL_132_SIZE;
 
-	
+	/* control 133 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2780,7 +2780,7 @@ static int test_set_controls(void)
 			(f54->query_33.has_ctrl133))
 		reg_addr += CONTROL_133_SIZE;
 
-	
+	/* control 134 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2791,9 +2791,9 @@ static int test_set_controls(void)
 			(f54->query_33.has_ctrl134))
 		reg_addr += CONTROL_134_SIZE;
 
-	
+	/* controls 135 136 reserved */
 
-	
+	/* control 137 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2804,7 +2804,7 @@ static int test_set_controls(void)
 			(f54->query_35.has_ctrl137))
 		reg_addr += CONTROL_137_SIZE;
 
-	
+	/* control 138 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2815,7 +2815,7 @@ static int test_set_controls(void)
 			(f54->query_35.has_ctrl138))
 		reg_addr += CONTROL_138_SIZE;
 
-	
+	/* control 139 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2826,7 +2826,7 @@ static int test_set_controls(void)
 			(f54->query_35.has_ctrl139))
 		reg_addr += CONTROL_139_SIZE;
 
-	
+	/* control 140 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2837,9 +2837,9 @@ static int test_set_controls(void)
 			(f54->query_35.has_ctrl140))
 		reg_addr += CONTROL_140_SIZE;
 
-	
+	/* control 141 reserved */
 
-	
+	/* control 142 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2851,7 +2851,7 @@ static int test_set_controls(void)
 			(f54->query_36.has_ctrl142))
 		reg_addr += CONTROL_142_SIZE;
 
-	
+	/* control 143 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2863,7 +2863,7 @@ static int test_set_controls(void)
 			(f54->query_36.has_ctrl143))
 		reg_addr += CONTROL_143_SIZE;
 
-	
+	/* control 144 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2875,7 +2875,7 @@ static int test_set_controls(void)
 			(f54->query_36.has_ctrl144))
 		reg_addr += CONTROL_144_SIZE;
 
-	
+	/* control 145 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2887,7 +2887,7 @@ static int test_set_controls(void)
 			(f54->query_36.has_ctrl145))
 		reg_addr += CONTROL_145_SIZE;
 
-	
+	/* control 146 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2899,7 +2899,7 @@ static int test_set_controls(void)
 			(f54->query_36.has_ctrl146))
 		reg_addr += CONTROL_146_SIZE;
 
-	
+	/* control 147 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2912,7 +2912,7 @@ static int test_set_controls(void)
 			(f54->query_38.has_ctrl147))
 		reg_addr += CONTROL_147_SIZE;
 
-	
+	/* control 148 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2925,7 +2925,7 @@ static int test_set_controls(void)
 			(f54->query_38.has_ctrl148))
 		reg_addr += CONTROL_148_SIZE;
 
-	
+	/* control 149 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -2968,11 +2968,11 @@ static int test_set_queries(void)
 
 	offset = sizeof(f54->query.data);
 
-	
+	/* query 12 */
 	if (f54->query.has_sense_frequency_control == 0)
 		offset -= 1;
 
-	
+	/* query 13 */
 	if (f54->query.has_query13) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -2983,11 +2983,11 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 14 */
 	if ((f54->query.has_query13) && (f54->query_13.has_ctrl87))
 		offset += 1;
 
-	
+	/* query 15 */
 	if (f54->query.has_query15) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -2998,7 +2998,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 16 */
 	if ((f54->query.has_query15) && (f54->query_15.has_query16)) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -3009,29 +3009,29 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 17 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query16) &&
 			(f54->query_16.has_query17))
 		offset += 1;
 
-	
+	/* query 18 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query16) &&
 			(f54->query_16.has_ctrl94_query18))
 		offset += 1;
 
-	
+	/* query 19 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query16) &&
 			(f54->query_16.has_ctrl95_query19))
 		offset += 1;
 
-	
+	/* query 20 */
 	if ((f54->query.has_query15) && (f54->query_15.has_query20))
 		offset += 1;
 
-	
+	/* query 21 */
 	if ((f54->query.has_query15) && (f54->query_15.has_query21)) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -3042,7 +3042,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 22 */
 	if ((f54->query.has_query15) && (f54->query_15.has_query22)) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -3053,7 +3053,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 23 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query22) &&
 			(f54->query_22.has_query23)) {
@@ -3066,13 +3066,13 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 24 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query21) &&
 			(f54->query_21.has_query24_data18))
 		offset += 1;
 
-	
+	/* query 25 */
 	if ((f54->query.has_query15) && (f54->query_15.has_query25)) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f54->query_base_addr + offset,
@@ -3083,13 +3083,13 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 26 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query22) &&
 			(f54->query_22.has_ctrl103_query26))
 		offset += 1;
 
-	
+	/* query 27 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27)) {
@@ -3102,13 +3102,13 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 28 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query22) &&
 			(f54->query_22.has_query28))
 		offset += 1;
 
-	
+	/* query 29 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3122,7 +3122,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 30 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3137,7 +3137,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 31 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3146,7 +3146,7 @@ static int test_set_queries(void)
 			(f54->query_30.has_ctrl122_query31))
 		offset += 1;
 
-	
+	/* query 32 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3162,7 +3162,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 33 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3179,7 +3179,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 34 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3189,7 +3189,7 @@ static int test_set_queries(void)
 			(f54->query_32.has_query34))
 		offset += 1;
 
-	
+	/* query 35 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3206,7 +3206,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 36 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3224,7 +3224,7 @@ static int test_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 37 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3236,7 +3236,7 @@ static int test_set_queries(void)
 			(f54->query_36.has_query37))
 		offset += 1;
 
-	
+	/* query 38 */
 	if ((f54->query.has_query15) &&
 			(f54->query_15.has_query25) &&
 			(f54->query_25.has_query27) &&
@@ -3301,7 +3301,7 @@ static int test_f55_set_queries(void)
 
 	offset = sizeof(f55->query.data);
 
-	
+	/* query 3 */
 	if (f55->query.has_single_layer_multi_touch) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f55->query_base_addr + offset,
@@ -3312,12 +3312,12 @@ static int test_f55_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 4 */
 	if ((f55->query.has_single_layer_multi_touch) &&
 			(f55->query_3.has_ctrl9))
 		offset += 1;
 
-	
+	/* query 5 */
 	if (f55->query.has_query5) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f55->query_base_addr + offset,
@@ -3328,25 +3328,25 @@ static int test_f55_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* queries 6 7 */
 	if (f55->query.curve_compensation_mode == 0x3)
 		offset += 2;
 
-	
+	/* query 8 */
 	if ((f55->query.has_single_layer_multi_touch) &&
 			f55->query_3.has_ctrl8)
 		offset += 1;
 
-	
+	/* query 9 */
 	if ((f55->query.has_single_layer_multi_touch) &&
 			f55->query_3.has_query9)
 		offset += 1;
 
-	
+	/* queries 10 11 12 13 14 15 16 */
 	if ((f55->query.has_query5) && (f55->query_5.has_basis_function))
 		offset += 7;
 
-	
+	/* query 17 */
 	if ((f55->query.has_query5) && (f55->query_5.has_query17)) {
 		retval = synaptics_rmi4_reg_read(rmi4_data,
 				f55->query_base_addr + offset,
@@ -3357,7 +3357,7 @@ static int test_f55_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 18 */
 	if ((f55->query.has_query5) &&
 			(f55->query_5.has_query17) &&
 			(f55->query_17.has_query18)) {
@@ -3370,7 +3370,7 @@ static int test_f55_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 22 */
 	if ((f55->query.has_query5) &&
 			(f55->query_5.has_query17) &&
 			(f55->query_17.has_query18) &&
@@ -3384,7 +3384,7 @@ static int test_f55_set_queries(void)
 		offset += 1;
 	}
 
-	
+	/* query 23 */
 	if ((f55->query.has_query5) &&
 			(f55->query_5.has_query17) &&
 			(f55->query_17.has_query18) &&

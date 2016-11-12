@@ -618,7 +618,7 @@ static int msm_rpmstats_probe(struct platform_device *pdev)
 	offset = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 							"offset_addr");
 	if (offset) {
-		
+		/* Remap the rpm-stats pointer */
 		phys_ptr = ioremap_nocache(offset->start, SZ_4);
 		if (!phys_ptr) {
 			pr_err("%s: Failed to ioremap address: %x\n",

@@ -69,6 +69,7 @@ static bool cpu_clocks_v3;
 
 static DEFINE_VDD_REGULATORS(vdd_dig, VDD_DIG_NUM, 1, vdd_corner, NULL);
 
+/* Power cluster primary PLL */
 #define C0_PLL_MODE         0x0
 #define C0_PLL_L_VAL        0x4
 #define C0_PLL_ALPHA        0x8
@@ -79,6 +80,7 @@ static DEFINE_VDD_REGULATORS(vdd_dig, VDD_DIG_NUM, 1, vdd_corner, NULL);
 #define C0_PLL_TEST_CTL_LO 0x20
 #define C0_PLL_TEST_CTL_HI 0x24
 
+/* Power cluster alt PLL */
 #define C0_PLLA_MODE        0x100
 #define C0_PLLA_L_VAL       0x104
 #define C0_PLLA_ALPHA       0x108
@@ -87,6 +89,7 @@ static DEFINE_VDD_REGULATORS(vdd_dig, VDD_DIG_NUM, 1, vdd_corner, NULL);
 #define C0_PLLA_STATUS      0x128
 #define C0_PLLA_TEST_CTL_LO 0x120
 
+/* Perf cluster primary PLL */
 #define C1_PLL_MODE         0x0
 #define C1_PLL_L_VAL        0x4
 #define C1_PLL_ALPHA        0x8
@@ -97,6 +100,7 @@ static DEFINE_VDD_REGULATORS(vdd_dig, VDD_DIG_NUM, 1, vdd_corner, NULL);
 #define C1_PLL_TEST_CTL_LO 0x20
 #define C1_PLL_TEST_CTL_HI 0x24
 
+/* Perf cluster alt PLL */
 #define C1_PLLA_MODE        0x100
 #define C1_PLLA_L_VAL       0x104
 #define C1_PLLA_ALPHA       0x108
@@ -131,6 +135,7 @@ DEFINE_FIXED_SLAVE_DIV_CLK(sys_apcsaux_clk, 2, &sys_apcsaux_clk_gcc.c);
 #define EFUSE_SHIFT	29
 #define EFUSE_MASK	0x7
 
+/* ACD static settings */
 static int acdtd_val_pwrcl = 0x00006A11;
 static int acdtd_val_perfcl = 0x00006A11;
 static int dvmrc_val = 0x000E0F0F;
@@ -226,8 +231,8 @@ static struct alpha_pll_clk perfcl_alt_pll = {
 	.offset = C1_PLLA_MODE,
 	.vco_tbl = alt_pll_vco_modes,
 	.num_vco = ARRAY_SIZE(alt_pll_vco_modes),
-	.enable_config = 0x9, 
-	.post_div_config = 0x100, 
+	.enable_config = 0x9, /* Main and early outputs */
+	.post_div_config = 0x100, /* Div-2 */
 	.config_ctl_val = 0x4001051B,
 	.offline_bit_workaround = true,
 	.c = {
@@ -288,8 +293,8 @@ static struct alpha_pll_clk pwrcl_alt_pll = {
 	.offset = C0_PLLA_MODE,
 	.vco_tbl = alt_pll_vco_modes,
 	.num_vco = ARRAY_SIZE(alt_pll_vco_modes),
-	.enable_config = 0x9, 
-	.post_div_config = 0x100, 
+	.enable_config = 0x9, /* Main and early outputs */
+	.post_div_config = 0x100, /* Div-2 */
 	.config_ctl_val = 0x4001051B,
 	.offline_bit_workaround = true,
 	.c = {
@@ -328,12 +333,13 @@ static void __cpu_mux_set_sel(struct mux_clk *mux, int sel)
 
 	spin_unlock_irqrestore(&mux_reg_lock, flags);
 
-	
+	/* Ensure switch request goes through before returning */
 	mb();
-	
+	/* Hardware mandated delay */
 	udelay(5);
 }
 
+/* It is assumed that the mux enable state is locked in this function */
 static int cpu_mux_set_sel(struct mux_clk *mux, int sel)
 {
 	__cpu_mux_set_sel(mux, sel);
@@ -361,6 +367,7 @@ static void cpu_mux_disable(struct mux_clk *mux)
 {
 }
 
+/* It is assumed that the mux enable state is locked in this function */
 static int cpu_debug_mux_set_sel(struct mux_clk *mux, int sel)
 {
 	__cpu_mux_set_sel(mux, sel);
@@ -378,7 +385,7 @@ static int cpu_debug_mux_enable(struct mux_clk *mux)
 {
 	u32 val;
 
-	
+	/* Enable debug clocks */
 	val = readl_relaxed(vbases[APC0_BASE] + APC_DIAG_OFFSET);
 	val |= BM(11, 8);
 	writel_relaxed(val, vbases[APC0_BASE] + APC_DIAG_OFFSET);
@@ -387,7 +394,7 @@ static int cpu_debug_mux_enable(struct mux_clk *mux)
 	val |= BM(11, 8);
 	writel_relaxed(val, vbases[APC1_BASE] + APC_DIAG_OFFSET);
 
-	
+	/* Ensure enable request goes through for correct measurement*/
 	mb();
 	udelay(5);
 	return 0;
@@ -397,7 +404,7 @@ static void cpu_debug_mux_disable(struct mux_clk *mux)
 {
 	u32 val;
 
-	
+	/* Disable debug clocks */
 	val = readl_relaxed(vbases[APC0_BASE] + APC_DIAG_OFFSET);
 	val &= ~BM(11, 8);
 	writel_relaxed(val, vbases[APC0_BASE] + APC_DIAG_OFFSET);
@@ -442,7 +449,7 @@ static struct mux_clk pwrcl_lf_mux = {
 static struct mux_clk pwrcl_hf_mux = {
 	.offset = MUX_OFFSET,
 	MUX_SRC_LIST(
-		
+		/* This may be changed by acd_init to select the ACD leg */
 		{ &pwrcl_pll.c,     1 },
 		{ &pwrcl_lf_mux.c,  0 },
 	),
@@ -479,7 +486,7 @@ static struct mux_clk perfcl_lf_mux = {
 static struct mux_clk perfcl_hf_mux = {
 	.offset = MUX_OFFSET,
 	MUX_SRC_LIST(
-		
+		/* This may be changed by acd_init to select the ACD leg */
 		{ &perfcl_pll.c,     1 },
 		{ &perfcl_lf_mux.c,  0 },
 	),
@@ -551,6 +558,7 @@ static unsigned long alt_pll_perfcl_freqs[] = {
 
 static void do_nothing(void *unused) { }
 
+/* ACD programming */
 static struct cpu_clk_8996 perfcl_clk;
 static struct cpu_clk_8996 pwrcl_clk;
 
@@ -572,15 +580,28 @@ static void cpu_clk_8996_disable(struct clk *c)
 
 #define MAX_PLL_MAIN_FREQ 595200000
 
+/*
+ * Returns the max safe frequency that will guarantee we switch to main output
+ */
 unsigned long acd_safe_freq(unsigned long freq)
 {
+	/*
+	 * If we're running at less than double the max PLL main rate,
+	 * just return half the rate. This will ensure we switch to
+	 * the main output, without violating voltage constraints
+	 * that might happen if we choose to go with MAX_PLL_MAIN_FREQ.
+	 */
 	if (freq > MAX_PLL_MAIN_FREQ && freq <= MAX_PLL_MAIN_FREQ*2)
 		return freq/2;
 
+	/*
+	 * We're higher than the max main output, and higher than twice
+	 * the max main output. Safe to go to the max main output.
+	 */
 	if (freq > MAX_PLL_MAIN_FREQ)
 		return MAX_PLL_MAIN_FREQ;
 
-	
+	/* Shouldn't get here, just return the safest rate possible */
 	return sys_apcsaux_clk.c.rate;
 }
 
@@ -592,6 +613,12 @@ static int cpu_clk_8996_pre_set_rate(struct clk *c, unsigned long rate)
 	bool on_acd_leg = c->rate > MAX_PLL_MAIN_FREQ;
 	bool increase_freq = rate > c->rate;
 
+	/*
+	 * If hardware control of the clock tree is enabled during power
+	 * collapse, setup a PM QOS request to prevent power collapse and
+	 * wake up one of the CPUs in this clock domain, to ensure software
+	 * control while the clock rate is being switched.
+	 */
 	if (hw_low_power_ctrl) {
 		memset(&cpuclk->req, 0, sizeof(cpuclk->req));
 		cpuclk->req.cpus_affine = cpuclk->cpumask;
@@ -603,8 +630,12 @@ static int cpu_clk_8996_pre_set_rate(struct clk *c, unsigned long rate)
 						NULL, 1);
 	}
 
-	
+	/* Select a non-ACD'ed safe source across voltage and freq switches */
 	if (enable_acd && cpuclk->has_acd && on_acd_leg && increase_freq) {
+		/*
+		 * We're on the ACD leg, and the voltage will be
+		 * scaled before clk_set_rate. Switch to the main output.
+		 */
 		return clk_set_rate(c->parent, acd_safe_freq(c->rate));
 	}
 
@@ -656,6 +687,17 @@ static int cpu_clk_8996_set_rate(struct clk *c, unsigned long rate)
 		}
 	}
 
+	/*
+	 * Special handling needed for the case when using the div-2 output.
+	 * Since the PLL needs to be running at twice the requested rate,
+	 * we need to switch the mux first and then change the PLL rate.
+	 * Otherwise the current voltage may not suffice with the PLL running at
+	 * 2 * rate. Example: switching from 768MHz down to 550Mhz - if we raise
+	 * the PLL to 1.1GHz, that's undervolting the system. So, we switch to
+	 * the div-2 mux select first (by requesting rate/2), allowing the CPU
+	 * to run at 384MHz. Then, we ramp up the PLL to 1.1GHz, allowing the
+	 * CPU frequency to ramp up from 384MHz to 550MHz.
+	 */
 	if (cpuclk->do_half_rate
 		&& c->rate > 600000000 && rate < 600000000) {
 		if (!cpu_clocks_v3)
@@ -681,13 +723,17 @@ static int cpu_clk_8996_set_rate(struct clk *c, unsigned long rate)
 		goto set_rate_fail;
 	}
 
+	/*
+	 * If we're on the ACD leg and decreasing freq, voltage will be changed
+	 * after this function. Switch to main output.
+	 */
 	if (enable_acd && cpuclk->has_acd && decrease_freq && on_acd_leg)
 		return clk_set_rate(c->parent, acd_safe_freq(c->rate));
 
 	return 0;
 
 set_rate_fail:
-	
+	/* Restore parent rate if we halved it */
 	if (cpuclk->do_half_rate && c->rate > 600000000 && rate < 600000000) {
 		if (!cpu_clocks_v3)
 			mutex_lock(&scm_lmh_lock);
@@ -776,6 +822,9 @@ static struct clk *mpidr_to_clk(void)
 
 #define SSSCTL_OFFSET 0x160
 
+/*
+ * This *has* to be called on the intended CPU
+ */
 static void cpu_clock_8996_acd_init(void)
 {
 	u64 l2acdtd;
@@ -790,7 +839,7 @@ static void cpu_clock_8996_acd_init(void)
 
 	READ_L2ACDTD(l2acdtd);
 
-	
+	/* If we have init'ed and the config is still present, return */
 	if (mpidr_to_clk() == &pwrcl_clk.c && l2acdtd == acdtd_val_pwrcl) {
 		spin_unlock_irqrestore(&acd_lock, flags);
 		return;
@@ -805,7 +854,7 @@ static void cpu_clock_8996_acd_init(void)
 		WRITE_L2ACDTD(acdtd_val_perfcl);
 	}
 
-	
+	/* Initial ACD for *this* cluster */
 	WRITE_L2ACDDVMRC(dvmrc_val);
 	WRITE_L2ACDSSCR(acdsscr_val);
 
@@ -813,7 +862,7 @@ static void cpu_clock_8996_acd_init(void)
 		if (vbases[APC0_BASE])
 			writel_relaxed(0x0000000F, vbases[APC0_BASE] +
 				       SSSCTL_OFFSET);
-		
+		/* Ensure SSSCTL config goes through before enabling ACD. */
 		mb();
 		WRITE_L2ACDCR(acdcr_val_pwrcl);
 	} else {
@@ -821,7 +870,7 @@ static void cpu_clock_8996_acd_init(void)
 		if (vbases[APC1_BASE])
 			writel_relaxed(0x0000000F, vbases[APC1_BASE] +
 				       SSSCTL_OFFSET);
-		
+		/* Ensure SSSCTL config goes through before enabling ACD. */
 		mb();
 	}
 
@@ -996,13 +1045,14 @@ static struct clk_lookup cpu_clocks_8996[] = {
 };
 
 #if defined(CONFIG_HTC_DEBUG_FOOTPRINT)
+/* get effective cpu idx by clk */
 int clk_get_cpu_idx(struct clk *c)
 {
-	
+	/* cpu0, cpu1 are small cluster. */
 	if (c == &pwrcl_clk.c || c == &pwrcl_hf_mux.c)
 		return 0;
 
-	
+	/* cpu2, cpu3 are big cluster. */
 	else if (c == &perfcl_clk.c || c == &perfcl_hf_mux.c)
 		return 2;
 
@@ -1118,7 +1168,7 @@ static int cpu_clock_8996_resources_init(struct platform_device *pdev)
 		return PTR_ERR(vdd_perfcl.regulator[0]);
 	}
 
-	
+	/* Leakage constraints disallow a turbo vote during bootup */
 	vdd_perfcl.skip_handoff = true;
 
 	vdd_cbf.regulator[0] = devm_regulator_get(&pdev->dev, "vdd-cbf");
@@ -1184,8 +1234,14 @@ static int add_opp(struct clk *c, struct device *dev, unsigned long max_rate)
 			return ret;
 		}
 
+		/*
+		 * Print the OPP pair for the lowest and highest frequency for
+		 * each device that we're populating. This is important since
+		 * this information will be used by thermal mitigation and the
+		 * scheduler.
+		 */
 		if ((rate >= max_rate) || first) {
-			
+			/* one time print at bootup */
 			pr_info("clock-cpu-8996: set OPP pair (%lu Hz, %d uv) on %s\n",
 				rate, uv, dev_name(dev));
 			if (first)
@@ -1371,14 +1427,14 @@ static int cpu_clock_8996_driver_probe(struct platform_device *pdev)
 		}
 	}
 
-	
+	/* Permanently enable the cluster PLLs */
 	clk_prepare_enable(&perfcl_pll.c);
 	clk_prepare_enable(&pwrcl_pll.c);
 	clk_prepare_enable(&perfcl_alt_pll.c);
 	clk_prepare_enable(&pwrcl_alt_pll.c);
 	clk_prepare_enable(&cbf_pll.c);
 
-	
+	/* Set the early boot rate. This may also switch us to the ACD leg */
 	clk_set_rate(&pwrcl_clk.c, pwrcl_early_boot_rate);
 	clk_set_rate(&perfcl_clk.c, perfcl_early_boot_rate);
 
@@ -1448,7 +1504,7 @@ static int clock_cpu_8996_cpu_callback(struct notifier_block *nfb,
 	switch (action & ~CPU_TASKS_FROZEN) {
 
 	case CPU_STARTING:
-		
+		/* This is needed for the first time that CPUs come up */
 		cpu_clock_8996_acd_init();
 		break;
 
@@ -1499,6 +1555,10 @@ int __init cpu_clock_8996_early_init(void)
 		cbf_pll.vals.test_ctl_lo_val = 0x1C000000;
 	}
 
+	/*
+	 * We definitely don't want to parse DT here - this is too early and in
+	 * the critical path for boot timing. Just ioremap the bases.
+	 */
 	vbases[APC0_BASE] = ioremap(APC0_BASE_PHY, SZ_4K);
 	if (!vbases[APC0_BASE]) {
 		WARN(1, "Unable to ioremap power mux base. Can't configure CPU clocks\n");
@@ -1546,7 +1606,7 @@ int __init cpu_clock_8996_early_init(void)
 	regval |= 0x1 << 16;
 	writel_relaxed(regval, auxbase);
 
-	
+	/* Ensure write goes through before selecting the aux clock */
 	mb();
 	udelay(5);
 
@@ -1559,7 +1619,7 @@ int __init cpu_clock_8996_early_init(void)
 	/* Select GPLL0 for 300MHz on the CBF  */
 	writel_relaxed(0x3, vbases[CBF_BASE] + CBF_MUX_OFFSET);
 
-	
+	/* Ensure write goes through before PLLs are reconfigured */
 	mb();
 	udelay(5);
 
@@ -1579,7 +1639,7 @@ int __init cpu_clock_8996_early_init(void)
 	regval |= AUTO_CLK_SEL_ALWAYS_ON_GPLL0_SEL;
 	writel_relaxed(regval, vbases[CBF_BASE] + MUX_OFFSET);
 
-	
+	/* == Setup PLLs in FSM mode == */
 
 	/* Disable all PLLs (we're already on GPLL0 for both clusters) */
 	perfcl_alt_pll.c.ops->disable(&perfcl_alt_pll.c);
@@ -1591,17 +1651,17 @@ int __init cpu_clock_8996_early_init(void)
 	writel_relaxed(0x0, vbases[CBF_PLL_BASE] +
 			(unsigned long)cbf_pll.mode_reg);
 
-	
+	/* Let PLLs disable before re-init'ing them */
 	mb();
 
-	
+	/* Initialize all the PLLs */
 	__variable_rate_pll_init(&perfcl_pll.c);
 	__variable_rate_pll_init(&pwrcl_pll.c);
 	__variable_rate_pll_init(&cbf_pll.c);
 	__init_alpha_pll(&perfcl_alt_pll.c);
 	__init_alpha_pll(&pwrcl_alt_pll.c);
 
-	
+	/* Set an appropriate rate on the perf clusters PLLs */
 	perfcl_pll.c.ops->set_rate(&perfcl_pll.c, perfcl_early_boot_rate);
 	perfcl_alt_pll.c.ops->set_rate(&perfcl_alt_pll.c,
 				       alt_pll_early_boot_rate);
@@ -1609,32 +1669,49 @@ int __init cpu_clock_8996_early_init(void)
 	pwrcl_alt_pll.c.ops->set_rate(&pwrcl_alt_pll.c,
 				      alt_pll_early_boot_rate);
 
-	
+	/* Set an appropriate rate on the CBF PLL */
 	cbf_pll.c.ops->set_rate(&cbf_pll.c, cbf_early_boot_rate);
 
+	/*
+	 * Enable FSM mode on the primary PLLs.
+	 * This should turn on the PLLs as well.
+	 */
 	writel_relaxed(0x00118000, vbases[APC0_BASE] +
 			(unsigned long)pwrcl_pll.mode_reg);
 	writel_relaxed(0x00118000, vbases[APC1_BASE] +
 			(unsigned long)perfcl_pll.mode_reg);
+	/*
+	 * Enable FSM mode on the alternate PLLs.
+	 * This should turn on the PLLs as well.
+	 */
 	writel_relaxed(0x00118000, vbases[APC0_BASE] +
 			(unsigned long)pwrcl_alt_pll.offset);
 	writel_relaxed(0x00118000, vbases[APC1_BASE] +
 			(unsigned long)perfcl_alt_pll.offset);
 
+	/*
+	 * Enable FSM mode on the CBF PLL.
+	 * This should turn on the PLL as well.
+	 */
 	writel_relaxed(0x00118000, vbases[CBF_PLL_BASE] +
 			(unsigned long)cbf_pll.mode_reg);
 
+	/*
+	 * If we're on MSM8996 V1, the CBF FSM bits are not present, and
+	 * the mode register will read zero at this point. In that case,
+	 * just enable the CBF PLL to "simulate" FSM mode.
+	 */
 	if (!readl_relaxed(vbases[CBF_PLL_BASE] +
 		(unsigned long)cbf_pll.mode_reg))
 		clk_ops_variable_rate_pll.enable(&cbf_pll.c);
 
-	
+	/* Ensure write goes through before auto clock selection is enabled */
 	mb();
 
-	
+	/* Wait for PLL(s) to lock */
 	udelay(50);
 
-	
+	/* Enable auto clock selection for both clusters and the CBF */
 	regval = readl_relaxed(vbases[APC0_BASE] + CLK_CTL_OFFSET);
 	regval |= AUTO_CLK_SEL_BIT;
 	writel_relaxed(regval, vbases[APC0_BASE] + CLK_CTL_OFFSET);
@@ -1647,7 +1724,7 @@ int __init cpu_clock_8996_early_init(void)
 	regval |= CBF_AUTO_CLK_SEL_BIT;
 	writel_relaxed(regval, vbases[CBF_BASE] + CBF_MUX_OFFSET);
 
-	
+	/* Ensure write goes through before muxes are switched */
 	mb();
 	udelay(5);
 
@@ -1677,12 +1754,12 @@ int __init cpu_clock_8996_early_init(void)
 		pwrcl_lf_mux.num_parents =
 					ARRAY_SIZE(clk_src_pwrcl_lf_mux_alt);
 
-		
+		/* Switch the clusters to use the alternate PLLs */
 		writel_relaxed(0x33, vbases[APC0_BASE] + MUX_OFFSET);
 		writel_relaxed(0x33, vbases[APC1_BASE] + MUX_OFFSET);
 	}
 
-	
+	/* Switch the CBF to use the primary PLL */
 	regval = readl_relaxed(vbases[CBF_BASE] + CBF_MUX_OFFSET);
 	regval &= ~BM(1, 0);
 	regval |= 0x1;
@@ -1700,10 +1777,10 @@ int __init cpu_clock_8996_early_init(void)
 		perfcl_clk.has_acd = true;
 		pwrcl_clk.has_acd = true;
 
-		
+		/* Enable ACD on this cluster if necessary */
 		cpu_clock_8996_acd_init();
 
-		
+		/* Ensure we never use the non-ACD leg of the GFMUX */
 		for (i = 0; i < pwrcl_hf_mux.num_parents; i++)
 			if (pwrcl_hf_mux.parents[i].src == &pwrcl_pll.c)
 				pwrcl_hf_mux.parents[i].sel = 2;
@@ -1714,22 +1791,28 @@ int __init cpu_clock_8996_early_init(void)
 
 		BUG_ON(register_hotcpu_notifier(&clock_cpu_8996_cpu_notifier));
 
-		
+		/* Pulse swallower and soft-start settings */
 		writel_relaxed(0x00030005, vbases[APC0_BASE] + PSCTL_OFFSET);
 		writel_relaxed(0x00030005, vbases[APC1_BASE] + PSCTL_OFFSET);
 
-		
+		/* Ensure all config above goes through before the ACD switch */
 		mb();
 
-		
+		/* Switch the clusters to use the ACD leg */
 		writel_relaxed(0x32, vbases[APC0_BASE] + MUX_OFFSET);
 		writel_relaxed(0x32, vbases[APC1_BASE] + MUX_OFFSET);
 	} else {
-		
+		/* Switch the clusters to use the primary PLLs */
 		writel_relaxed(0x31, vbases[APC0_BASE] + MUX_OFFSET);
 		writel_relaxed(0x31, vbases[APC1_BASE] + MUX_OFFSET);
 	}
 
+	/*
+	 * One time print during boot - this is the earliest time
+	 * that Linux configures the CPU clocks. It's critical for
+	 * debugging that we know that this configuration completed,
+	 * especially when debugging CPU hangs.
+	 */
 	pr_info("%s: finished CPU clock configuration\n", __func__);
 
 	iounmap(auxbase);

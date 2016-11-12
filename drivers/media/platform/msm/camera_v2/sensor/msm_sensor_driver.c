@@ -36,6 +36,10 @@ static struct kobject *android_ov12890_htc;
 static const char *ov12890_htcNAME = "PMEos_htc";
 static const char *ov12890_htcSize = "12M";
 
+static struct kobject *android_ov12890eco_htc;
+static const char *ov12890eco_htcNAME = "PMEose_htc";
+static const char *ov12890eco_htcSize = "12M";
+
 uint32_t msm_sensor_driver_get_boardinfo(struct device_node *of_node)
 {
     uint32_t boardinfo = 0;
@@ -70,6 +74,15 @@ static ssize_t sensor_vendor_show_ov12890(struct device *dev,
 {
 	ssize_t ret = 0;
 	sprintf(buf, "%s %s\n", ov12890_htcNAME, ov12890_htcSize);
+	ret = strlen(buf) + 1;
+	return ret;
+}
+
+static ssize_t sensor_vendor_show_ov12890eco(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	ssize_t ret = 0;
+	sprintf(buf, "%s %s\n", ov12890eco_htcNAME, ov12890eco_htcSize);
 	ret = strlen(buf) + 1;
 	return ret;
 }
@@ -141,6 +154,30 @@ static int ov12890_htc_sysfs_init(void)
 		kobject_del(android_ov12890_htc);
 	}
         pr_info("[CAM][Sensor main]%s %s\n", ov12890_htcNAME, ov12890_htcSize);
+
+	return 0 ;
+}
+
+static int ov12890eco_htc_sysfs_init(void)
+{
+	int ret ;
+	static  DEVICE_ATTR(sensor, 0444, sensor_vendor_show_ov12890eco, NULL);
+	pr_info("PMEose_htc:kobject creat and add\n");
+	android_ov12890eco_htc = kobject_create_and_add("android_camera", NULL);
+	if (android_ov12890eco_htc == NULL) {
+		pr_info("PMEose_htc_sysfs_init: subsystem_register " \
+		"failed\n");
+		ret = -ENOMEM;
+		return ret ;
+	}
+	pr_info("PMEose_htc:sysfs_create_file\n");
+	ret = sysfs_create_file(android_ov12890eco_htc, &dev_attr_sensor.attr);
+	if (ret) {
+		pr_info("PMEose_htc_sysfs_init: sysfs_create_file " \
+		"failed\n");
+		kobject_del(android_ov12890eco_htc);
+	}
+        pr_info("[CAM][Sensor main]%s %s\n", ov12890eco_htcNAME, ov12890eco_htcSize);
 
 	return 0 ;
 }
@@ -890,6 +927,10 @@ void msm_sensor_read_OTP(struct msm_camera_sensor_slave_info *sensor_slave_info,
 	    {
             pr_err("[CAM]%s: PMEos_htc, return", __func__);
 	    }
+	    else if(strncmp("ov12890eco_htc", sensor_slave_info->sensor_name, sizeof("ov12890eco_htc")) == 0)
+	    {
+            pr_err("[CAM]%s: PMEose_htc, return", __func__);
+	    }
 	    else
 	    pr_err("[CAM]%s: %s, return", __func__, sensor_slave_info->sensor_name);
 	    return;
@@ -928,6 +969,18 @@ void msm_sensor_read_OTP(struct msm_camera_sensor_slave_info *sensor_slave_info,
 
 	    ov12890_htc_sysfs_init();
 	    pr_err("[CAM]%s: PMEos_htc_sysfs_init done", __func__);
+	}
+	else if(strncmp("ov12890eco_htc", sensor_slave_info->sensor_name, sizeof("ov12890eco_htc")) == 0)
+	{
+	    pr_err("[CAM]%s: PMEose_htc, match sensor name, use byte address", __func__);
+	    #ifdef CONFIG_COMPAT
+	    rc = s_ctrl->func_tbl->sensor_i2c_read_fuseid32(NULL, s_ctrl);
+	    #else
+	    rc = s_ctrl->func_tbl->sensor_i2c_read_fuseid(NULL, s_ctrl);
+	    #endif
+
+	    ov12890eco_htc_sysfs_init();
+	    pr_err("[CAM]%s: PMEose_htc_sysfs_init done", __func__);
 	}
 	
 	else
@@ -1197,6 +1250,17 @@ CSID_TG:
 	    cam_vreg->max_voltage = 1250000;
 	    pr_info("msm_sensor_driver_probe, new sensor_name:PMEos_htc min=%d, max=%d", cam_vreg->min_voltage, cam_vreg->max_voltage);
 	}
+	if(strncmp("ov12890eco_htc", slave_info->sensor_name, sizeof("ov12890eco_htc")) == 0)
+	{
+	    struct msm_camera_power_ctrl_t *power_info;
+	    struct camera_vreg_t *cam_vreg;
+	    power_info = &s_ctrl->sensordata->power_info;
+	    cam_vreg = &power_info->cam_vreg[0];
+	    pr_info("msm_sensor_driver_probe, ori sensor_name:PMEose_htc min=%d, max=%d", cam_vreg->min_voltage, cam_vreg->max_voltage);
+	    cam_vreg->min_voltage = 1250000;
+	    cam_vreg->max_voltage = 1250000;
+	    pr_info("msm_sensor_driver_probe, new sensor_name:PMEose_htc min=%d, max=%d", cam_vreg->min_voltage, cam_vreg->max_voltage);
+	}
 
 	
 	rc = s_ctrl->func_tbl->sensor_power_up(s_ctrl);
@@ -1209,6 +1273,10 @@ CSID_TG:
 		else if(strncmp("ov12890_htc", slave_info->sensor_name, sizeof("ov12890_htc")) == 0)
 		{
 			pr_err("PMEos_htc power up failed");
+		}
+		else if(strncmp("ov12890eco_htc", slave_info->sensor_name, sizeof("ov12890eco_htc")) == 0)
+		{
+			pr_err("PMEose_htc power up failed");
 		}
 		else
 		
@@ -1224,6 +1292,10 @@ CSID_TG:
 	else if(strncmp("ov12890_htc", slave_info->sensor_name, sizeof("ov12890_htc")) == 0)
 	{
 		pr_err("PMEos_htc probe succeeded");
+	}
+	else if(strncmp("ov12890eco_htc", slave_info->sensor_name, sizeof("ov12890eco_htc")) == 0)
+	{
+		pr_err("PMEose_htc probe succeeded");
 	}
 	else
 	

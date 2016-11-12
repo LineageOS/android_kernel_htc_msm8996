@@ -1085,7 +1085,7 @@ static irqreturn_t qpnp_kpdpwr_resin_bark_irq(int irq, void *_pon)
 	struct qpnp_pon *pon = _pon;
 
 	dev_err(&pon->spmi->dev, "Long press power key: kpdpwer+resin bark\r\n");
-	set_restart_action(RESTART_REASON_RAMDUMP, "power-key-force-hard");
+	set_restart_action(RESTART_REASON_RAMDUMP, "Powerkey Hard Reset");
 	return IRQ_HANDLED;
 }
 

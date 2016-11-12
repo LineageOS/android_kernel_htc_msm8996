@@ -1,3 +1,4 @@
+/*for P/L sensor common header file for each vender chip*/
 #ifndef __LINUX_SENSOR_HUB_H
 #define __LINUX_SENSOR_HUB_H
 

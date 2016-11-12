@@ -74,6 +74,7 @@ err:
 	return ret;
 }
 
+/* This constant is used in bootloader to decide actions. */
 #define RESTART_REASON_BOOT_BASE        0x77665500
 #define RESTART_REASON_BOOTLOADER       (RESTART_REASON_BOOT_BASE | 0x00)
 #define RESTART_REASON_REBOOT           (RESTART_REASON_BOOT_BASE | 0x01)
@@ -82,6 +83,11 @@ err:
 #define RESTART_REASON_RAMDUMP          (RESTART_REASON_BOOT_BASE | 0xAA)
 #define RESTART_REASON_ERASE_FLASH      (RESTART_REASON_BOOT_BASE | 0xEF)
 
+/*
+ * This restart constant is used for oem commands.
+ * The actual value is parsed from reboot commands.
+ * RIL FATAL will use oem-99 to restart a device.
+ */
 #define RESTART_REASON_OEM_BASE         0x6f656d00
 #define RESTART_REASON_DOWNLOAD         (RESTART_REASON_OEM_BASE | 0xE0)
 #define RESTART_REASON_FTM              (RESTART_REASON_OEM_BASE | 0xE1)
@@ -115,9 +121,12 @@ static int reboot_block_command_call(struct notifier_block *nb,
 	if (event != SYS_RESTART)
 		goto end;
 
+	/*
+	 * NOTE: `data' is NULL when reboot w/o command or shutdown
+	 */
 	cmd = cmd ? : "";
 
-	
+	/* standard reboot command */
 	for (i = 0; i < ARRAY_SIZE(cmd_reason_map); i++)
 		if (!strcmp(cmd, cmd_reason_map[i].cmd)) {
 			reboot_block_command(
@@ -126,9 +135,9 @@ static int reboot_block_command_call(struct notifier_block *nb,
 			goto end;
 		}
 
-	
+	/* oem reboot command */
 	if (1 == sscanf(cmd, OEM_CMD_FMT, &code)) {
-		
+		/* oem-93, 94, 95, 96, 97, 98, 99 are RIL fatal */
 		if ((code >= 0x93) && (code <= 0x98))
 			code = 0x99;
 
@@ -136,7 +145,7 @@ static int reboot_block_command_call(struct notifier_block *nb,
 		goto end;
 	}
 
-	
+	/* unknown reboot command */
 	dev_warn(dev, "Unknown restart command: %s\n", cmd);
 	reboot_block_command(RESTART_REASON_REBOOT, "");
 
@@ -196,4 +205,5 @@ static int htc_reboot_block_init(void)
 {
 	return platform_driver_register(&reboot_block_driver);
 }
+/* MMC driver is ready after subsys_initcall */
 fs_initcall(htc_reboot_block_init);

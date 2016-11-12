@@ -61,4 +61,4 @@ int register_cap_fw_update(struct capsensor_fwu_notifier *notifier);
 void unregister_cap_fw_update(struct capsensor_fwu_notifier *notifier);
 void capsensor_fw_update_progress(struct capsensor_fwu_notifier *notifier, int percentage);
 
-#endif 
+#endif //__CAPSENSOR_FWU_H

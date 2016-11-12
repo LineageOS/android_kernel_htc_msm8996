@@ -149,25 +149,27 @@
 #define HS_RPC_TIMEOUT			(5 * HZ)
 #define HS_MIC_DETECT_TIMEOUT		(HZ + HZ / 2)
 
+/* Definitions for Headset RPC Server */
 #define HS_RPC_SERVER_PROG		0x30100004
 #define HS_RPC_SERVER_VERS		0x00000000
 #define HS_RPC_SERVER_PROC_NULL		0
 #define HS_RPC_SERVER_PROC_KEY		1
 
+/* Definitions for Headset RPC Client */
 #define HS_RPC_CLIENT_PROG		0x30100005
 #define HS_RPC_CLIENT_VERS		0x00000000
 #define HS_RPC_CLIENT_PROC_NULL		0
 #define HS_RPC_CLIENT_PROC_ADC		1
 
-#define HS_MGR_KEYCODE_END	KEY_END			
-#define HS_MGR_KEYCODE_MUTE	KEY_MUTE		
-#define HS_MGR_KEYCODE_VOLDOWN	KEY_VOLUMEDOWN		
-#define HS_MGR_KEYCODE_VOLUP	KEY_VOLUMEUP		
-#define HS_MGR_KEYCODE_FORWARD	KEY_NEXTSONG		
-#define HS_MGR_KEYCODE_PLAY	KEY_PLAYPAUSE		
-#define HS_MGR_KEYCODE_BACKWARD	KEY_PREVIOUSSONG	
-#define HS_MGR_KEYCODE_MEDIA	KEY_MEDIA		
-#define HS_MGR_KEYCODE_SEND	KEY_SEND		
+#define HS_MGR_KEYCODE_END	KEY_END			/* 107 */
+#define HS_MGR_KEYCODE_MUTE	KEY_MUTE		/* 113 */
+#define HS_MGR_KEYCODE_VOLDOWN	KEY_VOLUMEDOWN		/* 114 */
+#define HS_MGR_KEYCODE_VOLUP	KEY_VOLUMEUP		/* 115 */
+#define HS_MGR_KEYCODE_FORWARD	KEY_NEXTSONG		/* 163 */
+#define HS_MGR_KEYCODE_PLAY	KEY_PLAYPAUSE		/* 164 */
+#define HS_MGR_KEYCODE_BACKWARD	KEY_PREVIOUSSONG	/* 165 */
+#define HS_MGR_KEYCODE_MEDIA	KEY_MEDIA		/* 226 */
+#define HS_MGR_KEYCODE_SEND	KEY_SEND		/* 231 */
 #define HS_MGR_KEYCODE_FF	KEY_FASTFORWARD
 #define HS_MGR_KEYCODE_RW	KEY_REWIND
 
@@ -344,17 +346,17 @@ struct htc_headset_mgr_info {
 
 	unsigned int irq_btn_35mm;
 
-	
+	/* The variables were used by 35mm headset*/
 	int key_level_flag;
 	int hs_35mm_type;
 	int h2w_35mm_type;
 	int is_ext_insert;
 	int mic_bias_state;
 	int mic_detect_counter;
-	int metrico_status; 
+	int metrico_status; /* For HW Metrico lab test */
 	int quick_boot_status;
 
-	
+	/*Variables for one wire driver*/
 	int driver_one_wire_exist;
 	int one_wire_mode;
 	int key_code_1wire[15];
@@ -391,6 +393,6 @@ extern int switch_send_event(unsigned int bit, int on);
 extern void tvout_enable_detection(unsigned int on);
 #endif
 
-int get_htc_headset_mgr_status(void); 
+int get_htc_headset_mgr_status(void); //HTC_AUD
 
 #endif

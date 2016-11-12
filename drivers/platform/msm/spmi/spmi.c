@@ -35,9 +35,15 @@ static DEFINE_IDR(ctrl_idr);
 static struct device_type spmi_dev_type;
 static struct device_type spmi_ctrl_type;
 
+/* Forward declarations */
 struct bus_type spmi_bus_type;
 static int spmi_register_controller(struct spmi_controller *ctrl);
 
+/**
+ * spmi_busnum_to_ctrl: Map bus number to controller
+ * @busnum: bus number
+ * Returns controller representing this bus number
+ */
 struct spmi_controller *spmi_busnum_to_ctrl(u32 bus_num)
 {
 	struct spmi_controller *ctrl;
@@ -50,6 +56,13 @@ struct spmi_controller *spmi_busnum_to_ctrl(u32 bus_num)
 }
 EXPORT_SYMBOL_GPL(spmi_busnum_to_ctrl);
 
+/**
+ * spmi_add_controller: Controller bring-up.
+ * @ctrl: controller to be registered.
+ * A controller is registered with the framework using this API. ctrl->nr is the
+ * desired number with which SPMI framework registers the controller.
+ * Function will return -EBUSY if the number is in use.
+ */
 int spmi_add_controller(struct spmi_controller *ctrl)
 {
 	int	id;
@@ -71,6 +84,7 @@ int spmi_add_controller(struct spmi_controller *ctrl)
 }
 EXPORT_SYMBOL_GPL(spmi_add_controller);
 
+/* Remove a device associated with a controller */
 static int spmi_ctrl_remove_device(struct device *dev, void *data)
 {
 	struct spmi_device *spmidev = to_spmi_device(dev);
@@ -82,6 +96,12 @@ static int spmi_ctrl_remove_device(struct device *dev, void *data)
 	return 0;
 }
 
+/**
+ * spmi_del_controller: Controller tear-down.
+ * @ctrl: controller to be removed.
+ *
+ * Controller added with the above API is torn down using this API.
+ */
 int spmi_del_controller(struct spmi_controller *ctrl)
 {
 	struct spmi_controller *found;
@@ -89,14 +109,14 @@ int spmi_del_controller(struct spmi_controller *ctrl)
 	if (!ctrl)
 		return -EINVAL;
 
-	
+	/* Check that the ctrl has been added */
 	mutex_lock(&board_lock);
 	found = idr_find(&ctrl_idr, ctrl->nr);
 	mutex_unlock(&board_lock);
 	if (found != ctrl)
 		return -EINVAL;
 
-	
+	/* Remove all the clients associated with this controller */
 	mutex_lock(&board_lock);
 	bus_for_each_dev(&spmi_bus_type, NULL, ctrl, spmi_ctrl_remove_device);
 	mutex_unlock(&board_lock);
@@ -142,6 +162,19 @@ static struct device_type spmi_dev_type = {
 	.release	= spmi_dev_release,
 };
 
+/**
+ * spmi_alloc_device: Allocate a new SPMI devices.
+ * @ctrl: controller to which this device is to be added to.
+ * Context: can sleep
+ *
+ * Allows a driver to allocate and initialize a SPMI device without
+ * registering it immediately.  This allows a driver to directly fill
+ * the spmi_device structure before calling spmi_add_device().
+ *
+ * Caller is responsible to call spmi_add_device() on the returned
+ * spmi_device.  If the caller needs to discard the spmi_device without
+ * adding it, then spmi_dev_put() should be called.
+ */
 struct spmi_device *spmi_alloc_device(struct spmi_controller *ctrl)
 {
 	struct spmi_device *spmidev;
@@ -167,6 +200,7 @@ struct spmi_device *spmi_alloc_device(struct spmi_controller *ctrl)
 }
 EXPORT_SYMBOL_GPL(spmi_alloc_device);
 
+/* Validate the SPMI device structure */
 static struct device *get_valid_device(struct spmi_device *spmidev)
 {
 	struct device *dev;
@@ -184,6 +218,13 @@ static struct device *get_valid_device(struct spmi_device *spmidev)
 	return dev;
 }
 
+/**
+ * spmi_add_device: Add a new device without register board info.
+ * @spmi_dev: spmi_device to be added (registered).
+ *
+ * Called when device doesn't have an explicit client-driver to be probed, or
+ * the client-driver is a module installed dynamically.
+ */
 int spmi_add_device(struct spmi_device *spmidev)
 {
 	int rc;
@@ -194,10 +235,10 @@ int spmi_add_device(struct spmi_device *spmidev)
 		return -EINVAL;
 	}
 
-	
+	/* Set the device name */
 	dev_set_name(dev, "%s-%p", spmidev->name, spmidev);
 
-	
+	/* Device may be bound to an active driver when this returns */
 	rc = device_add(dev);
 
 	if (rc < 0)
@@ -209,6 +250,13 @@ int spmi_add_device(struct spmi_device *spmidev)
 }
 EXPORT_SYMBOL_GPL(spmi_add_device);
 
+/**
+ * spmi_new_device: Instantiates a new SPMI device
+ * @ctrl: controller to which this device is to be added to.
+ * @info: board information for this device.
+ *
+ * Returns the new device or NULL.
+ */
 struct spmi_device *spmi_new_device(struct spmi_controller *ctrl,
 					struct spmi_boardinfo const *info)
 {
@@ -240,6 +288,7 @@ struct spmi_device *spmi_new_device(struct spmi_controller *ctrl,
 }
 EXPORT_SYMBOL_GPL(spmi_new_device);
 
+/* spmi_remove_device: Remove the effect of spmi_add_device() */
 void spmi_remove_device(struct spmi_device *spmi_dev)
 {
 	device_unregister(&spmi_dev->dev);
@@ -257,6 +306,15 @@ static void spmi_match_ctrl_to_boardinfo(struct spmi_controller *ctrl,
 			bi->name);
 }
 
+/**
+ * spmi_register_board_info: Board-initialization routine.
+ * @bus_num: controller number (bus) on which this device will sit.
+ * @info: list of all devices on all controllers present on the board.
+ * @n: number of entries.
+ * API enumerates respective devices on corresponding controller.
+ * Called from board-init function.
+ * If controller is not present, only add to boards list
+ */
 int spmi_register_board_info(int busnum,
 			struct spmi_boardinfo const *info, unsigned n)
 {
@@ -284,6 +342,7 @@ int spmi_register_board_info(int busnum,
 }
 EXPORT_SYMBOL_GPL(spmi_register_board_info);
 
+/* ------------------------------------------------------------------------- */
 
 static inline int
 spmi_cmd(struct spmi_controller *ctrl, u8 opcode, u8 sid)
@@ -312,10 +371,24 @@ static inline int spmi_write_cmd(struct spmi_controller *ctrl,
 	return ctrl->write_cmd(ctrl, opcode, sid, addr, bc, buf);
 }
 
+/*
+ * register read/write: 5-bit address, 1 byte of data
+ * extended register read/write: 8-bit address, up to 16 bytes of data
+ * extended register read/write long: 16-bit address, up to 8 bytes of data
+ */
 
+/**
+ * spmi_register_read() - register read
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ * @ad: slave register address (5-bit address).
+ * @buf: buffer to be populated with data from the Slave.
+ *
+ * Reads 1 byte of data from a Slave device register.
+ */
 int spmi_register_read(struct spmi_controller *ctrl, u8 sid, u8 addr, u8 *buf)
 {
-	
+	/* 4-bit Slave Identifier, 5-bit register address */
 	if (sid > SPMI_MAX_SLAVE_ID || addr > 0x1F)
 		return -EINVAL;
 
@@ -323,10 +396,21 @@ int spmi_register_read(struct spmi_controller *ctrl, u8 sid, u8 addr, u8 *buf)
 }
 EXPORT_SYMBOL_GPL(spmi_register_read);
 
+/**
+ * spmi_ext_register_read() - extended register read
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ * @ad: slave register address (8-bit address).
+ * @len: the request number of bytes to read (up to 16 bytes).
+ * @buf: buffer to be populated with data from the Slave.
+ *
+ * Reads up to 16 bytes of data from the extended register space on a
+ * Slave device.
+ */
 int spmi_ext_register_read(struct spmi_controller *ctrl,
 				u8 sid, u8 addr, u8 *buf, int len)
 {
-	
+	/* 4-bit Slave Identifier, 8-bit register address, up to 16 bytes */
 	if (sid > SPMI_MAX_SLAVE_ID || len <= 0 || len > 16)
 		return -EINVAL;
 
@@ -334,10 +418,21 @@ int spmi_ext_register_read(struct spmi_controller *ctrl,
 }
 EXPORT_SYMBOL_GPL(spmi_ext_register_read);
 
+/**
+ * spmi_ext_register_readl() - extended register read long
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ * @ad: slave register address (16-bit address).
+ * @len: the request number of bytes to read (up to 8 bytes).
+ * @buf: buffer to be populated with data from the Slave.
+ *
+ * Reads up to 8 bytes of data from the extended register space on a
+ * Slave device using 16-bit address.
+ */
 int spmi_ext_register_readl(struct spmi_controller *ctrl,
 				u8 sid, u16 addr, u8 *buf, int len)
 {
-	
+	/* 4-bit Slave Identifier, 16-bit register address, up to 8 bytes */
 	if (sid > SPMI_MAX_SLAVE_ID || len <= 0 || len > 8)
 		return -EINVAL;
 
@@ -345,11 +440,20 @@ int spmi_ext_register_readl(struct spmi_controller *ctrl,
 }
 EXPORT_SYMBOL_GPL(spmi_ext_register_readl);
 
+/**
+ * spmi_register_write() - register write
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ * @ad: slave register address (5-bit address).
+ * @buf: buffer containing the data to be transferred to the Slave.
+ *
+ * Writes 1 byte of data to a Slave device register.
+ */
 int spmi_register_write(struct spmi_controller *ctrl, u8 sid, u8 addr, u8 *buf)
 {
 	u8 op = SPMI_CMD_WRITE;
 
-	
+	/* 4-bit Slave Identifier, 5-bit register address */
 	if (sid > SPMI_MAX_SLAVE_ID || addr > 0x1F)
 		return -EINVAL;
 
@@ -369,7 +473,7 @@ int spmi_register_zero_write(struct spmi_controller *ctrl, u8 sid, u8 data)
 {
 	u8 op = SPMI_CMD_ZERO_WRITE;
 
-	
+	/* 4-bit Slave Identifier, 5-bit register address */
 	if (sid > SPMI_MAX_SLAVE_ID)
 		return -EINVAL;
 
@@ -377,12 +481,23 @@ int spmi_register_zero_write(struct spmi_controller *ctrl, u8 sid, u8 data)
 }
 EXPORT_SYMBOL_GPL(spmi_register_zero_write);
 
+/**
+ * spmi_ext_register_write() - extended register write
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ * @ad: slave register address (8-bit address).
+ * @buf: buffer containing the data to be transferred to the Slave.
+ * @len: the request number of bytes to read (up to 16 bytes).
+ *
+ * Writes up to 16 bytes of data to the extended register space of a
+ * Slave device.
+ */
 int spmi_ext_register_write(struct spmi_controller *ctrl,
 				u8 sid, u8 addr, u8 *buf, int len)
 {
 	u8 op = SPMI_CMD_EXT_WRITE;
 
-	
+	/* 4-bit Slave Identifier, 8-bit register address, up to 16 bytes */
 	if (sid > SPMI_MAX_SLAVE_ID || len <= 0 || len > 16)
 		return -EINVAL;
 
@@ -390,12 +505,23 @@ int spmi_ext_register_write(struct spmi_controller *ctrl,
 }
 EXPORT_SYMBOL_GPL(spmi_ext_register_write);
 
+/**
+ * spmi_ext_register_writel() - extended register write long
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ * @ad: slave register address (16-bit address).
+ * @buf: buffer containing the data to be transferred to the Slave.
+ * @len: the request number of bytes to read (up to 8 bytes).
+ *
+ * Writes up to 8 bytes of data to the extended register space of a
+ * Slave device using 16-bit address.
+ */
 int spmi_ext_register_writel(struct spmi_controller *ctrl,
 				u8 sid, u16 addr, u8 *buf, int len)
 {
 	u8 op = SPMI_CMD_EXT_WRITEL;
 
-	
+	/* 4-bit Slave Identifier, 16-bit register address, up to 8 bytes */
 	if (sid > SPMI_MAX_SLAVE_ID || len <= 0 || len > 8)
 		return -EINVAL;
 
@@ -403,6 +529,21 @@ int spmi_ext_register_writel(struct spmi_controller *ctrl,
 }
 EXPORT_SYMBOL_GPL(spmi_ext_register_writel);
 
+/**
+ * spmi_command_reset() - sends RESET command to the specified slave
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ *
+ * The Reset command initializes the Slave and forces all registers to
+ * their reset values. The Slave shall enter the STARTUP state after
+ * receiving a Reset command.
+ *
+ * Returns
+ * -EINVAL for invalid Slave Identifier.
+ * -EPERM if the SPMI transaction is denied due to permission issues.
+ * -EIO if the SPMI transaction fails (parity errors, etc).
+ * -ETIMEDOUT if the SPMI transaction times out.
+ */
 int spmi_command_reset(struct spmi_controller *ctrl, u8 sid)
 {
 	if (sid > SPMI_MAX_SLAVE_ID)
@@ -411,6 +552,19 @@ int spmi_command_reset(struct spmi_controller *ctrl, u8 sid)
 }
 EXPORT_SYMBOL_GPL(spmi_command_reset);
 
+/**
+ * spmi_command_sleep() - sends SLEEP command to the specified slave
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ *
+ * The Sleep command causes the Slave to enter the user defined SLEEP state.
+ *
+ * Returns
+ * -EINVAL for invalid Slave Identifier.
+ * -EPERM if the SPMI transaction is denied due to permission issues.
+ * -EIO if the SPMI transaction fails (parity errors, etc).
+ * -ETIMEDOUT if the SPMI transaction times out.
+ */
 int spmi_command_sleep(struct spmi_controller *ctrl, u8 sid)
 {
 	if (sid > SPMI_MAX_SLAVE_ID)
@@ -419,6 +573,20 @@ int spmi_command_sleep(struct spmi_controller *ctrl, u8 sid)
 }
 EXPORT_SYMBOL_GPL(spmi_command_sleep);
 
+/**
+ * spmi_command_wakeup() - sends WAKEUP command to the specified slave
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ *
+ * The Wakeup command causes the Slave to move from the SLEEP state to
+ * the ACTIVE state.
+ *
+ * Returns
+ * -EINVAL for invalid Slave Identifier.
+ * -EPERM if the SPMI transaction is denied due to permission issues.
+ * -EIO if the SPMI transaction fails (parity errors, etc).
+ * -ETIMEDOUT if the SPMI transaction times out.
+ */
 int spmi_command_wakeup(struct spmi_controller *ctrl, u8 sid)
 {
 	if (sid > SPMI_MAX_SLAVE_ID)
@@ -427,6 +595,19 @@ int spmi_command_wakeup(struct spmi_controller *ctrl, u8 sid)
 }
 EXPORT_SYMBOL_GPL(spmi_command_wakeup);
 
+/**
+ * spmi_command_shutdown() - sends SHUTDOWN command to the specified slave
+ * @dev: SPMI device.
+ * @sid: slave identifier.
+ *
+ * The Shutdown command causes the Slave to enter the SHUTDOWN state.
+ *
+ * Returns
+ * -EINVAL for invalid Slave Identifier.
+ * -EPERM if the SPMI transaction is denied due to permission issues.
+ * -EIO if the SPMI transaction fails (parity errors, etc).
+ * -ETIMEDOUT if the SPMI transaction times out.
+ */
 int spmi_command_shutdown(struct spmi_controller *ctrl, u8 sid)
 {
 	if (sid > SPMI_MAX_SLAVE_ID)
@@ -435,6 +616,7 @@ int spmi_command_shutdown(struct spmi_controller *ctrl, u8 sid)
 }
 EXPORT_SYMBOL_GPL(spmi_command_shutdown);
 
+/* ------------------------------------------------------------------------- */
 
 static const struct spmi_device_id *spmi_match(const struct spmi_device_id *id,
 		const struct spmi_device *spmi_dev)
@@ -457,7 +639,7 @@ static int spmi_device_match(struct device *dev, struct device_driver *drv)
 	else
 		return 0;
 
-	
+	/* Attempt an OF style match */
 	if (of_driver_match_device(dev, drv))
 		return 1;
 
@@ -570,6 +752,13 @@ static void spmi_drv_shutdown(struct device *dev)
 	sdrv->shutdown(to_spmi_device(dev));
 }
 
+/**
+ * spmi_driver_register: Client driver registration with SPMI framework.
+ * @drv: client driver to be associated with client-device.
+ *
+ * This API will register the client driver with the SPMI framework.
+ * It is called from the driver's module-init function.
+ */
 int spmi_driver_register(struct spmi_driver *drv)
 {
 	drv->driver.bus = &spmi_bus_type;
@@ -590,6 +779,7 @@ EXPORT_SYMBOL_GPL(spmi_driver_register);
 #ifdef CONFIG_HTC_POWER_DEBUG
 #define MAX_REG_PER_TRANSACTION	(8)
 
+/* PON Peripheral registers */
 #define PON_REVISION2				0x801
 #define PON_PON_REASON1				0x808
 #define PON_WARM_RESET_REASON1			0x80A
@@ -749,24 +939,24 @@ uint8_t poff_reason_2 = 0xFF;
 
 void htc_get_pon_boot_reason(struct spmi_controller *ctrl)
 {
-	
+	/* PON_PON_REASON */
 	if (reason_1 == 0xFF)
 		htc_spmi_read_data(ctrl, &reason_1, PON_PON_REASON1, 1);
 
-	
+	/* PON_WARM_RESET_REASON */
 	if (warm_reset_reason_1 == 0xFF)
 		htc_spmi_read_data(ctrl, &warm_reset_reason_1, PON_WARM_RESET_REASON1, 1);
 	if (warm_reset_reason_2 == 0xFF)
 		htc_spmi_read_data(ctrl, &warm_reset_reason_2, PON_WARM_RESET_REASON2, 1);
 
-	
+	/* PON_SOFT_RESET_REASON */
 	if (soft_reset_reason_1 == 0xFF)
 		htc_spmi_read_data(ctrl, &soft_reset_reason_1, PON_SOFT_RESET_REASON1, 1);
 
 	if (soft_reset_reason_2 == 0xFF)
 		htc_spmi_read_data(ctrl, &soft_reset_reason_2, PON_SOFT_RESET_REASON2, 1);
 
-	
+	/* PON_POFF_REASON1 */
 	if (poff_reason_1 == 0xFF)
 		htc_spmi_read_data(ctrl, &poff_reason_1, PON_POFF_REASON1, 1);
 	if (poff_reason_2 == 0xFF)
@@ -775,21 +965,21 @@ void htc_get_pon_boot_reason(struct spmi_controller *ctrl)
 
 void htc_print_pon_boot_reason(void)
 {
-	
+	/* PON_PON_REASON */
 	printk(KERN_INFO "PON_PON_REASON:\n");
 	htc_print_reset_reason(PON_PON_REASON1, reason_1);
 
-	
+	/* PON_WARM_RESET_REASON */
 	printk(KERN_INFO "PON_WARM_RESET_REASON:\n");
 	htc_print_reset_reason(PON_WARM_RESET_REASON1, warm_reset_reason_1);
 	htc_print_reset_reason(PON_WARM_RESET_REASON2, warm_reset_reason_2);
 
-	
+	/* PON_SOFT_RESET_REASON */
 	printk(KERN_INFO "PON_SOFT_RESET_REASON:\n");
 	htc_print_reset_reason(PON_SOFT_RESET_REASON1, soft_reset_reason_1);
 	htc_print_reset_reason(PON_SOFT_RESET_REASON2, soft_reset_reason_2);
 
-	
+	/* PON_POFF_REASON1 */
 	printk(KERN_INFO "PON_POFF_REASON:\n");
 	htc_print_reset_reason(PON_POFF_REASON1, poff_reason_1);
 	htc_print_reset_reason(PON_POFF_REASON2, poff_reason_2);
@@ -803,7 +993,7 @@ static int spmi_register_controller(struct spmi_controller *ctrl)
 {
 	int ret = 0;
 
-	
+	/* Can't register until after driver model init */
 	if (WARN_ON(!spmi_bus_type.p)) {
 		ret = -EAGAIN;
 		goto exit;
@@ -822,7 +1012,7 @@ static int spmi_register_controller(struct spmi_controller *ctrl)
 	spmi_dfs_add_controller(ctrl);
 
 #ifdef CONFIG_HTC_POWER_DEBUG
-	
+	/* Get the boot reason from kernel */
 	htc_get_pon_boot_reason(ctrl);
 	htc_print_pon_boot_reason();
 #endif 

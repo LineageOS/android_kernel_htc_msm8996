@@ -61,4 +61,4 @@ int register_usbc_fw_update(struct usb_typec_fwu_notifier *notifier);
 void unregister_usbc_fw_update(struct usb_typec_fwu_notifier *notifier);
 void usb_typec_fw_update_progress(struct usb_typec_fwu_notifier *notifier, int percentage);
 
-#endif 
+#endif //__USB_TYPEC_FWU_H

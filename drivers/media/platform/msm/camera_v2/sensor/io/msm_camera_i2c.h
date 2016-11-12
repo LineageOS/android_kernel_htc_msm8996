@@ -101,9 +101,11 @@ int32_t msm_camera_cci_i2c_write_table_w_microdelay(
 	struct msm_camera_i2c_client *client,
 	struct msm_camera_i2c_reg_setting *write_setting);
 
+/* HTC_START */
 int32_t msm_camera_cci_i2c_write_table_w_microdelay_htc(
 	struct msm_camera_i2c_client *client,
 	struct msm_camera_i2c_reg_setting *write_setting);
+/* HTC_END */
 
 int32_t msm_camera_cci_i2c_write_conf_tbl(
 	struct msm_camera_i2c_client *client,

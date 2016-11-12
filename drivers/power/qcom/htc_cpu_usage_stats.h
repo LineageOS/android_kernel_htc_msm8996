@@ -5,4 +5,4 @@
 
 extern void send_cpu_usage_stats_kobject_uevent(char *buf_pid);
 
-#endif 
+#endif /* __HTC_CPU_USAGE_STATS_H__ */

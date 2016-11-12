@@ -16,16 +16,17 @@
 #define DRIVER_DESC "Driver for Silabs FM Radio receiver"
 
 #include <linux/version.h>
-#include <linux/init.h>         
-#include <linux/delay.h>        
-#include <linux/uaccess.h>      
-#include <linux/kfifo.h>        
+#include <linux/init.h>         /* Initdata                     */
+#include <linux/delay.h>        /* udelay                       */
+#include <linux/uaccess.h>      /* copy to/from user            */
+#include <linux/kfifo.h>        /* lock free circular buffer    */
 #include <linux/param.h>
 #include <linux/i2c.h>
 #include <linux/irq.h>
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
 
+/* kernel includes */
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/videodev2.h>
@@ -59,37 +60,37 @@ struct silabs_fm_device {
 	struct pinctrl_state *gpio_state_suspend;
 	struct video_device *videodev;
 	struct v4l2_device v4l2_dev;
-	
+	/* driver management */
 	atomic_t users;
-	
+	/* To send commands*/
 	u8 write_buf[WRITE_REG_NUM];
-	
+	/* TO read events, data*/
 	u8 read_buf[READ_REG_NUM];
-	
+	/*RDS buffers + Radio event buffer*/
 	struct kfifo data_buf[SILABS_FM_BUF_MAX];
 	struct silabs_fm_recv_conf_req recv_conf;
 	struct completion sync_req_done;
-	
+	/* for the first tune, we need to set properties for digital audio. */
 	u8 first_tune;
 	int tune_req;
-	
+	/* 1 if tune is pending, 2 if seek is pending, 0 otherwise.*/
 	u8 seek_tune_status;
-	
+	/* command that is being sent to chip. */
 	u8 cmd;
 	u8 antenna;
 	u8 g_search_mode;
 	bool is_search_cancelled;
 	unsigned int mode;
-	
+	/* regional settings */
 	enum silabs_region_t region;
-	
+	/* power mode */
 	bool lp_mode;
 	int handle_irq;
-	
+	/* global lock */
 	struct mutex lock;
-	
+	/* buffer locks*/
 	spinlock_t buf_lock[SILABS_FM_BUF_MAX];
-	
+	/* work queue */
 	struct workqueue_struct *wqueue;
 	struct workqueue_struct *wqueue_scan;
 	struct workqueue_struct *wqueue_af;
@@ -98,27 +99,27 @@ struct silabs_fm_device {
 	struct delayed_work work;
 	struct delayed_work work_scan;
 	struct delayed_work work_af;
-	
+	/* wait queue for blocking event read */
 	wait_queue_head_t event_queue;
-	
+	/* wait queue for raw rds read */
 	wait_queue_head_t read_queue;
 	int irq;
 	int status_irq;
 	int tuned_freq_khz;
 	int dwell_time_sec;
-	u16 pi; 
-	u8 pty; 
+	u16 pi; /* PI of tuned channel */
+	u8 pty; /* programe type of the tuned channel */
 	u16 block[NO_OF_RDS_BLKS];
-	u8 rt_display[MAX_RT_LEN];   
-	u8 rt_tmp0[MAX_RT_LEN]; 
-	u8 rt_tmp1[MAX_RT_LEN]; 
-	u8 rt_cnt[MAX_RT_LEN];  
-	u8 rt_flag;          
-	bool valid_rt_flg;     
-	u8 ps_display[MAX_PS_LEN];    
-	u8 ps_tmp0[MAX_PS_LEN]; 
-	u8 ps_tmp1[MAX_PS_LEN]; 
-	u8 ps_cnt[MAX_PS_LEN];  
+	u8 rt_display[MAX_RT_LEN];   /* RT that will be displayed */
+	u8 rt_tmp0[MAX_RT_LEN]; /* high probability RT */
+	u8 rt_tmp1[MAX_RT_LEN]; /* low probability RT */
+	u8 rt_cnt[MAX_RT_LEN];  /* high probability RT's hit count */
+	u8 rt_flag;          /* A/B flag of RT */
+	bool valid_rt_flg;     /* validity of A/B flag */
+	u8 ps_display[MAX_PS_LEN];    /* PS that will be displayed */
+	u8 ps_tmp0[MAX_PS_LEN]; /* high probability PS */
+	u8 ps_tmp1[MAX_PS_LEN]; /* low probability PS */
+	u8 ps_cnt[MAX_PS_LEN];  /* high probability PS's hit count */
 	u8 rt_plus_carrier;
 	u8 ert_carrier;
 	u8 ert_buf[MAX_ERT_LEN];
@@ -131,10 +132,10 @@ struct silabs_fm_device {
 	bool is_af_tune_in_progress;
 	u16 af_avg_th;
 	u8 af_wait_timer;
-	u8 af_rssi_th; 
-	u8 rssi_th; 
-	u8 sinr_th; 
-	u8 rds_fifo_cnt; 
+	u8 af_rssi_th; /* allowed rssi is 0-127 */
+	u8 rssi_th; /* 0 - 127 */
+	u8 sinr_th; /* 0 - 127 */
+	u8 rds_fifo_cnt; /* 0 - 25 */
 	struct silabs_af_info af_info1;
 	struct silabs_af_info af_info2;
 	struct silabs_srch_list_compl srch_list;
@@ -243,6 +244,11 @@ static int fm_configure_gpios(struct silabs_fm_device *radio, bool on)
 	int fm_status_gpio = radio->status_gpio;
 
 	if (on) {
+		/*
+		 * Turn ON sequence
+		 * GPO1/status gpio configuration.
+		 * Keep the GPO1 to high till device comes out of reset.
+		 */
 		if (fm_status_gpio > 0) {
 			FMDERR("status gpio is provided, setting it to high\n");
 			rc = gpio_direction_output(fm_status_gpio, 1);
@@ -251,33 +257,41 @@ static int fm_configure_gpios(struct silabs_fm_device *radio, bool on)
 				fm_status_gpio, rc);
 				return rc;
 			}
-			
+			/* Wait for the value to take effect on gpio. */
 			msleep(100);
 		}
 
+		/*
+		 * GPO2/Interrupt gpio configuration.
+		 * Keep the GPO2 to low till device comes out of reset.
+		 */
 		rc = gpio_direction_output(fm_int_gpio, 0);
 		if (rc) {
 			FMDERR("unable to set the gpio %d direction(%d)\n",
 			fm_int_gpio, rc);
 			return rc;
 		}
-		
+		/* Wait for the value to take effect on gpio. */
 		msleep(100);
 
+		/*
+		 * Reset pin configuration.
+		 * write "0'' to make sure the chip is in reset.
+		 */
 		rc = gpio_direction_output(fm_reset_gpio, 0);
 		if (rc) {
 			FMDERR("Unable to set direction\n");
 			return rc;
 		}
-		
+		/* Wait for the value to take effect on gpio. */
 		msleep(100);
-		
+		/* write "1" to bring the chip out of reset.*/
 		rc = gpio_direction_output(fm_reset_gpio, 1);
 		if (rc) {
 			FMDERR("Unable to set direction\n");
 			return rc;
 		}
-		
+		/* Wait for the value to take effect on gpio. */
 		msleep(100);
 
 		rc = gpio_direction_input(fm_int_gpio);
@@ -286,7 +300,7 @@ static int fm_configure_gpios(struct silabs_fm_device *radio, bool on)
 						fm_int_gpio, rc);
 			return rc;
 		}
-		
+		/* Wait for the value to take effect on gpio. */
 		msleep(100);
 
 		if (fm_status_gpio > 0) {
@@ -297,19 +311,19 @@ static int fm_configure_gpios(struct silabs_fm_device *radio, bool on)
 				fm_status_gpio, rc);
 				return rc;
 			}
-			
+			/* Wait for the value to take effect on gpio. */
 			msleep(100);
 		}
 
 
 	} else {
-		
+		/*Turn OFF sequence */
 		gpio_set_value(fm_reset_gpio, 0);
 
 		rc = gpio_direction_input(fm_reset_gpio);
 		if (rc)
 			FMDERR("Unable to set direction\n");
-		
+		/* Wait for some time for the value to take effect. */
 		msleep(100);
 		if (fm_status_gpio > 0) {
 			rc = gpio_direction_input(fm_status_gpio);
@@ -363,7 +377,7 @@ static int silabs_fm_areg_cfg(struct silabs_fm_device *radio, bool on)
 		vreg->is_enabled = false;
 
 		if (vreg->set_voltage_sup) {
-			
+			/* Set the min voltage to 0 */
 			rc = regulator_set_voltage(vreg->reg,
 						0,
 						vreg->high_vol_level);
@@ -419,7 +433,7 @@ static int silabs_fm_dreg_cfg(struct silabs_fm_device *radio, bool on)
 		vreg->is_enabled = false;
 
 		if (vreg->set_voltage_sup) {
-			
+			/* Set the min voltage to 0 */
 			rc = regulator_set_voltage(vreg->reg,
 						0,
 						vreg->high_vol_level);
@@ -437,7 +451,7 @@ static int silabs_fm_power_cfg(struct silabs_fm_device *radio, bool on)
 	int rc = 0;
 
 	if (on) {
-		
+		/* Turn ON sequence */
 		rc = silabs_fm_dreg_cfg(radio, on);
 		if (rc < 0) {
 			FMDERR("In %s, dreg cfg failed %x\n", __func__, rc);
@@ -449,7 +463,7 @@ static int silabs_fm_power_cfg(struct silabs_fm_device *radio, bool on)
 			silabs_fm_dreg_cfg(radio, false);
 			return rc;
 		}
-		
+		/* If pinctrl is supported, select active state */
 		if (radio->fm_pinctrl) {
 			rc = silabs_fm_pinctrl_select(radio, true);
 			if (rc)
@@ -465,12 +479,12 @@ static int silabs_fm_power_cfg(struct silabs_fm_device *radio, bool on)
 			return rc;
 		}
 	} else {
-		
+		/* Turn OFF sequence */
 		rc = fm_configure_gpios(radio, on);
 		if (rc < 0)
 			FMDERR("fm_power gpio config failed");
 
-		
+		/* If pinctrl is supported, select suspend state */
 		if (radio->fm_pinctrl) {
 			rc = silabs_fm_pinctrl_select(radio, false);
 			if (rc)
@@ -570,6 +584,10 @@ static int read_cts_bit(struct silabs_fm_device *radio)
 			FMDBG("In %s, CTS bit is set\n", __func__);
 			break;
 		}
+		/*
+		 * Give some time if the chip is not done with processing
+		 * previous command.
+		 */
 		msleep(100);
 	}
 
@@ -605,14 +623,14 @@ static int get_property(struct silabs_fm_device *radio, u16 prop, u16 *pvalue)
 	mutex_lock(&radio->lock);
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip. */
 	radio->cmd = GET_PROPERTY_CMD;
 	radio->write_buf[0] = GET_PROPERTY_CMD;
-	
+	/* reserved, always write 0 */
 	radio->write_buf[1] = 0;
-	
+	/* property high byte */
 	radio->write_buf[2] = HIGH_BYTE_16BIT(prop);
-	
+	/* property low byte */
 	radio->write_buf[3] = LOW_BYTE_16BIT(prop);
 
 	FMDBG("in %s, radio->write_buf[2] is %x\n",
@@ -640,19 +658,19 @@ static int set_property(struct silabs_fm_device *radio, u16 prop, u16 value)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip. */
 	radio->cmd = SET_PROPERTY_CMD;
 	radio->write_buf[0] = SET_PROPERTY_CMD;
-	
+	/* reserved, always write 0 */
 	radio->write_buf[1] = 0;
-	
+	/* property high byte */
 	radio->write_buf[2] = HIGH_BYTE_16BIT(prop);
-	
+	/* property low byte */
 	radio->write_buf[3] = LOW_BYTE_16BIT(prop);
 
-	
+	/* value high byte */
 	radio->write_buf[4] = HIGH_BYTE_16BIT(value);
-	
+	/* value low byte */
 	radio->write_buf[5] = LOW_BYTE_16BIT(value);
 
 	retval = send_cmd(radio, SET_PROP_CMD_LEN);
@@ -701,7 +719,7 @@ static void silabs_scan(struct work_struct *work)
 	FMDBG("current freq is %d\n", current_freq_khz);
 
 	radio->seek_tune_status = SCAN_PENDING;
-	
+	/* tune to lowest freq of the band */
 	retval = tune(radio, radio->recv_conf.band_low_limit * TUNE_STEP_SIZE);
 	if (retval < 0) {
 		FMDERR("%s: Tune to lower band limit failed with error %d\n",
@@ -709,14 +727,14 @@ static void silabs_scan(struct work_struct *work)
 		goto seek_tune_fail;
 	}
 
-	
+	/* wait for tune to complete. */
 	if (!wait_for_completion_timeout(&radio->sync_req_done,
 				msecs_to_jiffies(WAIT_TIMEOUT_MSEC)))
 		FMDERR("In %s, didn't receive STC for tune\n", __func__);
 	else
 		FMDBG("In %s, received STC for tune\n", __func__);
 	while (1) {
-		
+		/* If scan is cancelled or FM is not ON, break */
 		if (radio->is_search_cancelled == true) {
 			FMDBG("%s: scan cancelled\n", __func__);
 			if (radio->g_search_mode == SCAN_FOR_STRONG)
@@ -733,11 +751,11 @@ static void silabs_scan(struct work_struct *work)
 			FMDERR("Scan operation failed with error %d\n", retval);
 			goto seek_tune_fail;
 		}
-		
+		/* wait for seek to complete */
 		if (!wait_for_completion_timeout(&radio->sync_req_done,
 					msecs_to_jiffies(WAIT_TIMEOUT_MSEC))) {
 			FMDERR("%s: didn't receive STC for seek\n", __func__);
-			
+			/* FM is not correct state or scan is cancelled */
 			continue;
 		} else
 			FMDBG("%s: received STC for seek\n", __func__);
@@ -774,6 +792,10 @@ static void silabs_scan(struct work_struct *work)
 			FMDBG("bltf bit is set\n");
 			break;
 		}
+		/*
+		 * If scan is cancelled or FM is not ON, break ASAP so that we
+		 * don't need to sleep for dwell time.
+		 */
 		if (radio->is_search_cancelled == true) {
 			FMDBG("%s: scan cancelled\n", __func__);
 			if (radio->g_search_mode == SCAN_FOR_STRONG)
@@ -786,9 +808,9 @@ static void silabs_scan(struct work_struct *work)
 		}
 
 		if (radio->g_search_mode == SCAN) {
-			
+			/* sleep for dwell period */
 			msleep(radio->dwell_time_sec * 1000);
-			
+			/* need to queue the event when the seek completes */
 			silabs_fm_q_event(radio, SILABS_EVT_SCAN_NEXT);
 		} else if ((valid) &&
 				(radio->g_search_mode == SCAN_FOR_STRONG)) {
@@ -805,7 +827,7 @@ seek_tune_fail:
 				&radio->buf_lock[SILABS_FM_BUF_SRCH_LIST]);
 		silabs_fm_q_event(radio, SILABS_EVT_NEW_SRCH_LIST);
 	}
-	
+	/* tune to original frequency */
 	retval = tune(radio, current_freq_khz);
 	if (retval < 0)
 		FMDERR("%s: Tune to orig freq failed with error %d\n",
@@ -1009,7 +1031,7 @@ static void display_rt(struct silabs_fm_device *radio)
 			radio->rt_display[i] = radio->rt_tmp0[i];
 		data = kmalloc(len + OFFSET_OF_RT, GFP_ATOMIC);
 		if (data != NULL) {
-			data[0] = len; 
+			data[0] = len; /* len of RT */
 			data[1] = radio->pty;
 			data[2] = (radio->pi >> 8) & 0xFF;
 			data[3] = (radio->pi & 0xFF);
@@ -1169,8 +1191,16 @@ static void silabs_rt_plus(struct silabs_fm_device *radio)
 	struct kfifo *data_b;
 
 	grp_typ = radio->block[1] & APP_GRP_typ_MASK;
+	/*
+	 *right most 3 bits of Lsb of block 2
+	 * and left most 3 bits of Msb of block 3
+	 */
 	tag_type1 = (((grp_typ & TAG1_MSB_MASK) << TAG1_MSB_OFFSET) |
 			 (radio->block[2] >> TAG1_LSB_OFFSET));
+	/*
+	 *right most 1 bit of lsb of 3rd block
+	 * and left most 5 bits of Msb of 4th block
+	 */
 	tag_type2 = (((radio->block[2] & TAG2_MSB_MASK)
 			 << TAG2_MSB_OFFSET) |
 			 (radio->block[2] >> TAG2_LSB_OFFSET));
@@ -1193,15 +1223,33 @@ static void silabs_rt_plus(struct silabs_fm_device *radio)
 		data[len++] = radio->rt_ert_flag;
 		if (tag_type1 != DUMMY_CLASS) {
 			data[len++] = tag_type1;
+			/*
+			 *start position of tag1
+			 *right most 5 bits of msb of 3rd block
+			 *and left most bit of lsb of 3rd block
+			 */
 			 data[len++] = (radio->block[2] >> TAG1_POS_LSB_OFFSET)
 							& TAG1_POS_MSB_MASK;
+			/*
+			 *length of tag1
+			 *left most 6 bits of lsb of 3rd block
+			 */
 			data[len++] = (radio->block[2] >> TAG1_LEN_OFFSET) &
 								TAG1_LEN_MASK;
 		}
 		if (tag_type2 != DUMMY_CLASS) {
 			data[len++] = tag_type2;
+			/*
+			 *start position of tag2
+			 *right most 3 bit of msb of 4th block
+			 *and left most 3 bits of lsb of 4th block
+			 */
 			data[len++] = (radio->block[3] >> TAG2_POS_LSB_OFFSET) &
 							TAG2_POS_MSB_MASK;
+			/*
+			 *length of tag2
+			 *right most 5 bits of lsb of 4th block
+			 */
 			data[len++] = radio->block[3] & TAG2_LEN_MASK;
 		}
 		data_b = &radio->data_buf[SILABS_FM_BUF_RT_PLUS];
@@ -1235,7 +1283,7 @@ static void silabs_raw_rds_handler(struct silabs_fm_device *radio)
 		}
 		break;
 	case RT_PLUS_AID:
-		
+		/*Extract 5th bit of MSB (b7b6b5b4b3b2b1b0)*/
 		radio->rt_ert_flag = EXTRACT_BIT(radio->block[2],
 				 RT_ERT_FLAG_BIT);
 		if (radio->rt_plus_carrier != app_grp_typ) {
@@ -1278,7 +1326,7 @@ static int get_rssi(struct silabs_fm_device *radio, u8 *prssi)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip.*/
 	radio->cmd = FM_RSQ_STATUS_CMD;
 	radio->write_buf[0] = FM_RSQ_STATUS_CMD;
 	radio->write_buf[1] = 1;
@@ -1337,7 +1385,7 @@ static bool is_different_af_list(struct silabs_fm_device *radio)
 	if (radio->af_info1.orig_freq_khz != radio->af_info2.orig_freq_khz)
 		return true;
 
-	
+	/* freq is same, check if the AFs are same. */
 	for (i = 0; i < radio->af_info1.size; i++) {
 		freq = radio->af_info1.af_list[i];
 		for (j = 0; j < radio->af_info2.size; j++) {
@@ -1345,7 +1393,7 @@ static bool is_different_af_list(struct silabs_fm_device *radio)
 				break;
 		}
 
-		
+		/* freq is not there in list2 i.e list1, list2 are different.*/
 		if (j == radio->af_info2.size)
 			return true;
 	}
@@ -1391,7 +1439,7 @@ static void update_af_list(struct silabs_fm_device *radio)
 			radio->af_info2.cnt = 0;
 			radio->af_info2.orig_freq_khz = 0;
 
-			
+			/* AF count. */
 			radio->af_info2.cnt = af_data - NO_AF_CNT_CODE;
 			radio->af_info2.orig_freq_khz = radio->tuned_freq_khz;
 			radio->af_info2.pi = radio->pi;
@@ -1419,7 +1467,7 @@ static void update_af_list(struct silabs_fm_device *radio)
 				continue;
 			}
 
-			
+			/* update the AF list */
 			radio->af_info2.af_list[radio->af_info2.size++] =
 								af_freq_khz;
 			FMDBG("%s: AF is %u\n", __func__, af_freq_khz);
@@ -1428,7 +1476,7 @@ static void update_af_list(struct silabs_fm_device *radio)
 				radio->af_info2.cnt) &&
 				is_different_af_list(radio)) {
 
-				
+				/* Copy the list to af_info1. */
 				radio->af_info1.cnt = radio->af_info2.cnt;
 				radio->af_info1.size = radio->af_info2.size;
 				radio->af_info1.pi = radio->af_info2.pi;
@@ -1442,7 +1490,7 @@ static void update_af_list(struct silabs_fm_device *radio)
 					radio->af_info2.af_list,
 					sizeof(radio->af_info2.af_list));
 
-				
+				/* AF list changed, post it to user space */
 				memset(&ev, 0, sizeof(struct af_list_ev));
 
 				ev.tune_freq_khz =
@@ -1499,10 +1547,10 @@ static void silabs_af_tune(struct work_struct *work)
 	}
 
 
-	
+	/* Disable all other interrupts except STC, RDS */
 	retval = configure_interrupts(radio, ENABLE_STC_RDS_INTERRUPTS);
 
-	
+	/* Mute until AF tuning finishes */
 	retval = set_hard_mute(radio, true);
 
 	while (1) {
@@ -1521,7 +1569,7 @@ static void silabs_af_tune(struct work_struct *work)
 			break;
 		}
 
-		
+		/* If no more AFs left, tune to original frequency and break */
 		if (radio->af_info2.index >= radio->af_info2.size) {
 			FMDBG("%s: No more AFs, tuning to original freq %u\n",
 				__func__, radio->af_info2.orig_freq_khz);
@@ -1535,12 +1583,12 @@ static void silabs_af_tune(struct work_struct *work)
 				goto err_tune_fail;
 			}
 
-			
+			/* wait for tune to finish */
 			if (!wait_for_completion_timeout(&radio->sync_req_done,
 				msecs_to_jiffies(WAIT_TIMEOUT_MSEC))) {
 				FMDERR("%s: didn't receive STC for tune\n",
 					__func__);
-				
+				/* FM is not correct state */
 				continue;
 			} else
 				FMDBG("%s: received STC for tune\n", __func__);
@@ -1559,12 +1607,12 @@ static void silabs_af_tune(struct work_struct *work)
 			goto err_tune_fail;
 		}
 
-		
+		/* wait for tune to finish */
 		if (!wait_for_completion_timeout(&radio->sync_req_done,
 			msecs_to_jiffies(WAIT_TIMEOUT_MSEC))) {
 			FMDERR("%s: didn't receive STC for tune\n",
 				__func__);
-			
+			/* FM is not correct state */
 			continue;
 		} else
 			FMDBG("%s: received STC for tune\n", __func__);
@@ -1577,10 +1625,10 @@ static void silabs_af_tune(struct work_struct *work)
 
 		if (rssi >= radio->af_rssi_th) {
 			u8 j = 0;
-			
+			/* clear stale RDS interrupt */
 			get_rds_status(radio);
 			for (; j < AF_PI_WAIT_TIME && radio->pi == 0; j++) {
-				
+				/* Wait for PI to be received. */
 				msleep(100);
 				FMDBG("%s: sleeping for 100ms for PI\n",
 					__func__);
@@ -1594,7 +1642,7 @@ static void silabs_af_tune(struct work_struct *work)
 
 			FMDBG("%s: found AF freq(%u) >= AF th with pi %d\n",
 				__func__, freq, radio->pi);
-			
+			/* Notify FM UI about the new freq */
 			FMDINFO("%s: posting TUNE_SUCC event\n", __func__);
 			silabs_fm_q_event(radio, SILABS_EVT_TUNE_SUCC);
 
@@ -1606,6 +1654,10 @@ static void silabs_af_tune(struct work_struct *work)
 	}
 
 err_tune_fail:
+	/*
+	 * At this point, we are tuned to either original freq or AF with >=
+	 * AF rssi threshold
+	 */
 	if (freq != radio->af_info2.orig_freq_khz) {
 		FMDBG("tuned freq different than original,reset af info\n");
 		reset_af_info(radio);
@@ -1613,20 +1665,21 @@ err_tune_fail:
 
 	radio->is_af_tune_in_progress = false;
 
-	
+	/* Clear the stale RDS int bit. */
 	get_rds_status(radio);
 	retval = configure_interrupts(radio, ENABLE_STC_RDS_INTERRUPTS);
 
-	
+	/* Clear the stale RSQ int bit. */
 	get_rssi(radio, &rssi);
 	retval = configure_interrupts(radio, ENABLE_RSQ_INTERRUPTS);
 
 end:
-	
+	/* Unmute */
 	retval = set_hard_mute(radio, false);
 	return;
 }
 
+/* When RDS interrupt is received, read and process RDS data. */
 static void rds_handler(struct work_struct *worker)
 {
 	struct silabs_fm_device *radio;
@@ -1658,7 +1711,7 @@ static void rds_handler(struct work_struct *worker)
 	switch (grp_type) {
 	case RDS_TYPE_0A:
 		update_af_list(radio);
-		
+		/*  fall through */
 	case RDS_TYPE_0B:
 		addr = (radio->block[1] & PS_MASK) * NO_OF_CHARS_IN_EACH_ADD;
 		FMDBG("RDS is PS\n");
@@ -1705,6 +1758,7 @@ static void rds_handler(struct work_struct *worker)
 	return;
 }
 
+/* to enable, disable interrupts. */
 static int configure_interrupts(struct silabs_fm_device *radio, u8 val)
 {
 	int retval = 0;
@@ -1718,7 +1772,7 @@ static int configure_interrupts(struct silabs_fm_device *radio, u8 val)
 			FMDERR("%s: error disabling interrupts\n", __func__);
 		break;
 	case ENABLE_STC_RDS_INTERRUPTS:
-		
+		/* enable STC and RDS interrupts. */
 		prop_val = RDS_INT_BIT_MASK | STC_INT_BIT_MASK;
 
 		retval = set_property(radio, GPO_IEN_PROP, prop_val);
@@ -1727,7 +1781,7 @@ static int configure_interrupts(struct silabs_fm_device *radio, u8 val)
 				__func__);
 		break;
 	case ENABLE_STC_INTERRUPTS:
-		
+		/* enable STC interrupts only. */
 		prop_val = STC_INT_BIT_MASK;
 
 		retval = set_property(radio, GPO_IEN_PROP, prop_val);
@@ -1735,7 +1789,7 @@ static int configure_interrupts(struct silabs_fm_device *radio, u8 val)
 			FMDERR("%s: error enabling STC interrupts\n", __func__);
 		break;
 	case ENABLE_RDS_INTERRUPTS:
-		
+		/* enable RDS interrupts. */
 		prop_val = RDS_INT_BIT_MASK | STC_INT_BIT_MASK;
 		if (radio->is_af_jump_enabled)
 			prop_val |= RSQ_INT_BIT_MASK;
@@ -1746,7 +1800,7 @@ static int configure_interrupts(struct silabs_fm_device *radio, u8 val)
 				__func__);
 		break;
 	case DISABLE_RDS_INTERRUPTS:
-		
+		/* disable RDS interrupts. */
 		prop_val = STC_INT_BIT_MASK;
 		if (radio->is_af_jump_enabled)
 			prop_val |= RSQ_INT_BIT_MASK;
@@ -1757,7 +1811,7 @@ static int configure_interrupts(struct silabs_fm_device *radio, u8 val)
 				__func__);
 		break;
 	case ENABLE_RSQ_INTERRUPTS:
-		
+		/* enable RSQ interrupts. */
 		prop_val = RSQ_INT_BIT_MASK | STC_INT_BIT_MASK;
 		if (radio->lp_mode != true)
 			prop_val |= RDS_INT_BIT_MASK;
@@ -1768,7 +1822,7 @@ static int configure_interrupts(struct silabs_fm_device *radio, u8 val)
 				__func__);
 		break;
 	case DISABLE_RSQ_INTERRUPTS:
-		
+		/* disable RSQ interrupts. */
 		prop_val = STC_INT_BIT_MASK;
 		if (radio->lp_mode != true)
 			prop_val |= RDS_INT_BIT_MASK;
@@ -1795,7 +1849,7 @@ static int get_int_status(struct silabs_fm_device *radio)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip.*/
 	radio->cmd = GET_INT_STATUS_CMD;
 	radio->write_buf[0] = GET_INT_STATUS_CMD;
 
@@ -1813,12 +1867,12 @@ static int get_int_status(struct silabs_fm_device *radio)
 static void reset_rds(struct silabs_fm_device *radio)
 {
 	radio->pi = 0;
-	
+	/* reset PS bufferes */
 	memset(radio->ps_display, 0, sizeof(radio->ps_display));
 	memset(radio->ps_tmp0, 0, sizeof(radio->ps_tmp0));
 	memset(radio->ps_cnt, 0, sizeof(radio->ps_cnt));
 
-	
+	/* reset RT buffers */
 	memset(radio->rt_display, 0, sizeof(radio->rt_display));
 	memset(radio->rt_tmp0, 0, sizeof(radio->rt_tmp0));
 	memset(radio->rt_tmp1, 0, sizeof(radio->rt_tmp1));
@@ -1894,6 +1948,12 @@ static void init_ssr(struct silabs_fm_device *radio)
 	mutex_lock(&radio->lock);
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
+	/*
+	 * Configure status gpio to low in active state. When chip is reset for
+	 * some reason, status gpio becomes high since pull-up resistor is
+	 * installed. No need to return error even if it fails, since normal
+	 * FM functionality can still work fine.
+	 */
 
 	radio->cmd = GPIO_CTL_CMD;
 	radio->write_buf[0] = GPIO_CTL_CMD;
@@ -1909,7 +1969,7 @@ static void init_ssr(struct silabs_fm_device *radio)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip.*/
 	radio->cmd = GPIO_SET_CMD;
 	radio->write_buf[0] = GPIO_SET_CMD;
 	radio->write_buf[1] = GPIO_OUTPUT_LOW_MASK;
@@ -1937,7 +1997,7 @@ static int enable(struct silabs_fm_device *radio)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip.*/
 	radio->cmd = POWER_UP_CMD;
 	radio->write_buf[0] = POWER_UP_CMD;
 	radio->write_buf[1] = ENABLE_GPO2_INT_MASK;
@@ -1954,15 +2014,15 @@ static int enable(struct silabs_fm_device *radio)
 
 	mutex_unlock(&radio->lock);
 
-	
+	/* enable interrupts */
 	retval = configure_interrupts(radio, ENABLE_STC_RDS_INTERRUPTS);
 	if (retval < 0)
 		FMDERR("In %s, configure_interrupts failed with error %d\n",
 				__func__, retval);
 
-	
+	/* initialize with default configuration */
 	retval = initialize_recv(radio);
-	reset_rds(radio); 
+	reset_rds(radio); /* Clear the existing RDS data */
 	init_ssr(radio);
 	if (retval >= 0) {
 		if (radio->mode == FM_RECV_TURNING_ON) {
@@ -1985,7 +2045,7 @@ static int disable(struct silabs_fm_device *radio)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip. */
 	radio->cmd = POWER_DOWN_CMD;
 	radio->write_buf[0] = POWER_DOWN_CMD;
 
@@ -2055,8 +2115,12 @@ static int tune(struct silabs_fm_device *radio, u32 freq_khz)
 
 	FMDBG("In %s, freq is %d\n", __func__, freq_khz);
 
+	/*
+	 * when we are tuning for the first time, we must set digital audio
+	 * properties.
+	 */
 	if (radio->first_tune) {
-		
+		/* I2S mode, rising edge */
 		retval = set_property(radio, DIGITAL_OUTPUT_FORMAT_PROP, 0);
 		if (retval < 0)	{
 			FMDERR("%s: set output format prop failed, error %d\n",
@@ -2064,7 +2128,7 @@ static int tune(struct silabs_fm_device *radio, u32 freq_khz)
 			goto set_prop_fail;
 		}
 
-		
+		/* 48khz sample rate */
 		retval = set_property(radio,
 					DIGITAL_OUTPUT_SAMPLE_RATE_PROP,
 					SAMPLE_RATE_48_KHZ);
@@ -2080,15 +2144,15 @@ static int tune(struct silabs_fm_device *radio, u32 freq_khz)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip.*/
 	radio->cmd = FM_TUNE_FREQ_CMD;
 
 	radio->write_buf[0] = FM_TUNE_FREQ_CMD;
-	
+	/* reserved */
 	radio->write_buf[1] = 0;
-	
+	/* freq high byte */
 	radio->write_buf[2] = HIGH_BYTE_16BIT(freq_16bit);
-	
+	/* freq low byte */
 	radio->write_buf[3] = LOW_BYTE_16BIT(freq_16bit);
 	radio->write_buf[4] = 0;
 
@@ -2113,7 +2177,7 @@ static int silabs_seek(struct silabs_fm_device *radio, int dir, int wrap)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip. */
 	radio->cmd = FM_SEEK_START_CMD;
 
 	radio->write_buf[0] = FM_SEEK_START_CMD;
@@ -2140,7 +2204,7 @@ static int cancel_seek(struct silabs_fm_device *radio)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip. */
 	radio->cmd = FM_TUNE_STATUS_CMD;
 
 	radio->write_buf[0] = FM_TUNE_STATUS_CMD;
@@ -2182,7 +2246,7 @@ static int clear_stc_int(struct silabs_fm_device *radio)
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip. */
 	radio->cmd = FM_TUNE_STATUS_CMD;
 
 	radio->write_buf[0] = FM_TUNE_STATUS_CMD;
@@ -2210,7 +2274,7 @@ static void silabs_interrupts_handler(struct silabs_fm_device *radio)
 	FMDBG("%s: ISR fired for cmd %x, reading status bytes\n",
 		__func__, radio->cmd);
 
-	
+	/* Get int status to know which interrupt is this(STC/RDS/etc) */
 	retval = get_int_status(radio);
 
 	if (retval < 0) {
@@ -2234,31 +2298,39 @@ static void silabs_interrupts_handler(struct silabs_fm_device *radio)
 			FMDINFO("%s: posting SILABS_EVT_SEEK_COMPLETE event\n",
 				__func__);
 			silabs_fm_q_event(radio, SILABS_EVT_SEEK_COMPLETE);
-			
+			/* post tune comp evt since seek results in a tune.*/
 			FMDBG("%s: posting SILABS_EVT_TUNE_SUCC\n",
 				__func__);
 			silabs_fm_q_event(radio, SILABS_EVT_TUNE_SUCC);
 			radio->seek_tune_status = NO_SEEK_TUNE_PENDING;
 
 		} else if (radio->seek_tune_status == SCAN_PENDING) {
+			/*
+			 * when scan is pending and STC int is set, signal
+			 * so that scan can proceed
+			 */
 			FMDBG("In %s, signalling scan thread\n", __func__);
 			complete(&radio->sync_req_done);
 		} else if (radio->is_af_tune_in_progress == true) {
+			/*
+			 * when AF tune is going on and STC int is set, signal
+			 * so that AF tune can proceed.
+			 */
 			FMDINFO("In %s, signalling AF tune thread\n", __func__);
 			complete(&radio->sync_req_done);
 		}
-		
+		/* clear the STC interrupt. */
 		clear_stc_int(radio);
-		reset_rds(radio); 
+		reset_rds(radio); /* Clear the existing RDS data */
 		return;
 	}
 
 	if (radio->read_buf[0] & RSQ_INT_BIT_MASK) {
 		FMDBG("RSQ interrupt received, clearing the RSQ int bit\n");
 
-		
+		/* clear RSQ interrupt bits until AF tune is complete. */
 		(void)get_rssi(radio, &rssi);
-		
+		/* Don't process RSQ until AF tune is complete. */
 		if (radio->is_af_tune_in_progress == true)
 			return;
 
@@ -2277,9 +2349,9 @@ static void silabs_interrupts_handler(struct silabs_fm_device *radio)
 
 	if (radio->read_buf[0] & RDS_INT_BIT_MASK) {
 		FMDBG("RDS interrupt received\n");
-		
+		/* Don't process RDS until AF tune is complete. */
 		if (radio->is_af_tune_in_progress == true) {
-			
+			/* get PI only */
 			get_rds_status(radio);
 			pi_handler(radio, radio->block[0]);
 			return;
@@ -2324,6 +2396,13 @@ static void silabs_fm_disable_irq(struct silabs_fm_device *radio)
 static irqreturn_t silabs_fm_isr(int irq, void *dev_id)
 {
 	struct silabs_fm_device *radio = dev_id;
+	/*
+	 * The call to queue_delayed_work ensures that a minimum delay
+	 * (in jiffies) passes before the work is actually executed. The return
+	 * value from the function is nonzero if the work_struct was actually
+	 * added to queue (otherwise, it may have already been there and will
+	 * not be added a second time).
+	 */
 
 	queue_delayed_work(radio->wqueue, &radio->work,
 				msecs_to_jiffies(SILABS_DELAY_MSEC));
@@ -2352,6 +2431,10 @@ static int silabs_fm_request_irq(struct silabs_fm_device *radio)
 
 	irq = radio->irq;
 
+	/*
+	 * Use request_any_context_irq, So that it might work for nested or
+	 * nested interrupts.
+	 */
 	retval = request_any_context_irq(irq, silabs_fm_isr,
 				IRQ_TYPE_EDGE_FALLING, "fm interrupt", radio);
 	if (retval < 0) {
@@ -2374,7 +2457,7 @@ static int silabs_fm_request_irq(struct silabs_fm_device *radio)
 				radio);
 	if (retval < 0) {
 		FMDERR("Couldn't acquire FM status gpio %d\n", irq);
-		
+		/* Do not error out for status int. FM can work without it. */
 		return 0;
 	} else {
 		FMDBG("FM status GPIO %d registered\n", irq);
@@ -2383,7 +2466,7 @@ static int silabs_fm_request_irq(struct silabs_fm_device *radio)
 	if (retval < 0) {
 		FMDERR("Could not enable FM status interrupt\n ");
 		free_irq(irq , radio);
-		
+		/* Do not error out for status int. FM can work without it. */
 		return 0;
 	}
 
@@ -2412,7 +2495,7 @@ static int silabs_fm_fops_open(struct file *file)
 		return -EBUSY;
 	}
 
-	
+	/* initial gpio pin config & Power up */
 	retval = silabs_fm_power_cfg(radio, TURNING_ON);
 	if (retval) {
 		FMDERR("%s: failed config gpio & pmic\n", __func__);
@@ -2439,7 +2522,7 @@ static int silabs_fm_fops_open(struct file *file)
 		FMDBG("status irq number is = %d\n", radio->status_irq);
 	}
 
-	
+	/* enable irq */
 	retval = silabs_fm_request_irq(radio);
 	if (retval < 0) {
 		FMDERR("%s: failed to request irq\n", __func__);
@@ -2474,7 +2557,7 @@ static int silabs_fm_fops_release(struct file *file)
 	}
 
 	FMDBG("%s, Disabling the IRQs\n", __func__);
-	
+	/* disable irq */
 	silabs_fm_disable_irq(radio);
 
 	retval = silabs_fm_power_cfg(radio, TURNING_OFF);
@@ -2733,7 +2816,7 @@ static int silabs_fm_vidioc_g_ctrl(struct file *file, void *priv,
 			break;
 		}
 
-		
+		/* sinr */
 		ctrl->value = radio->read_buf[5];
 		mutex_unlock(&radio->lock);
 		FMDBG("%s: V4L2_CID_PRIVATE_SILABS_GET_SINR, val %d\n",
@@ -2799,7 +2882,7 @@ static int silabs_fm_vidioc_s_ctrl(struct file *file, void *priv,
 
 	switch (ctrl->id) {
 	case V4L2_CID_PRIVATE_SILABS_STATE:
-		
+		/* check if already on */
 		if (ctrl->value == FM_RECV) {
 			if (is_enable_rx_possible(radio) != 0) {
 				FMDERR("%s: fm is not in proper state\n",
@@ -2874,6 +2957,11 @@ static int silabs_fm_vidioc_s_ctrl(struct file *file, void *priv,
 	case V4L2_CID_PRIVATE_SILABS_REGION:
 	case V4L2_CID_PRIVATE_SILABS_SRCH_ALGORITHM:
 	case V4L2_CID_PRIVATE_SILABS_SET_AUDIO_PATH:
+		/*
+		 * These private controls are place holders to keep the
+		 * driver compatible with changes done in the frameworks
+		 * which are specific to TAVARUA.
+		 */
 		retval = 0;
 		break;
 	case V4L2_CID_PRIVATE_SILABS_SRCHMODE:
@@ -2930,7 +3018,7 @@ static int silabs_fm_vidioc_s_ctrl(struct file *file, void *priv,
 
 		break;
 	case V4L2_CID_PRIVATE_SILABS_RDSGROUP_PROC:
-		
+		/* Enabled all with uncorrectable */
 		retval = set_property(radio,
 				FM_RDS_CONFIG_PROP,
 				UNCORRECTABLE_RDS_EN);
@@ -2944,12 +3032,12 @@ static int silabs_fm_vidioc_s_ctrl(struct file *file, void *priv,
 		FMDBG("In %s, V4L2_CID_PRIVATE_SILABS_LP_MODE, val is %d\n",
 			__func__, ctrl->value);
 		if (ctrl->value) {
-			
+			/* disable RDS interrupts */
 			retval = configure_interrupts(radio,
 					ENABLE_RDS_INTERRUPTS);
 			radio->lp_mode = true;
 		} else {
-			
+			/* enable RDS interrupts */
 			retval = configure_interrupts(radio,
 					DISABLE_RDS_INTERRUPTS);
 			radio->lp_mode = false;
@@ -2965,11 +3053,11 @@ static int silabs_fm_vidioc_s_ctrl(struct file *file, void *priv,
 		FMDBG("%s: V4L2_CID_PRIVATE_SILABS_AF_JUMP, val is %d\n",
 			__func__, ctrl->value);
 		if (ctrl->value)
-			
+			/* enable RSQ interrupts */
 			retval = configure_interrupts(radio,
 					ENABLE_RSQ_INTERRUPTS);
 		else
-			
+			/* disable RSQ interrupts */
 			retval = configure_interrupts(radio,
 					DISABLE_RSQ_INTERRUPTS);
 		if (retval < 0) {
@@ -2977,7 +3065,7 @@ static int silabs_fm_vidioc_s_ctrl(struct file *file, void *priv,
 				__func__, retval);
 			goto end;
 		}
-		
+		/* Save the AF jump state */
 		radio->is_af_jump_enabled = ctrl->value;
 		break;
 	case V4L2_CID_PRIVATE_SILABS_SINR_THRESHOLD:
@@ -3137,7 +3225,7 @@ static int silabs_fm_vidioc_g_tuner(struct file *file, void *priv,
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip. */
 	radio->cmd = FM_TUNE_STATUS_CMD;
 
 	radio->write_buf[0] = FM_TUNE_STATUS_CMD;
@@ -3151,7 +3239,7 @@ static int silabs_fm_vidioc_g_tuner(struct file *file, void *priv,
 		goto get_prop_fail;
 	}
 
-	
+	/* rssi */
 	tuner->signal = radio->read_buf[4];
 	mutex_unlock(&radio->lock);
 #else
@@ -3222,7 +3310,7 @@ static int silabs_fm_vidioc_g_frequency(struct file *file, void *priv,
 	mutex_lock(&radio->lock);
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
 
-	
+	/* track command that is being sent to chip. */
 	radio->cmd = FM_TUNE_STATUS_CMD;
 
 	radio->write_buf[0] = FM_TUNE_STATUS_CMD;
@@ -3279,10 +3367,10 @@ static int silabs_fm_vidioc_s_frequency(struct file *file, void *priv,
 
 	retval = tune(radio, f);
 
-	
+	/* save the current frequency if tune is successful. */
 	if (retval > 0) {
 		radio->tuned_freq_khz = f;
-		
+		/* Clear AF list */
 		reset_af_info(radio);
 		cancel_delayed_work_sync(&radio->work_af);
 		flush_workqueue(radio->wqueue_af);
@@ -3316,7 +3404,7 @@ static int silabs_fm_vidioc_s_hw_freq_seek(struct file *file, void *priv,
 	radio->is_search_cancelled = false;
 
 	if (radio->g_search_mode == SEEK) {
-		
+		/* seek */
 		FMDINFO("starting seek\n");
 
 		radio->seek_tune_status = SEEK_PENDING;
@@ -3325,7 +3413,7 @@ static int silabs_fm_vidioc_s_hw_freq_seek(struct file *file, void *priv,
 
 	} else if ((radio->g_search_mode == SCAN) ||
 			(radio->g_search_mode == SCAN_FOR_STRONG)) {
-		
+		/* scan */
 		if (radio->g_search_mode == SCAN_FOR_STRONG) {
 			FMDBG("starting search list\n");
 			memset(&radio->srch_list, 0,
@@ -3342,7 +3430,7 @@ static int silabs_fm_vidioc_s_hw_freq_seek(struct file *file, void *priv,
 	}
 
 	if (retval > 0) {
-		
+		/* Clear AF list */
 		reset_af_info(radio);
 		cancel_delayed_work_sync(&radio->work_af);
 		flush_workqueue(radio->wqueue_af);
@@ -3569,13 +3657,18 @@ static int silabs_fm_probe(struct i2c_client *client,
 	vreg = regulator_get(&client->dev, "va");
 
 	if (IS_ERR(vreg)) {
+		/*
+		 * if analog voltage regulator, VA is not ready yet, return
+		 * -EPROBE_DEFER to kernel so that probe will be called at
+		 * later point of time.
+		 */
 		if (PTR_ERR(vreg) == -EPROBE_DEFER) {
 			FMDERR("In %s, areg probe defer\n", __func__);
-			
-			
+			// VA is always on from battery
+			//return PTR_ERR(vreg);
 		}
 	}
-	
+	/* private data allocation */
 	radio = kzalloc(sizeof(struct silabs_fm_device), GFP_KERNEL);
 	if (!radio) {
 		FMDERR("Memory not allocated for radio\n");
@@ -3646,12 +3739,12 @@ static int silabs_fm_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* Initialize pin control*/
 	retval = silabs_fm_pinctrl_init(radio);
 	if (retval) {
 		FMDERR("%s: silabs_fm_pinctrl_init returned %d\n",
 							__func__, retval);
-		
+		/* if pinctrl is not supported, -EINVAL is returned*/
 		if (retval == -EINVAL)
 			retval = 0;
 	} else {
@@ -3663,13 +3756,13 @@ static int silabs_fm_probe(struct i2c_client *client,
 	radio->wqueue_af = NULL;
 	radio->wqueue_rds = NULL;
 
-	
+	/* video device allocation */
 	radio->videodev = video_device_alloc();
 	if (!radio->videodev) {
 		FMDERR("radio->videodev is NULL\n");
 		goto err_dreg;
 	}
-	
+	/* initial configuration */
 	memcpy(radio->videodev, &silabs_fm_viddev_template,
 	  sizeof(silabs_fm_viddev_template));
 	strlcpy(radio->v4l2_dev.name, DRIVER_NAME,
@@ -3679,7 +3772,7 @@ static int silabs_fm_probe(struct i2c_client *client,
 		goto err_dreg;
 	radio->videodev->v4l2_dev = &radio->v4l2_dev;
 
-	
+	/*allocate internal buffers for decoded rds and event buffer*/
 	for (i = 0; i < SILABS_FM_BUF_MAX; i++) {
 		spin_lock_init(&radio->buf_lock[i]);
 
@@ -3700,25 +3793,29 @@ static int silabs_fm_probe(struct i2c_client *client,
 			goto err_fifo_alloc;
 		}
 	}
-	
+	/* initializing the device count  */
 	atomic_set(&radio->users, 1);
 
-	
+	/* radio initializes to normal mode */
 	radio->lp_mode = 0;
 	radio->handle_irq = 1;
 	radio->af_wait_timer = AF_WAIT_SEC;
-	
+	/* init lock */
 	mutex_init(&radio->lock);
 	radio->tune_req = 0;
 	radio->seek_tune_status = 0;
 	init_completion(&radio->sync_req_done);
-	
+	/* initialize wait queue for event read */
 	init_waitqueue_head(&radio->event_queue);
-	
+	/* initialize wait queue for raw rds read */
 	init_waitqueue_head(&radio->read_queue);
 
 	video_set_drvdata(radio->videodev, radio);
 
+	/*
+	 * Start the worker thread for event handling and register read_int_stat
+	 * as worker function
+	 */
 	radio->wqueue  = create_singlethread_workqueue("sifmradio");
 
 	if (!radio->wqueue) {
@@ -3749,7 +3846,7 @@ static int silabs_fm_probe(struct i2c_client *client,
 		goto err_wqueue_rds;
 	}
 
-	
+	/* register video device */
 	retval = video_register_device(radio->videodev,
 			VFL_TYPE_RADIO,
 			RADIO_NR);
@@ -3805,7 +3902,7 @@ static int silabs_fm_remove(struct i2c_client *client)
 		regulator_put(radio->areg->reg);
 		devm_kfree(&client->dev, radio->areg);
 	}
-	
+	/* disable irq */
 	destroy_workqueue(radio->wqueue);
 	destroy_workqueue(radio->wqueue_scan);
 	destroy_workqueue(radio->wqueue_af);
@@ -3813,11 +3910,11 @@ static int silabs_fm_remove(struct i2c_client *client)
 
 	video_unregister_device(radio->videodev);
 
-	
+	/* free internal buffers */
 	for (i = 0; i < SILABS_FM_BUF_MAX; i++)
 		kfifo_free(&radio->data_buf[i]);
 
-	
+	/* free state struct */
 	kfree(radio);
 
 	return 0;

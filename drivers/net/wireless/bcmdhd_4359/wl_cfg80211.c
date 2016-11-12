@@ -7761,7 +7761,7 @@ static s32 wl_cfg80211_bcn_set_params(
 		} else {
 				
 			memset(cfg->p2p->ssid.SSID, 0x00, DOT11_MAX_SSID_LEN);
-			memcpy(cfg->p2p->ssid.SSID, info->ssid, cfg->p2p->ssid.SSID_len);
+			memcpy(cfg->p2p->ssid.SSID, info->ssid, info->ssid_len);
 			cfg->p2p->ssid.SSID_len = info->ssid_len;
 		}
 	}

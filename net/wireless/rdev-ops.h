@@ -945,4 +945,4 @@ rdev_del_tx_ts(struct cfg80211_registered_device *rdev,
 	return ret;
 }
 
-#endif 
+#endif /* __CFG80211_RDEV_OPS */

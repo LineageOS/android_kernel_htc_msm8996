@@ -37,8 +37,15 @@ void send_signal_debug_dump(int sig, struct task_struct *t)
 
 	struct task_comm *tc;
 
+/* 1. disable blocked states dump for performance reason
+   2. disable this check due to there are too much warning log during booting
+      2-1 During booting, framework will launch all processes which need to receive boot-complete intent
+          And it will easy to trigger 100+ processes, then ActivityManager will start to reduce process number.
+      2-2 ActivityManager will use Process.killProcessGroup to kill forked processes
+          libprocessgroup uses a for-loop to kill process, that’s why you see the same process be killed many times
+ */
 #if 0
-	
+	// dump infomation for unkillable processes when receiving sigkill
 	if(sig == SIGKILL){
 		if((t->state & TASK_UNINTERRUPTIBLE) || (t->exit_state & EXIT_ZOMBIE)){
 			printk(KERN_WARNING "%s: %s(%d) send SIGKILL to %s(%d), but %s might not dead right now due to its %s state.\n",
@@ -49,7 +56,7 @@ void send_signal_debug_dump(int sig, struct task_struct *t)
 			if(t->exit_state & EXIT_ZOMBIE)
 				printk(KERN_WARNING "Please check its parent:%s(%d) or thread group.\n",
 					t->real_parent->comm, t->real_parent->pid);
-			
+			// give it 1 second to die, then dump stack
 			schedule_delayed_work(&show_block_state_struct, 1 * HZ);
 		}
 	}

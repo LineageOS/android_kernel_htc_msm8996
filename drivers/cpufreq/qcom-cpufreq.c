@@ -150,6 +150,12 @@ static int msm_cpufreq_init(struct cpufreq_policy *policy)
 			per_cpu(freq_table, policy->cpu);
 	int cpu;
 
+	/*
+	 * In some SoC, some cores are clocked by same source, and their
+	 * frequencies can not be changed independently. Find all other
+	 * CPUs that share same clock, and mark them as controlled by
+	 * same policy.
+	 */
 	for_each_possible_cpu(cpu)
 		if (cpu_clk[cpu] == cpu_clk[policy->cpu])
 			cpumask_set_cpu(cpu, policy->cpus);
@@ -167,6 +173,10 @@ static int msm_cpufreq_init(struct cpufreq_policy *policy)
 				policy->cpu, cur_freq);
 		return -EINVAL;
 	}
+	/*
+	 * Call set_cpu_freq unconditionally so that when cpu is set to
+	 * online, frequency limit will always be updated.
+	 */
 	ret = set_cpu_freq(policy, table[index].frequency,
 			   table[index].driver_data);
 	if (ret)
@@ -185,7 +195,7 @@ static int msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 	unsigned int cpu = (unsigned long)hcpu;
 	int rc;
 
-	
+	/* Fail hotplug until this driver can get CPU clocks */
 	if (!hotplug_ready)
 		return NOTIFY_BAD;
 
@@ -195,6 +205,10 @@ static int msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 		clk_disable(cpu_clk[cpu]);
 		clk_disable(l2_clk);
 		break;
+	/*
+	 * Scale down clock/power of CPU that is dead and scale it back up
+	 * before the CPU is brought up.
+	 */
 	case CPU_DEAD:
 		clk_unprepare(cpu_clk[cpu]);
 		clk_unprepare(l2_clk);
@@ -273,6 +287,11 @@ static int msm_cpufreq_resume(void)
 		per_cpu(suspend_data, cpu).device_suspended = 0;
 	}
 
+	/*
+	 * Freq request might be rejected during suspend, resulting
+	 * in policy->cur violating min/max constraint.
+	 * Correct the frequency as soon as possible.
+	 */
 	get_online_cpus();
 	for_each_online_cpu(cpu) {
 		ret = cpufreq_get_policy(&policy, cpu);
@@ -318,7 +337,7 @@ static struct freq_attr *msm_freq_attr[] = {
 };
 
 static struct cpufreq_driver msm_cpufreq_driver = {
-	
+	/* lps calculations are handled here. */
 	.flags		= CPUFREQ_STICKY | CPUFREQ_CONST_LOOPS,
 	.init		= msm_cpufreq_init,
 	.verify		= msm_cpufreq_verify,
@@ -335,7 +354,7 @@ static struct cpufreq_frequency_table *cpufreq_parse_dt(struct device *dev,
 	u32 *data;
 	struct cpufreq_frequency_table *ftbl;
 
-	
+	/* Parse list of usable CPU frequencies. */
 	if (!of_find_property(dev->of_node, tbl_name, &nf))
 		return ERR_PTR(-EINVAL);
 	nf /= sizeof(*data);
@@ -363,6 +382,21 @@ static struct cpufreq_frequency_table *cpufreq_parse_dt(struct device *dev,
 			break;
 		f /= 1000;
 
+		/*
+		 * Check if this is the last feasible frequency in the table.
+		 *
+		 * The table listing frequencies higher than what the HW can
+		 * support is not an error since the table might be shared
+		 * across CPUs in different speed bins. It's also not
+		 * sufficient to check if the rounded rate is lower than the
+		 * requested rate as it doesn't cover the following example:
+		 *
+		 * Table lists: 2.2 GHz and 2.5 GHz.
+		 * Rounded rate returns: 2.2 GHz and 2.3 GHz.
+		 *
+		 * In this case, we can CPUfreq to use 2.2 GHz and 2.3 GHz
+		 * instead of rejecting the 2.5 GHz table entry.
+		 */
 		if (i > 0 && f <= ftbl[i-1].frequency)
 			break;
 
@@ -400,11 +434,11 @@ static int __init msm_cpufreq_probe(struct platform_device *pdev)
 	}
 	hotplug_ready = true;
 
-	
+	/* Use per-policy governor tunable for some targets */
 	if (of_property_read_bool(dev->of_node, "qcom,governor-per-policy"))
 		msm_cpufreq_driver.flags |= CPUFREQ_HAVE_GOVERNOR_PER_POLICY;
 
-	
+	/* Parse commong cpufreq table for all CPUs */
 	ftbl = cpufreq_parse_dt(dev, "qcom,cpufreq-table", 0);
 	if (!IS_ERR(ftbl)) {
 		for_each_possible_cpu(cpu)
@@ -412,12 +446,16 @@ static int __init msm_cpufreq_probe(struct platform_device *pdev)
 		return 0;
 	}
 
+	/*
+	 * No common table. Parse individual tables for each unique
+	 * CPU clock.
+	 */
 	for_each_possible_cpu(cpu) {
 		snprintf(tbl_name, sizeof(tbl_name),
 			 "qcom,cpufreq-table-%d", cpu);
 		ftbl = cpufreq_parse_dt(dev, tbl_name, cpu);
 
-		
+		/* CPU0 must contain freq table */
 		if (cpu == 0 && IS_ERR(ftbl)) {
 			dev_err(dev, "Failed to parse CPU0's freq table\n");
 			return PTR_ERR(ftbl);
@@ -433,7 +471,7 @@ static int __init msm_cpufreq_probe(struct platform_device *pdev)
 			return PTR_ERR(ftbl);
 		}
 
-		
+		/* Use previous CPU's table if it shares same clock */
 		if (cpu_clk[cpu] == cpu_clk[cpu - 1]) {
 			if (!IS_ERR(ftbl)) {
 				dev_warn(dev, "Conflicting tables for CPU%d\n",
@@ -473,7 +511,7 @@ static int __init msm_cpufreq_register(void)
 	rc = platform_driver_probe(&msm_cpufreq_plat_driver,
 				   msm_cpufreq_probe);
 	if (rc < 0) {
-		
+		/* Unblock hotplug if msm-cpufreq probe fails */
 		unregister_hotcpu_notifier(&msm_cpufreq_cpu_notifier);
 		for_each_possible_cpu(cpu)
 			mutex_destroy(&(per_cpu(suspend_data, cpu).
