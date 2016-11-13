@@ -73,15 +73,3 @@ void htc_debug_watchdog_dump_irqs(unsigned int dump)
 #endif /* !defined(CONFIG_SPARSE_IRQ) */
 
 #endif /* CONFIG_HTC_DEBUG_WATCHDOG */
-
-/* n.b.:
- * 1. sched_clock is not irq safe
- * 2. 32 bit: overflows every 4,294,967,296 msecs
- */
-unsigned long htc_debug_get_sched_clock_ms(void)
-{
-	unsigned long long timestamp;
-	timestamp = sched_clock();
-	do_div(timestamp, NSEC_PER_MSEC);
-	return ((unsigned long) timestamp);
-}
