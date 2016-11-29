@@ -331,3 +331,15 @@ config HTC_PNPMGR
 	  depends on PM
 	  ---help---
 	  Collect the sysfs files nodes for pnpmgr usage.
+
+config PERFORMANCE_CLUSTER_CPU_MASK
+	hex "Performance cluster cpu mask"
+	default 0x0c
+	help
+	   Allows kernel to know performance cluster cpu mask.
+
+config POWER_CLUSTER_CPU_MASK
+	hex "Power cluster cpu mask"
+	default 0x03
+	help
+	   Allows kernel to know power cluster cpu mask.
