@@ -423,7 +423,7 @@ static s32 wl_cfg80211_mgmt_tx_cancel_wait(struct wiphy *wiphy,
 	bcm_struct_cfgdev *cfgdev, u64 cookie);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0))
 static s32 wl_cfg80211_del_station(struct wiphy *wiphy,
-	struct net_device *ndev, const u8* mac_addr);
+	struct net_device *ndev, struct station_del_parameters *params);
 #else
 static s32 wl_cfg80211_del_station(struct wiphy *wiphy,
 	struct net_device *ndev, u8* mac_addr);
@@ -8260,7 +8260,7 @@ static s32
 wl_cfg80211_del_station(
 	struct wiphy *wiphy,
 	struct net_device *ndev,
-	const u8* mac_addr)
+	struct station_del_parameters *params)
 #else
 static s32
 wl_cfg80211_del_station(
@@ -8269,6 +8269,9 @@ wl_cfg80211_del_station(
 	u8* mac_addr)
 #endif
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0))
+	const u8* mac_addr = params ? params->mac : NULL;
+#endif
 	struct net_device *dev;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	scb_val_t scb_val;
