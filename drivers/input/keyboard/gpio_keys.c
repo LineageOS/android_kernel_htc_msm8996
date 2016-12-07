@@ -329,7 +329,7 @@ static void debug_combine_key(unsigned int code, int value)
 		show_state_filter(TASK_UNINTERRUPTIBLE);
 }
 
-static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
+static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata, bool debug)
 {
 	const struct gpio_keys_button *button = bdata->button;
 	struct input_dev *input = bdata->input;
@@ -340,15 +340,17 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 
 	if (type == EV_ABS) {
 		if (state) {
-			pr_info("[KEY] %s: key %x-%x, (%d) changed to %d\n",
-				__func__, type, button->code, button->gpio, button->value);
+			if (debug || button->value)
+				pr_info("[KEY] %s: key %x-%x, (%d) changed to %d\n",
+					__func__, type, button->code, button->gpio, button->value);
 
 					debug_combine_key(button->code, button->value);
 					input_event(input, type, button->code, button->value);
 		}
 	} else {
-		pr_info("[KEY] %s: key %x-%x, (%d) changed to %d\n",
-			__func__, type, button->code, button->gpio, !!state);
+		if (debug || !!state)
+			pr_info("[KEY] %s: key %x-%x, (%d) changed to %d\n",
+				__func__, type, button->code, button->gpio, !!state);
 
 		debug_combine_key(button->code, !!state);
 		input_event(input, type, button->code, !!state);
@@ -411,7 +413,7 @@ static void gpio_keys_gpio_work_func(struct work_struct *work)
 			+ msecs_to_jiffies(bdata->button->debounce_interval));
 	} else {
 		bdata->bouncing_flag = DEBOUNCE_WAIT_IRQ;
-		gpio_keys_gpio_report_event(bdata);
+		gpio_keys_gpio_report_event(bdata, true);
 		if (bdata->button->wakeup)
 			pm_relax(bdata->input->dev.parent);
 	}
@@ -666,7 +668,7 @@ static void gpio_keys_report_state(struct gpio_keys_drvdata *ddata)
 	for (i = 0; i < ddata->pdata->nbuttons; i++) {
 		struct gpio_button_data *bdata = &ddata->data[i];
 		if (gpio_is_valid(bdata->button->gpio))
-			gpio_keys_gpio_report_event(bdata);
+			gpio_keys_gpio_report_event(bdata, false);
 	}
 	input_sync(input);
 }

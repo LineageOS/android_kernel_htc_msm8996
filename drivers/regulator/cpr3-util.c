@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,6 +14,7 @@
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
+#include <linux/cpumask.h>
 #include <linux/device.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
@@ -231,7 +232,7 @@ int cpr3_parse_array_property(struct cpr3_regulator *vreg,
 		offset = tuple_size * vreg->speed_bin_fuse;
 	} else {
 		if (vreg->speed_bins_supported > 0)
-			cpr3_err(vreg, "property %s has invalid length=%d, should be %lu, %lu, or %lu\n",
+			cpr3_err(vreg, "property %s has invalid length=%d, should be %zu, %zu, or %zu\n",
 				prop_name, len,
 				tuple_size * sizeof(u32),
 				tuple_size * vreg->speed_bins_supported
@@ -239,7 +240,7 @@ int cpr3_parse_array_property(struct cpr3_regulator *vreg,
 				tuple_size * vreg->fuse_combos_supported
 					   * sizeof(u32));
 		else
-			cpr3_err(vreg, "property %s has invalid length=%d, should be %lu or %lu\n",
+			cpr3_err(vreg, "property %s has invalid length=%d, should be %zu or %zu\n",
 				prop_name, len,
 				tuple_size * sizeof(u32),
 				tuple_size * vreg->fuse_combos_supported
@@ -282,7 +283,7 @@ int cpr3_parse_corner_array_property(struct cpr3_regulator *vreg,
 		offset = tuple_size * vreg->speed_bin_offset;
 	} else {
 		if (vreg->speed_bin_corner_sum > 0)
-			cpr3_err(vreg, "property %s has invalid length=%d, should be %lu, %lu, or %lu\n",
+			cpr3_err(vreg, "property %s has invalid length=%d, should be %zu, %zu, or %zu\n",
 				prop_name, len,
 				tuple_size * vreg->corner_count * sizeof(u32),
 				tuple_size * vreg->speed_bin_corner_sum
@@ -290,7 +291,7 @@ int cpr3_parse_corner_array_property(struct cpr3_regulator *vreg,
 				tuple_size * vreg->fuse_combo_corner_sum
 					   * sizeof(u32));
 		else
-			cpr3_err(vreg, "property %s has invalid length=%d, should be %lu or %lu\n",
+			cpr3_err(vreg, "property %s has invalid length=%d, should be %zu or %zu\n",
 				prop_name, len,
 				tuple_size * vreg->corner_count * sizeof(u32),
 				tuple_size * vreg->fuse_combo_corner_sum
@@ -299,6 +300,60 @@ int cpr3_parse_corner_array_property(struct cpr3_regulator *vreg,
 	}
 
 	for (i = 0; i < tuple_size * vreg->corner_count; i++) {
+		rc = of_property_read_u32_index(node, prop_name, offset + i,
+						&out[i]);
+		if (rc) {
+			cpr3_err(vreg, "error reading property %s, rc=%d\n",
+				prop_name, rc);
+			return rc;
+		}
+	}
+
+	return 0;
+}
+
+int cpr3_parse_corner_band_array_property(struct cpr3_regulator *vreg,
+		const char *prop_name, int tuple_size, u32 *out)
+{
+	struct device_node *node = vreg->of_node;
+	int len = 0;
+	int i, offset, rc;
+
+	if (!of_find_property(node, prop_name, &len)) {
+		cpr3_err(vreg, "property %s is missing\n", prop_name);
+		return -EINVAL;
+	}
+
+	if (len == tuple_size * vreg->corner_band_count * sizeof(u32)) {
+		offset = 0;
+	} else if (len == tuple_size * vreg->fuse_combo_corner_band_sum
+				     * sizeof(u32)) {
+		offset = tuple_size * vreg->fuse_combo_corner_band_offset;
+	} else if (vreg->speed_bin_corner_band_sum > 0 &&
+		 len == tuple_size * vreg->speed_bin_corner_band_sum *
+		   sizeof(u32)) {
+		offset = tuple_size * vreg->speed_bin_corner_band_offset;
+	} else {
+		if (vreg->speed_bin_corner_band_sum > 0)
+			cpr3_err(vreg, "property %s has invalid length=%d, should be %zu, %zu, or %zu\n",
+				prop_name, len,
+				tuple_size * vreg->corner_band_count *
+				 sizeof(u32),
+				tuple_size * vreg->speed_bin_corner_band_sum
+					   * sizeof(u32),
+				tuple_size * vreg->fuse_combo_corner_band_sum
+					   * sizeof(u32));
+		else
+			cpr3_err(vreg, "property %s has invalid length=%d, should be %zu or %zu\n",
+				prop_name, len,
+				tuple_size * vreg->corner_band_count *
+				 sizeof(u32),
+				tuple_size * vreg->fuse_combo_corner_band_sum
+					   * sizeof(u32));
+		return -EINVAL;
+	}
+
+	for (i = 0; i < tuple_size * vreg->corner_band_count; i++) {
 		rc = of_property_read_u32_index(node, prop_name, offset + i,
 						&out[i]);
 		if (rc) {
@@ -335,28 +390,32 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 		return -EINVAL;
 	}
 
-	rc = of_property_read_u32(node, "qcom,cpr-fuse-combos",
-				&max_fuse_combos);
-	if (rc) {
-		cpr3_err(vreg, "error reading property qcom,cpr-fuse-combos, rc=%d\n",
-			rc);
-		return rc;
-	}
+	if (vreg->fuse_combos_supported)
+		max_fuse_combos = vreg->fuse_combos_supported;
+	else {
+		rc = of_property_read_u32(node, "qcom,cpr-fuse-combos",
+					&max_fuse_combos);
+		if (rc) {
+			cpr3_err(vreg, "error reading property qcom,cpr-fuse-combos, rc=%d\n",
+				rc);
+			return rc;
+		}
 
-	if (max_fuse_combos > 100 || max_fuse_combos == 0) {
-		cpr3_err(vreg, "qcom,cpr-fuse-combos is invalid: %u\n",
-			max_fuse_combos);
-		return -EINVAL;
-	}
+		if (max_fuse_combos > 100 || max_fuse_combos == 0) {
+			cpr3_err(vreg, "qcom,cpr-fuse-combos is invalid: %u\n",
+				max_fuse_combos);
+			return -EINVAL;
+		}
 
-	if (vreg->fuse_combo >= max_fuse_combos) {
-		cpr3_err(vreg, "device tree config supports fuse combos 0-%u but the hardware has combo %d\n",
-			max_fuse_combos - 1, vreg->fuse_combo);
-		BUG_ON(1);
-		return -EINVAL;
-	}
+		if (vreg->fuse_combo >= max_fuse_combos) {
+			cpr3_err(vreg, "device tree config supports fuse combos 0-%u but the hardware has combo %d\n",
+				max_fuse_combos - 1, vreg->fuse_combo);
+			BUG_ON(1);
+			return -EINVAL;
+		}
 
-	vreg->fuse_combos_supported = max_fuse_combos;
+		vreg->fuse_combos_supported = max_fuse_combos;
+	}
 
 	of_property_read_u32(node, "qcom,cpr-speed-bins", &max_speed_bins);
 
@@ -444,8 +503,11 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 		kfree(speed_bin_corners);
 	}
 
-	vreg->corner = devm_kcalloc(ctrl->dev, vreg->corner_count,
-			sizeof(*vreg->corner), GFP_KERNEL);
+	vreg->corner = devm_kcalloc(ctrl->dev, ctrl->ctrl_type ==
+				    CPR_CTRL_TYPE_CPRH ?
+				    vreg->corner_count + 1 :
+				    vreg->corner_count,
+				    sizeof(*vreg->corner), GFP_KERNEL);
 	temp = kcalloc(vreg->corner_count, sizeof(*temp), GFP_KERNEL);
 	if (!vreg->corner || !temp)
 		return -ENOMEM;
@@ -454,9 +516,11 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 			1, temp);
 	if (rc)
 		goto free_temp;
-	for (i = 0; i < vreg->corner_count; i++)
+	for (i = 0; i < vreg->corner_count; i++) {
 		vreg->corner[i].ceiling_volt
 			= CPR3_ROUND(temp[i], ctrl->step_volt);
+		vreg->corner[i].abs_ceiling_volt = vreg->corner[i].ceiling_volt;
+	}
 
 	rc = cpr3_parse_corner_array_property(vreg, "qcom,cpr-voltage-floor",
 			1, temp);
@@ -507,11 +571,19 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 		}
 	}
 
+	vreg->fuse_corner_map = devm_kcalloc(ctrl->dev, vreg->fuse_corner_count,
+				    sizeof(*vreg->fuse_corner_map), GFP_KERNEL);
+	if (!vreg->fuse_corner_map) {
+		rc = -ENOMEM;
+		goto free_temp;
+	}
+
 	rc = cpr3_parse_array_property(vreg, "qcom,cpr-corner-fmax-map",
 		vreg->fuse_corner_count, temp);
 	if (rc)
 		goto free_temp;
 	for (i = 0; i < vreg->fuse_corner_count; i++) {
+		vreg->fuse_corner_map[i] = temp[i] - CPR3_CORNER_OFFSET;
 		if (temp[i] < CPR3_CORNER_OFFSET
 		    || temp[i] > vreg->corner_count + CPR3_CORNER_OFFSET) {
 			cpr3_err(vreg, "invalid corner value specified in qcom,cpr-corner-fmax-map: %u\n",
@@ -525,19 +597,21 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 			goto free_temp;
 		}
 	}
-	if (temp[vreg->fuse_corner_count - 1] != vreg->corner_count) {
-		cpr3_err(vreg, "highest Fmax corner %u in qcom,cpr-corner-fmax-map does not match highest supported corner %d\n",
+	if (temp[vreg->fuse_corner_count - 1] != vreg->corner_count)
+		cpr3_debug(vreg, "Note: highest Fmax corner %u in qcom,cpr-corner-fmax-map does not match highest supported corner %d\n",
 			temp[vreg->fuse_corner_count - 1],
 			vreg->corner_count);
-		rc = -EINVAL;
-		goto free_temp;
-	}
+
 	for (i = 0; i < vreg->corner_count; i++) {
 		for (j = 0; j < vreg->fuse_corner_count; j++) {
 			if (i + CPR3_CORNER_OFFSET <= temp[j]) {
 				vreg->corner[i].cpr_fuse_corner = j;
 				break;
 			}
+		}
+		if (j == vreg->fuse_corner_count) {
+			vreg->corner[i].cpr_fuse_corner
+				= vreg->fuse_corner_count - 1;
 		}
 	}
 
@@ -550,6 +624,17 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 			goto free_temp;
 
 		vreg->aging_allowed = aging_allowed;
+	}
+
+	if (of_find_property(vreg->of_node,
+		       "qcom,allow-aging-open-loop-voltage-adjustment", NULL)) {
+		rc = cpr3_parse_array_property(vreg,
+			"qcom,allow-aging-open-loop-voltage-adjustment",
+			1, &aging_allowed);
+		if (rc)
+			goto free_temp;
+
+		vreg->aging_allow_open_loop_adj = aging_allowed;
 	}
 
 	if (vreg->aging_allowed) {
@@ -675,6 +760,108 @@ int cpr3_parse_common_thread_data(struct cpr3_thread *thread)
 	return rc;
 }
 
+static int cpr3_parse_irq_affinity(struct cpr3_controller *ctrl)
+{
+	struct device_node *cpu_node;
+	int i, cpu;
+	int len = 0;
+
+	if (!of_find_property(ctrl->dev->of_node, "qcom,cpr-interrupt-affinity",
+				&len)) {
+		
+		return 0;
+	}
+
+	len /= sizeof(u32);
+
+	for (i = 0; i < len; i++) {
+		cpu_node = of_parse_phandle(ctrl->dev->of_node,
+					    "qcom,cpr-interrupt-affinity", i);
+		if (!cpu_node) {
+			cpr3_err(ctrl, "could not find CPU node %d\n", i);
+			return -EINVAL;
+		}
+
+		for_each_possible_cpu(cpu) {
+			if (of_get_cpu_node(cpu, NULL) == cpu_node) {
+				cpumask_set_cpu(cpu, &ctrl->irq_affinity_mask);
+				break;
+			}
+		}
+		of_node_put(cpu_node);
+	}
+
+	return 0;
+}
+
+static int cpr3_panic_notifier_init(struct cpr3_controller *ctrl)
+{
+	struct device_node *node = ctrl->dev->of_node;
+	struct cpr3_panic_regs_info *panic_regs_info;
+	struct cpr3_reg_info *regs;
+	int i, reg_count, len, rc = 0;
+
+	if (!of_find_property(node, "qcom,cpr-panic-reg-addr-list", &len)) {
+		
+		return rc;
+	}
+
+	reg_count = len / sizeof(u32);
+	if (!reg_count) {
+		cpr3_err(ctrl, "qcom,cpr-panic-reg-addr-list has invalid len = %d\n",
+			len);
+		return -EINVAL;
+	}
+
+	if (!of_find_property(node, "qcom,cpr-panic-reg-name-list", NULL)) {
+		cpr3_err(ctrl, "property qcom,cpr-panic-reg-name-list not specified\n");
+		return -EINVAL;
+	}
+
+	len = of_property_count_strings(node, "qcom,cpr-panic-reg-name-list");
+	if (reg_count != len) {
+		cpr3_err(ctrl, "qcom,cpr-panic-reg-name-list should have %d strings\n",
+			reg_count);
+		return -EINVAL;
+	}
+
+	panic_regs_info = devm_kzalloc(ctrl->dev, sizeof(*panic_regs_info),
+					GFP_KERNEL);
+	if (!panic_regs_info)
+		return -ENOMEM;
+
+	regs = devm_kcalloc(ctrl->dev, reg_count, sizeof(*regs), GFP_KERNEL);
+	if (!regs)
+		return -ENOMEM;
+
+	for (i = 0; i < reg_count; i++) {
+		rc = of_property_read_string_index(node,
+				"qcom,cpr-panic-reg-name-list", i,
+				&(regs[i].name));
+		if (rc) {
+			cpr3_err(ctrl, "error reading property qcom,cpr-panic-reg-name-list, rc=%d\n",
+				rc);
+			return rc;
+		}
+
+		rc = of_property_read_u32_index(node,
+				"qcom,cpr-panic-reg-addr-list", i,
+				&(regs[i].addr));
+		if (rc) {
+			cpr3_err(ctrl, "error reading property qcom,cpr-panic-reg-addr-list, rc=%d\n",
+				rc);
+			return rc;
+		}
+		regs[i].value = 0xFFFFFFFF;
+	}
+
+	panic_regs_info->reg_count = reg_count;
+	panic_regs_info->regs = regs;
+	ctrl->panic_regs_info = panic_regs_info;
+
+	return rc;
+}
+
 int cpr3_parse_common_ctrl_data(struct cpr3_controller *ctrl)
 {
 	int rc;
@@ -734,19 +921,14 @@ int cpr3_parse_common_ctrl_data(struct cpr3_controller *ctrl)
 	ctrl->cpr_allowed_sw = of_property_read_bool(ctrl->dev->of_node,
 			"qcom,cpr-enable");
 
+	rc = cpr3_parse_irq_affinity(ctrl);
+	if (rc)
+		return rc;
+
 	
 	ctrl->aging_ref_volt = 0;
 	of_property_read_u32(ctrl->dev->of_node, "qcom,cpr-aging-ref-voltage",
 			&ctrl->aging_ref_volt);
-
-	ctrl->vdd_regulator = devm_regulator_get(ctrl->dev, "vdd");
-	if (IS_ERR(ctrl->vdd_regulator)) {
-		rc = PTR_ERR(ctrl->vdd_regulator);
-		if (rc != -EPROBE_DEFER)
-			cpr3_err(ctrl, "unable request vdd regulator, rc=%d\n",
-				rc);
-		return rc;
-	}
 
 	if (of_find_property(ctrl->dev->of_node, "clock-names", NULL)) {
 		ctrl->core_clk = devm_clk_get(ctrl->dev, "core_clk");
@@ -757,6 +939,18 @@ int cpr3_parse_common_ctrl_data(struct cpr3_controller *ctrl)
 				rc);
 			return rc;
 		}
+	}
+
+	if (ctrl->ctrl_type == CPR_CTRL_TYPE_CPRH)
+		return rc;
+
+	ctrl->vdd_regulator = devm_regulator_get(ctrl->dev, "vdd");
+	if (IS_ERR(ctrl->vdd_regulator)) {
+		rc = PTR_ERR(ctrl->vdd_regulator);
+		if (rc != -EPROBE_DEFER)
+			cpr3_err(ctrl, "unable request vdd regulator, rc=%d\n",
+				 rc);
+		return rc;
 	}
 
 	ctrl->system_regulator = devm_regulator_get_optional(ctrl->dev,
@@ -782,6 +976,8 @@ int cpr3_parse_common_ctrl_data(struct cpr3_controller *ctrl)
 			return rc;
 		}
 	}
+
+	rc = cpr3_panic_notifier_init(ctrl);
 
 	return rc;
 }
@@ -1193,5 +1389,257 @@ int cpr3_mem_acc_init(struct cpr3_regulator *vreg)
 	}
 
 	kfree(temp);
+	return rc;
+}
+
+static int cpr4_load_core_and_temp_adj(struct cpr3_regulator *vreg,
+					int num, bool use_corner_band)
+{
+	struct cpr3_controller *ctrl = vreg->thread->ctrl;
+	struct cpr4_sdelta *sdelta;
+	int sdelta_size, i, j, pos, rc = 0;
+	char str[75];
+	size_t buflen;
+	char *buf;
+
+	sdelta = use_corner_band ? vreg->corner_band[num].sdelta :
+		vreg->corner[num].sdelta;
+
+	if (!sdelta->allow_core_count_adj && !sdelta->allow_temp_adj) {
+		
+		sdelta->max_core_count = 0;
+		sdelta->temp_band_count = 0;
+		return rc;
+	}
+
+	sdelta_size = sdelta->max_core_count * sdelta->temp_band_count;
+	snprintf(str, sizeof(str), use_corner_band ?
+	 "corner_band=%d core_config_count=%d temp_band_count=%d sdelta_size=%d\n"
+	 : "corner=%d core_config_count=%d temp_band_count=%d sdelta_size=%d\n",
+		 num, sdelta->max_core_count,
+		 sdelta->temp_band_count, sdelta_size);
+
+	cpr3_debug(vreg, "%s", str);
+
+	sdelta->table = devm_kcalloc(ctrl->dev, sdelta_size,
+				sizeof(*sdelta->table), GFP_KERNEL);
+	if (!sdelta->table)
+		return -ENOMEM;
+
+	snprintf(str, sizeof(str), use_corner_band ?
+		 "qcom,cpr-corner-band%d-temp-core-voltage-adjustment" :
+		 "qcom,cpr-corner%d-temp-core-voltage-adjustment",
+		 num + CPR3_CORNER_OFFSET);
+
+	rc = cpr3_parse_array_property(vreg, str, sdelta_size,
+				sdelta->table);
+	if (rc) {
+		cpr3_err(vreg, "could not load %s, rc=%d\n", str, rc);
+		return rc;
+	}
+
+	for (i = 0; i < sdelta_size; i++)
+		sdelta->table[i] = -(sdelta->table[i] / ctrl->step_volt);
+
+	buflen = sizeof(*buf) * sdelta_size * (MAX_CHARS_PER_INT + 2);
+	buf = kzalloc(buflen, GFP_KERNEL);
+	if (!buf)
+		return rc;
+
+	for (i = 0; i < sdelta->max_core_count; i++) {
+		for (j = 0, pos = 0; j < sdelta->temp_band_count; j++)
+			pos += scnprintf(buf + pos, buflen - pos, " %u",
+			 sdelta->table[i * sdelta->max_core_count + j]);
+		cpr3_debug(vreg, "sdelta[%d]:%s\n", i, buf);
+	}
+
+	kfree(buf);
+	return rc;
+}
+
+int cpr4_parse_core_count_temp_voltage_adj(
+			struct cpr3_regulator *vreg, bool use_corner_band)
+{
+	struct cpr3_controller *ctrl = vreg->thread->ctrl;
+	struct device_node *node = vreg->of_node;
+	struct cpr3_corner *corner;
+	struct cpr4_sdelta *sdelta;
+	int i, sdelta_table_count, rc = 0;
+	int *allow_core_count_adj = NULL, *allow_temp_adj = NULL;
+	char prop_str[75];
+
+	if (of_find_property(node, use_corner_band ?
+			     "qcom,corner-band-allow-temp-adjustment"
+			     : "qcom,corner-allow-temp-adjustment", NULL)) {
+		if (!ctrl->allow_temp_adj) {
+			cpr3_err(ctrl, "Temperature adjustment configurations missing\n");
+			return -EINVAL;
+		}
+
+		vreg->allow_temp_adj = true;
+	}
+
+	if (of_find_property(node, use_corner_band ?
+			     "qcom,corner-band-allow-core-count-adjustment"
+			     : "qcom,corner-allow-core-count-adjustment",
+			     NULL)) {
+		rc = of_property_read_u32(node, "qcom,max-core-count",
+				&vreg->max_core_count);
+		if (rc) {
+			cpr3_err(vreg, "error reading qcom,max-core-count, rc=%d\n",
+				rc);
+			return -EINVAL;
+		}
+
+		vreg->allow_core_count_adj = true;
+		ctrl->allow_core_count_adj = true;
+	}
+
+	if (!vreg->allow_temp_adj && !vreg->allow_core_count_adj) {
+		return 0;
+	} else if (!vreg->allow_core_count_adj) {
+		vreg->max_core_count = 1;
+	}
+
+	if (vreg->allow_core_count_adj) {
+		allow_core_count_adj = kcalloc(vreg->corner_count,
+					sizeof(*allow_core_count_adj),
+					GFP_KERNEL);
+		if (!allow_core_count_adj)
+			return -ENOMEM;
+
+		snprintf(prop_str, sizeof(prop_str), use_corner_band ?
+			 "qcom,corner-band-allow-core-count-adjustment" :
+			 "qcom,corner-allow-core-count-adjustment");
+
+		rc = use_corner_band ?
+			cpr3_parse_corner_band_array_property(vreg, prop_str,
+					      1, allow_core_count_adj) :
+			cpr3_parse_corner_array_property(vreg, prop_str,
+						 1, allow_core_count_adj);
+		if (rc) {
+			cpr3_err(vreg, "error reading %s, rc=%d\n", prop_str,
+				 rc);
+			goto done;
+		}
+	}
+
+	if (vreg->allow_temp_adj) {
+		allow_temp_adj = kcalloc(vreg->corner_count,
+					sizeof(*allow_temp_adj), GFP_KERNEL);
+		if (!allow_temp_adj) {
+			rc = -ENOMEM;
+			goto done;
+		}
+
+		snprintf(prop_str, sizeof(prop_str), use_corner_band ?
+			 "qcom,corner-band-allow-temp-adjustment" :
+			 "qcom,corner-allow-temp-adjustment");
+
+		rc = use_corner_band ?
+			cpr3_parse_corner_band_array_property(vreg, prop_str,
+						      1, allow_temp_adj) :
+			cpr3_parse_corner_array_property(vreg, prop_str,
+						 1, allow_temp_adj);
+		if (rc) {
+			cpr3_err(vreg, "error reading %s, rc=%d\n", prop_str,
+				 rc);
+			goto done;
+		}
+	}
+
+	sdelta_table_count = use_corner_band ? vreg->corner_band_count :
+		vreg->corner_count;
+
+	for (i = 0; i < sdelta_table_count; i++) {
+		sdelta = devm_kzalloc(ctrl->dev, sizeof(*corner->sdelta),
+				      GFP_KERNEL);
+		if (!sdelta) {
+			rc = -ENOMEM;
+			goto done;
+		}
+
+		if (allow_core_count_adj)
+			sdelta->allow_core_count_adj = allow_core_count_adj[i];
+		if (allow_temp_adj)
+			sdelta->allow_temp_adj = allow_temp_adj[i];
+		sdelta->max_core_count = vreg->max_core_count;
+		sdelta->temp_band_count = ctrl->temp_band_count;
+
+		if (use_corner_band)
+			vreg->corner_band[i].sdelta = sdelta;
+		else
+			vreg->corner[i].sdelta = sdelta;
+
+		rc = cpr4_load_core_and_temp_adj(vreg, i, use_corner_band);
+		if (rc) {
+			cpr3_err(vreg, "corner/band %d core and temp adjustment loading failed, rc=%d\n",
+				 i, rc);
+			goto done;
+		}
+	}
+
+done:
+	kfree(allow_core_count_adj);
+	kfree(allow_temp_adj);
+
+	return rc;
+}
+
+int cpr3_parse_fuse_combo_map(struct cpr3_regulator *vreg, u64 *fuse_val,
+			int fuse_count)
+{
+	struct device_node *node = vreg->of_node;
+	int i, j, len, num_fuse_combos, row_size, rc = 0;
+	u32 *tmp;
+
+	if (!of_find_property(node, "qcom,cpr-fuse-combo-map", &len)) {
+		
+		return -ENODEV;
+	}
+
+	row_size = fuse_count * 2;
+	if (len == 0 || len % (sizeof(u32) * row_size)) {
+		cpr3_err(vreg, "qcom,cpr-fuse-combo-map length=%d is invalid\n",
+			len);
+		return -EINVAL;
+	}
+
+	num_fuse_combos = len / (sizeof(u32) * row_size);
+	vreg->fuse_combos_supported = num_fuse_combos;
+
+	tmp = kzalloc(len, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	rc = of_property_read_u32_array(node, "qcom,cpr-fuse-combo-map",
+			tmp, num_fuse_combos * row_size);
+	if (rc) {
+		cpr3_err(vreg, "could not read qcom,cpr-fuse-combo-map, rc=%d\n",
+			rc);
+		goto done;
+	}
+
+	for (i = 0; i < num_fuse_combos; i++) {
+		for (j = 0; j < fuse_count; j++) {
+			if (tmp[i * row_size + j * 2] > fuse_val[j]
+			      || tmp[i * row_size + j * 2 + 1] < fuse_val[j])
+				break;
+		}
+		if (j == fuse_count) {
+			vreg->fuse_combo = i;
+			break;
+		}
+	}
+
+	if (i >= num_fuse_combos) {
+		cpr3_err(vreg, "No matching CPR fuse combo found!\n");
+		BUG_ON(1);
+		rc = -EINVAL;
+		goto done;
+	}
+
+done:
+	kfree(tmp);
 	return rc;
 }

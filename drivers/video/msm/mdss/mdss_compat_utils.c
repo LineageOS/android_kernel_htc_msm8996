@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  * Copyright (C) 1994 Martin Schaller
  *
  * 2001 - Documented with DocBook
@@ -150,7 +150,7 @@ static struct mdp_input_layer32 *__create_layer_list32(
 			compat_ptr(commit32->commit_v1.input_layers),
 			sizeof(struct mdp_input_layer32) * layer_count);
 	if (ret) {
-		pr_err("layer list32 copy from user failed, ptr %p\n",
+		pr_err("layer list32 copy from user failed, ptr %pK\n",
 			compat_ptr(commit32->commit_v1.input_layers));
 		kfree(layer_list32);
 		ret = -EFAULT;
@@ -182,7 +182,7 @@ static int __copy_scale_params(struct mdp_input_layer *layer,
 			sizeof(struct mdp_scale_data));
 	if (ret) {
 		kfree(scale);
-		pr_err("scale param copy from user failed, ptr %p\n",
+		pr_err("scale param copy from user failed, ptr %pK\n",
 			compat_ptr(layer32->scale));
 		ret = -EFAULT;
 	} else {
@@ -197,7 +197,7 @@ static struct mdp_input_layer *__create_layer_list(
 	struct mdp_input_layer32 *layer_list32,
 	u32 layer_count)
 {
-	int i, ret;
+	int i, ret = 0;
 	u32 buffer_size;
 	struct mdp_input_layer *layer, *layer_list;
 	struct mdp_input_layer32 *layer32;
@@ -299,16 +299,15 @@ static int __compat_atomic_commit(struct fb_info *info, unsigned int cmd,
 	struct mdp_layer_commit  commit;
 	struct mdp_layer_commit32 commit32;
 	u32 layer_count;
-	struct mdp_input_layer *layer_list = NULL, *layer;
+	struct mdp_input_layer *layer_list = NULL;
 	struct mdp_input_layer32 *layer_list32 = NULL;
 	struct mdp_output_layer *output_layer = NULL;
-	struct mdp_frc_info *frc_info = NULL;
 
 	/* copy top level memory from 32 bit structure to kernel memory */
 	ret = copy_from_user(&commit32, (void __user *)argp,
 		sizeof(struct mdp_layer_commit32));
 	if (ret) {
-		pr_err("%s:copy_from_user failed, ptr %p\n", __func__,
+		pr_err("%s:copy_from_user failed, ptr %pK\n", __func__,
 			(void __user *)argp);
 		ret = -EFAULT;
 		return ret;
@@ -326,7 +325,7 @@ static int __compat_atomic_commit(struct fb_info *info, unsigned int cmd,
 				compat_ptr(commit32.commit_v1.output_layer),
 				buffer_size);
 		if (ret) {
-			pr_err("fail to copy output layer from user, ptr %p\n",
+			pr_err("fail to copy output layer from user, ptr %pK\n",
 				compat_ptr(commit32.commit_v1.output_layer));
 			ret = -EFAULT;
 			goto layer_list_err;
@@ -362,29 +361,6 @@ static int __compat_atomic_commit(struct fb_info *info, unsigned int cmd,
 		}
 	}
 
-	if (commit32.commit_v1.frc_info) {
-		int buffer_size = sizeof(struct mdp_frc_info);
-
-		frc_info = kzalloc(buffer_size, GFP_KERNEL);
-		if (!frc_info) {
-			ret = -ENOMEM;
-			goto frc_err;
-		}
-
-		ret = copy_from_user(frc_info,
-				compat_ptr(commit32.commit_v1.frc_info),
-				buffer_size);
-		if (ret) {
-			pr_err("fail to copy frc info from user, ptr %p\n",
-				compat_ptr(commit32.commit_v1.frc_info));
-			kfree(frc_info);
-			ret = -EFAULT;
-			goto frc_err;
-		}
-
-		commit.commit_v1.frc_info = frc_info;
-	}
-
 	ret = mdss_fb_atomic_commit(info, &commit, file);
 	if (ret)
 		pr_err("atomic commit failed ret:%d\n", ret);
@@ -394,12 +370,9 @@ static int __compat_atomic_commit(struct fb_info *info, unsigned int cmd,
 			argp, layer_count);
 
 	for (i = 0; i < layer_count; i++) {
-		kfree(layer[i].scale);
-		mdss_mdp_free_layer_pp_info(&layer[i]);
+		kfree(layer_list[i].scale);
+		mdss_mdp_free_layer_pp_info(&layer_list[i]);
 	}
-
-	kfree(frc_info);
-frc_err:
 	kfree(layer_list);
 layer_list_err:
 	kfree(layer_list32);
@@ -472,8 +445,8 @@ static int __compat_async_position_update(struct fb_info *info,
 
 	update_pos.input_layer_cnt = update_pos32.input_layer_cnt;
 	layer_cnt = update_pos32.input_layer_cnt;
-	if (!layer_cnt) {
-		pr_err("no async layer to update\n");
+	if ((!layer_cnt) || (layer_cnt > MAX_LAYER_COUNT)) {
+		pr_err("invalid async layers :%d to update\n", layer_cnt);
 		return -EINVAL;
 	}
 
@@ -3445,7 +3418,7 @@ static int __copy_layer_igc_lut_data_v1_7(
 			cfg_payload32,
 			sizeof(struct mdp_igc_lut_data_v1_7_32));
 	if (ret) {
-		pr_err("copy from user failed, IGC cfg payload = %p\n",
+		pr_err("copy from user failed, IGC cfg payload = %pK\n",
 			cfg_payload32);
 		ret = -EFAULT;
 		goto exit;
@@ -3520,7 +3493,7 @@ static int __copy_layer_hist_lut_data_v1_7(
 			cfg_payload32,
 			sizeof(struct mdp_hist_lut_data_v1_7_32));
 	if (ret) {
-		pr_err("copy from user failed, hist lut cfg_payload = %p\n",
+		pr_err("copy from user failed, hist lut cfg_payload = %pK\n",
 			cfg_payload32);
 		ret = -EFAULT;
 		goto exit;
@@ -3592,7 +3565,7 @@ static int __copy_layer_pa_data_v1_7(
 			cfg_payload32,
 			sizeof(struct mdp_pa_data_v1_7_32));
 	if (ret) {
-		pr_err("copy from user failed, pa cfg_payload = %p\n",
+		pr_err("copy from user failed, pa cfg_payload = %pK\n",
 			cfg_payload32);
 		ret = -EFAULT;
 		goto exit;
@@ -3734,7 +3707,7 @@ static int __copy_layer_pp_info_pcc_params(
 			compat_ptr(pp_info32->pcc_cfg_data.cfg_payload),
 			sizeof(struct mdp_pcc_data_v1_7));
 		if (ret) {
-			pr_err("compat copy of PCC cfg payload failed, ptr %p\n",
+			pr_err("compat copy of PCC cfg payload failed, ptr %pK\n",
 				compat_ptr(
 				pp_info32->pcc_cfg_data.cfg_payload));
 			ret = -EFAULT;
@@ -3768,7 +3741,7 @@ static int __copy_layer_pp_info_params(struct mdp_input_layer *layer,
 			compat_ptr(layer32->pp_info),
 			sizeof(struct mdp_overlay_pp_params32));
 	if (ret) {
-		pr_err("pp info copy from user failed, pp_info %p\n",
+		pr_err("pp info copy from user failed, pp_info %pK\n",
 			compat_ptr(layer32->pp_info));
 		ret = -EFAULT;
 		goto exit;

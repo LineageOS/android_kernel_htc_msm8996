@@ -33,6 +33,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "vl53l0_def.h"
 #include "vl53l0_i2c.h"
 
+#include <linux/delay.h>
+#include <linux/kernel.h>
+#include <linux/string.h>
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -72,6 +77,7 @@ VL53L0_Error VL53L0_UnlockSequenceAccess(VL53L0_DEV Dev);
  * @return  VL53L0_ERROR_NONE        Success
  * @return  "Other error code"    See ::VL53L0_Error
  */
+VL53L0_Error VL53L0_WriteMulti(VL53L0_DEV Dev, uint8_t index, uint8_t *pdata, uint32_t count);
 
 VL53L0_Error VL53L0_ReadMulti(VL53L0_DEV Dev, uint8_t index, uint8_t *pdata, uint32_t count);
 
@@ -93,6 +99,10 @@ VL53L0_Error VL53L0_UpdateByte(VL53L0_DEV Dev, uint8_t index, uint8_t AndData, u
     
 VL53L0_Error VL53L0_PollingDelay(VL53L0_DEV Dev); 
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  
 

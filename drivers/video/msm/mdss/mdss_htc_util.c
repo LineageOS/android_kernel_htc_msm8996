@@ -25,7 +25,7 @@
 
 struct attribute_status htc_attr_status[] = {
 	{"cabc_level_ctl", 0, 0, 0},
-	{"color_temp_ctl", 0, 0, 0},
+	{"color_temp_ctl", UNDEF_VALUE, UNDEF_VALUE, UNDEF_VALUE},
 	{"color_profile_ctl", 0, 0, 0},
 	{"vddio_switch", 0, 0, 0},
 	{"burst_switch", 0, 0, 0},

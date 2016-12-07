@@ -36,7 +36,7 @@ extern void net_get_kernel_timestamp(struct net_timestamp *ts);
 #define NET_DEBUG(fmt, args...) \
 do{ \
 	if(htc_net_debug_enable) \
-		net_dbg_log_event("[NET]" fmt, args); \
+		net_dbg_log_event("[NET]" fmt, ##args); \
 } while(0)
 
 #endif 

@@ -3407,6 +3407,9 @@ dhd_start_xmit(struct sk_buff *skb, struct net_device *net)
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
+	if (dhd_query_bus_erros(&dhd->pub)) {
+		return -ENODEV;
+	}
 #ifdef PCIE_FULL_DONGLE
 	DHD_GENERAL_LOCK(&dhd->pub, flags);
 	dhd->pub.dhd_bus_busy_state |= DHD_BUS_BUSY_IN_TX;
@@ -3693,16 +3696,22 @@ done:
 
 	
 	
-#if defined(TX_STUCK_DETECTION) && defined(CUSTOMER_HW_ONE)
+#if defined(CUSTOMER_HW_ONE)
 	if ((dhd->pub.old_tx_completed_count == dhd->pub.new_tx_completed_count)) {
 		if (dhd->pub.xmit_count == 0) {
 			dhd->pub.xmit_record_time = ((uint32)jiffies_to_msecs(jiffies));
 		}
 		dhd->pub.xmit_count++;
+#ifdef TX_STUCK_DETECTION
 		if (dhd->pub.xmit_count > 10 && ((((uint32)jiffies_to_msecs(jiffies)) - dhd->pub.xmit_record_time) > 3000)) {
 			schedule_delayed_work(&dhd->dhd_wl_counter_dump_work, 50);
 			DHD_ERROR(("%s new_tx_completed_count %d, old_tx_completed_count %d, xmit_count %d\n", __FUNCTION__,
 						dhd->pub.new_tx_completed_count, dhd->pub.old_tx_completed_count, dhd->pub.xmit_count));
+		}
+#endif 
+		if (dhd->pub.xmit_count > 10 && ((((uint32)jiffies_to_msecs(jiffies)) - dhd->pub.xmit_record_time) > 10000)) {
+			DHD_ERROR(("%s tx stuck time > 10s, do recover\n", __FUNCTION__));
+			net_os_send_hang_message(net);
 		}
 	} else {
 		dhd->pub.xmit_count = 0;
@@ -4467,7 +4476,14 @@ void dhd_runtime_pm_disable_no_wait(dhd_pub_t *dhdp)
 {
 	dhd_os_runtimepm_timer(dhdp, 0);
 	dhdpcie_runtime_bus_wake(dhdp, FALSE, __builtin_return_address(0));
+	
+	
+#if 0
 	DHD_ERROR(("DHD Runtime PM Disabled No Wait \n"));
+#else
+	DHD_ERROR_HW_ONE(("DHD Runtime PM Disabled No Wait \n"));
+#endif
+	
 }
 #endif 
 
@@ -4475,13 +4491,27 @@ void dhd_runtime_pm_disable(dhd_pub_t *dhdp)
 {
 	dhd_os_runtimepm_timer(dhdp, 0);
 	dhdpcie_runtime_bus_wake(dhdp, TRUE, __builtin_return_address(0));
+	
+	
+#if 0
 	DHD_ERROR(("DHD Runtime PM Disabled \n"));
+#else
+	DHD_ERROR_HW_ONE(("DHD Runtime PM Disabled \n"));
+#endif
+	
 }
 
 void dhd_runtime_pm_enable(dhd_pub_t *dhdp)
 {
 	dhd_os_runtimepm_timer(dhdp, dhd_runtimepm_ms);
+	
+	
+#if 0
 	DHD_ERROR(("DHD Runtime PM Enabled \n"));
+#else
+	DHD_ERROR_HW_ONE(("DHD Runtime PM Enabled \n"));
+#endif
+	
 }
 
 #endif 
@@ -4732,7 +4762,6 @@ dhd_dpc(ulong data)
 	dhd_info_t *dhd;
 
 	dhd = (dhd_info_t *)data;
-	DHD_OS_WAKE_LOCK(&dhd->pub);
 
 	
 	if (dhd->pub.busstate != DHD_BUS_DOWN) {
@@ -4743,7 +4772,6 @@ dhd_dpc(ulong data)
 	} else {
 		dhd_bus_stop(dhd->pub.bus, TRUE);
 	}
-	DHD_OS_WAKE_UNLOCK(&dhd->pub);
 }
 
 void
@@ -4758,15 +4786,7 @@ dhd_sched_dpc(dhd_pub_t *dhdp)
 		}
 		return;
 	} else {
-		if (!test_bit(TASKLET_STATE_SCHED, &dhd->tasklet.state)) {
-			DHD_OS_WAKE_LOCK(dhdp);
-		}
-		if (atomic_read(&dhd->tasklet.count) ==  0) {
-			tasklet_schedule(&dhd->tasklet);
-		} else {
-			DHD_ERROR(("%s: tasklet disabled, SKIP schedule %d\n", __FUNCTION__, atomic_read(&dhd->tasklet.count)));
-		}
-		DHD_OS_WAKE_UNLOCK(dhdp);
+		tasklet_schedule(&dhd->tasklet);
 	}
 }
 
@@ -5328,12 +5348,10 @@ dhd_stop(struct net_device *net)
 #ifdef CUSTOMER_HW_ONE
 	dhd->pub.os_stopped = 1;
 	
-#ifdef TX_STUCK_DETECTION
 	dhd->pub.old_tx_completed_count = 0;
 	dhd->pub.new_tx_completed_count = 0;
 	dhd->pub.xmit_count = 0;
 	dhd->pub.xmit_record_time = 0;
-#endif 
 	
 	smp_mb();
 #endif 
@@ -5523,16 +5541,16 @@ dhd_open_retry:
 	dhd->pub.os_stopped = 0;
 	dhd->pub.allow_p2p_event = 0;
 	
-#ifdef TX_STUCK_DETECTION
 	dhd->pub.old_tx_completed_count = 0;
 	dhd->pub.new_tx_completed_count = 0;
 	dhd->pub.xmit_count = 0;
 	dhd->pub.xmit_record_time = 0;
-#endif 
 	
 #endif 
 	dhd->pub.dongle_trap_occured = 0;
 	dhd->pub.hang_was_sent = 0;
+	dhd->pub.iovar_timeout_occured = 0;
+	dhd->pub.d3ack_timeout_occured = 0;
 #ifdef DHD_LOSSLESS_ROAMING
 	dhd->pub.dequeue_prec_map = ALLPRIO;
 #endif
@@ -6549,11 +6567,7 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 
 #ifdef CUSTOMER_HW_ONE
 	dhd->dhd_force_exit = FALSE;
-#ifdef CUSTOM_MIMO_MODE
-	dhd->pub.mimo_mode = CUSTOM_MIMO_MODE;
-	DHD_ERROR(("%s: MIMO MODE %d\n", __FUNCTION__, dhd->pub.mimo_mode));
 #endif 
-#endif
 	
 	if (dhd_dpc_prio >= 0) {
 		
@@ -7635,10 +7649,6 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #if defined(CUSTOMER_HW_ONE)
 	int ht_wsec_restrict = WLC_HT_TKIP_RESTRICT | WLC_HT_WEP_RESTRICT;
 	int tc_param;
-#ifdef CUSTOM_MIMO_MODE
-	int txchain = 1;
-	int rxchain = 1;
-#endif 
 	int scan_parallel = 0;
 #if defined(SUPPORT_2G_HT40)
 	struct {
@@ -7900,27 +7910,6 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #ifdef CUSTOMER_HW_ONE
 	DHD_ERROR(("Firmware up: op_mode=0x%04x, Broadcom Dongle Host Driver\n",
 		dhd->op_mode));
-#ifdef CUSTOM_MIMO_MODE
-	if (dhd->op_mode & DHD_FLAG_STA_MODE) {
-		if (dhd->mimo_mode == 0) {
-			txchain = rxchain = 1;
-		} else if (dhd->mimo_mode == 1) {
-			txchain = rxchain = 3;
-		}
-		DHD_ERROR(("%s: set txchain %d\n", __FUNCTION__, txchain));
-		bcm_mkiovar("txchain", (char *)&txchain, 4, iovbuf, sizeof(iovbuf));
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-		if (ret < 0) {
-			DHD_ERROR(("%s: set txchain fail, error=%d\n", __FUNCTION__, ret));
-		}
-		DHD_ERROR(("%s: set rxchain %d\n", __FUNCTION__, rxchain));
-		bcm_mkiovar("rxchain", (char *)&rxchain, 4, iovbuf, sizeof(iovbuf));
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-		if (ret < 0) {
-			DHD_ERROR(("%s: set rxchain fail, error=%d\n", __FUNCTION__, ret));
-		}
-	}
-#endif 
 #else
 	DHD_ERROR(("Firmware up: op_mode=0x%04x, MAC="MACDBG"\n",
 		dhd->op_mode, MAC2STRDBG(dhd->mac.octet)));
@@ -11203,6 +11192,7 @@ static void dhd_hang_process(void *dhd_info, void *event_info, u8 event)
 		if (dhdp) {
 			if (!dhdp->dongle_trap_occured) {
 				dhd_net_if_lock(dev);
+				dhdp->dongle_reset = TRUE;
 				if (g_wifi_on) {
 					DHD_ERROR(("%s: stop clock\n", __FUNCTION__));
 					dhd_bus_stop_clock(dhdp);
@@ -11252,6 +11242,8 @@ int dhd_os_send_hang_message(dhd_pub_t *dhdp)
 #ifdef CUSTOMER_HW_ONE
 		unsigned long flags;
 		bool disable_intr = false;
+
+		DHD_OS_WAKE_LOCK(dhdp);
 
 		DHD_GENERAL_LOCK(dhdp, flags);
 		if (dhdp->memdump_in_progress) {

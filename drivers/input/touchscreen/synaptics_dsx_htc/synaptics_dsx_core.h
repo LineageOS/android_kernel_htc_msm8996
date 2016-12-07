@@ -251,6 +251,9 @@ struct synaptics_rmi4_noise_state {
 
 struct synaptics_rmi4_report_points {
 	uint8_t state;
+	struct timespec time_start, time_end, time_delta;
+	int Dx;
+	int Dy;
 	int x;
 	int y;
 	int z;

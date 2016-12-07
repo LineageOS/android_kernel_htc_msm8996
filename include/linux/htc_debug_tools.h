@@ -15,29 +15,25 @@
 #include <linux/types.h>
 
 #if defined(CONFIG_HTC_DEBUG_WATCHDOG)
+/* exported from arch/arm/mach-msm/msm_watchdog_v2.c */
 int htc_debug_watchdog_enabled(void);
 
 void htc_debug_watchdog_check_pet(unsigned long long timestamp);
 void htc_debug_watchdog_update_last_pet(unsigned long long last_pet);
 void htc_debug_watchdog_dump_irqs(unsigned int dump);
 void arch_trigger_different_cpu_backtrace_dump_timeout(unsigned int time_out);
-#endif 
+#endif /* CONFIG_HTC_DEBUG_WATCHDOG */
 
 #if defined(CONFIG_HTC_DEBUG_WORKQUEUE)
+/* exported from kernel/workqueue.c */
 void workqueue_show_pending_work(void);
-#endif 
+#endif /* CONFIG_HTC_DEBUG_WORKQUEUE */
 
 /* n.b.:
  * 1. sched_clock is not irq safe
  * 2. 32 bit: overflows every 4,294,967,296 msecs
  */
-static inline unsigned long htc_debug_get_sched_clock_ms(void)
-{
-	unsigned long long timestamp;
-	timestamp = sched_clock();
-	do_div(timestamp, NSEC_PER_MSEC);
-	return ((unsigned long) timestamp);
-}
+unsigned long htc_debug_get_sched_clock_ms(void);
 
 #if defined(CONFIG_HTC_DEBUG_BOOTLOADER_LOG)
 ssize_t bldr_log_read_once(char __user *userbuf, ssize_t klog_size);
@@ -48,4 +44,4 @@ int bldr_log_init(void);
 void bldr_log_release(void);
 #endif
 
-#endif 
+#endif /* __HTC_DEBUG_TOOLS_H__ */

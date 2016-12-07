@@ -346,6 +346,7 @@ dhd_bus_t* dhdpcie_bus_attach(osl_t *osh,
 		bus->dhd->busstate = DHD_BUS_DOWN;
 		bus->db1_for_mb = TRUE;
 		bus->dhd->hang_report = TRUE;
+		bus->d3_ack_war_cnt = 0;
 
 		DHD_TRACE(("%s: EXIT SUCCESS\n",
 			__FUNCTION__));
@@ -422,6 +423,12 @@ dhdpcie_bus_intstatus(dhd_bus_t *bus)
 	uint32 intstatus = 0;
 	uint32 intmask = 0;
 
+	if ((bus->dhd->busstate == DHD_BUS_SUSPEND || bus->d3_suspend_pending) && bus->wait_for_d3_ack) {
+		DHD_ERROR(("%s: trying to clear intstatus during suspend (%d)"
+			" or suspend in progress %d\n",
+			__FUNCTION__, bus->dhd->busstate, bus->d3_suspend_pending));
+		return intstatus;
+	}
 #ifdef CUSTOMER_HW_ONE
 	if (bus->dhd->hang_was_sent)
 		return intstatus;
@@ -764,6 +771,11 @@ dhdpcie_bus_intr_enable(dhd_bus_t *bus)
 			(bus->sih->buscorerev == 4)) {
 			dhpcie_bus_unmask_interrupt(bus);
 		} else {
+			
+			if ((bus->dhd->busstate == DHD_BUS_SUSPEND || bus->d3_suspend_pending) &&
+				bus->wait_for_d3_ack) {
+				return;
+			}
 			si_corereg(bus->sih, bus->sih->buscoreidx, PCIMailBoxMask,
 				bus->def_intmask, bus->def_intmask);
 		}
@@ -779,6 +791,11 @@ dhdpcie_bus_intr_disable(dhd_bus_t *bus)
 			(bus->sih->buscorerev == 4)) {
 			dhpcie_bus_mask_interrupt(bus);
 		} else {
+			
+			if ((bus->dhd->busstate == DHD_BUS_SUSPEND || bus->d3_suspend_pending) &&
+				bus->wait_for_d3_ack) {
+				return;
+			}
 			si_corereg(bus->sih, bus->sih->buscoreidx, PCIMailBoxMask,
 				bus->def_intmask, 0);
 		}
@@ -1978,6 +1995,11 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	int read_size = 0; 
 	uint8 *buf = NULL, *databuf = NULL;
 
+	if(bus->islinkdown) {
+		DHD_ERROR(("%s: PCIe link was down\n", __FUNCTION__));
+		return BCME_ERROR;
+	}
+
 	
 	size = bus->ramsize;
 #if defined(CONFIG_DHD_USE_STATIC_BUF) && defined(DHD_USE_STATIC_MEMDUMP)
@@ -2092,6 +2114,10 @@ dhdpcie_bus_membytes(dhd_bus_t *bus, bool write, ulong address, uint8 *data, uin
 	int detect_endian_flag = 0x01;
 	bool little_endian;
 
+	if (write && bus->islinkdown) {
+		DHD_ERROR(("%s: PCIe link was down\n", __FUNCTION__));
+		return BCME_ERROR;
+	}
 #ifdef CUSTOMER_HW_ONE
 	if (address + size > bus->tcm_size) {
 		DHD_ERROR(("%s: invalid addr %lx size %d exceeds %x",
@@ -2525,6 +2551,11 @@ dhd_bus_cmn_writeshared(dhd_bus_t *bus, void *data, uint32 len, uint8 type, uint
 	ulong tcm_offset;
 
 	DHD_INFO(("%s: writing to dongle type %d len %d\n", __FUNCTION__, type, len));
+
+	if (bus->islinkdown) {
+		DHD_ERROR(("%s: PCIe link was down\n", __func__));
+		return;
+	}
 
 	switch (type) {
 		case D2H_DMA_SCRATCH_BUF:
@@ -3847,6 +3878,11 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		DHD_ERROR(("prot is not inited\n"));
 		return BCME_ERROR;
 	}
+
+	if (dhd_query_bus_erros(bus->dhd)) {
+		return BCME_ERROR;
+	}
+
 	DHD_GENERAL_LOCK(bus->dhd, flags);
 	if (bus->dhd->busstate != DHD_BUS_DATA && bus->dhd->busstate != DHD_BUS_SUSPEND) {
 		DHD_ERROR(("not in a readystate to LPBK  is not inited\n"));
@@ -3854,19 +3890,26 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		return BCME_ERROR;
 	}
 	DHD_GENERAL_UNLOCK(bus->dhd, flags);
-	if (bus->dhd->dongle_reset) {
-		DHD_ERROR(("Dongle is in reset state.\n"));
-		return -EIO;
-	}
 
 	if (bus->suspended == state) { 
 		DHD_ERROR(("Bus is already in SUSPEND state.\n"));
 		return BCME_OK;
 	}
 
+	if (bus->d3_suspend_pending) {
+		DHD_ERROR(("D3 SUSPEND PENDING Suspend pending ...\n"));
+		return BCME_ERROR;
+	}
+
 	if (state) {
 		int idle_retry = 0;
 		int active;
+
+		if(bus->islinkdown) {
+			DHD_ERROR(("%s: PCIe link was down, state=%d\n",
+				__FUNCTION__, state));
+			return BCME_ERROR;
+		}
 
 		
 		DHD_ERROR_HW_ONE(("%s: Entering suspend state\n", __FUNCTION__));
@@ -3891,11 +3934,37 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
 		DHD_OS_WAKE_LOCK_WAIVE(bus->dhd);
+		bus->d3_suspend_pending = TRUE;
 		dhd_os_set_ioctl_resp_timeout(D3_ACK_RESP_TIMEOUT);
 		dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM);
 		timeleft = dhd_os_d3ack_wait(bus->dhd, &bus->wait_for_d3_ack);
 		dhd_os_set_ioctl_resp_timeout(IOCTL_RESP_TIMEOUT);
 		DHD_OS_WAKE_LOCK_RESTORE(bus->dhd);
+
+		
+		{
+			uint32 d2h_mb_data = 0;
+			uint32 zero = 0;
+
+			
+			if (bus->wait_for_d3_ack == 0) {
+				
+				dhd_bus_cmn_readshared(bus, &d2h_mb_data, D2H_MB_DATA, 0);
+
+				if (!D2H_DEV_MB_INVALIDATED(d2h_mb_data) &&
+						(d2h_mb_data & D2H_DEV_D3_ACK)) {
+					DHD_ERROR(("*** D3 WAR for missing interrupt ***\r\n"));
+					
+					dhd_bus_cmn_writeshared(bus, &zero, sizeof(uint32),
+							D2H_MB_DATA, 0);
+
+					
+					bus->wait_for_d3_ack = 1;
+					bus->d3_ack_war_cnt++;
+
+				} 
+			} 
+		}
 
 		while ((active = dhd_os_check_wakelock_all(bus->dhd)) &&
 			(idle_retry < MAX_WKLK_IDLE_CHECK)) {
@@ -3911,13 +3980,21 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				DHD_ERROR_HW_ONE(("%s():Suspend failed because of wakelock restoring Dongle to D0\n",
 					__FUNCTION__));
 
+
+				
+				bus->wait_for_d3_ack = 0;
+
 				DHD_OS_WAKE_LOCK_WAIVE(bus->dhd);
 				dhdpcie_send_mb_data(bus,
 					(H2D_HOST_D0_INFORM_IN_USE|H2D_HOST_D0_INFORM));
 				DHD_OS_WAKE_LOCK_RESTORE(bus->dhd);
 
+				
+				si_corereg(bus->sih, bus->sih->buscoreidx, PCIH2D_DB1, ~0, 0x12345678);
+
 				bus->suspended = FALSE;
 				DHD_GENERAL_LOCK(bus->dhd, flags);
+				bus->d3_suspend_pending = FALSE;
 				bus->dhd->busstate = DHD_BUS_DATA;
 				
 				dhd_bus_start_queue(bus);
@@ -3928,6 +4005,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				dhdpcie_send_mb_data(bus, (H2D_HOST_D0_INFORM_IN_USE));
 				DHD_OS_WAKE_LOCK_RESTORE(bus->dhd);
 				dhdpcie_bus_intr_disable(bus);
+				bus->d3_suspend_pending = FALSE;
 				rc = dhdpcie_pci_suspend_resume(bus, state);
 				dhd_bus_set_device_wake(bus, FALSE);
 #if defined(BCMPCIE_OOB_HOST_WAKE)
@@ -3936,10 +4014,17 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			}
 			bus->dhd->d3ackcnt_timeout = 0;
 		} else if (timeleft == 0) {
+			bus->dhd->d3ack_timeout_occured = TRUE;
 			bus->dhd->d3ackcnt_timeout++;
 			DHD_ERROR(("%s: resumed on timeout for D3 ACK d3_inform_cnt %d \n",
 				__FUNCTION__, bus->dhd->d3ackcnt_timeout));
 			bus->suspended = FALSE;
+			DHD_GENERAL_LOCK(bus->dhd, flags);
+			bus->d3_suspend_pending = FALSE;
+			bus->dhd->busstate = DHD_BUS_DATA;
+			
+			dhd_bus_start_queue(bus);
+			DHD_GENERAL_UNLOCK(bus->dhd, flags);
 			if (bus->dhd->d3ackcnt_timeout >= MAX_CNTL_D3ACK_TIMEOUT) {
 				DHD_ERROR(("%s: Event HANG send up "
 					"due to PCIe linkdown\n", __FUNCTION__));
@@ -3949,12 +4034,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 #endif 
 #endif 
 				dhd_os_check_hang(bus->dhd, 0, -ETIMEDOUT);
-			} else {
-			DHD_GENERAL_LOCK(bus->dhd, flags);
-			bus->dhd->busstate = DHD_BUS_DATA;
-			
-			dhd_bus_start_queue(bus);
-			DHD_GENERAL_UNLOCK(bus->dhd, flags);
 			}
 			rc = -ETIMEDOUT;
 
@@ -4506,6 +4585,7 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 	bcm_bprintf(strbuf, "D3 inform cnt %d\n", dhdp->bus->d3_inform_cnt);
 	bcm_bprintf(strbuf, "D0 inform cnt %d\n", dhdp->bus->d0_inform_cnt);
 	bcm_bprintf(strbuf, "D0 inform in use cnt %d\n", dhdp->bus->d0_inform_in_use_cnt);
+	bcm_bprintf(strbuf, "D3 Ack WAR cnt %d\n", dhdp->bus->d3_ack_war_cnt);
 }
 
 static void
@@ -4624,6 +4704,12 @@ dhd_bus_doorbell_timeout_reset(struct dhd_bus *bus)
 void
 dhd_bus_ringbell(struct dhd_bus *bus, uint32 value)
 {
+	
+	if ((bus->dhd->busstate == DHD_BUS_SUSPEND || bus->d3_suspend_pending) && bus->wait_for_d3_ack) {
+		DHD_ERROR(("%s: trying to ring the doorbell when in suspend state\n",
+			__FUNCTION__));
+		return;
+	}
 	if ((bus->sih->buscorerev == 2) || (bus->sih->buscorerev == 6) ||
 		(bus->sih->buscorerev == 4)) {
 		si_corereg(bus->sih, bus->sih->buscoreidx, PCIMailBoxInt, PCIE_INTB, PCIE_INTB);
@@ -4637,6 +4723,11 @@ dhd_bus_ringbell(struct dhd_bus *bus, uint32 value)
 void
 dhdpcie_bus_ringbell_fast(struct dhd_bus *bus, uint32 value)
 {
+	if ((bus->dhd->busstate == DHD_BUS_SUSPEND || bus->d3_suspend_pending) && bus->wait_for_d3_ack) {
+		DHD_ERROR(("%s: trying to ring the doorbell when in suspend state\n",
+			__FUNCTION__));
+		return;
+	}
 #ifdef PCIE_OOB
 	dhd_bus_set_device_wake(bus, TRUE);
 	dhd_bus_doorbell_timeout_reset(bus);
@@ -4648,6 +4739,12 @@ static void
 dhd_bus_ringbell_oldpcie(struct dhd_bus *bus, uint32 value)
 {
 	uint32 w;
+	
+	if ((bus->dhd->busstate == DHD_BUS_SUSPEND || bus->d3_suspend_pending ) && bus->wait_for_d3_ack) {
+		DHD_ERROR(("%s: trying to ring the doorbell when in suspend state\n",
+			__FUNCTION__));
+		return;
+	}
 	w = (R_REG(bus->pcie_mb_intr_osh, bus->pcie_mb_intr_addr) & ~PCIE_INTB) | PCIE_INTB;
 	W_REG(bus->pcie_mb_intr_osh, bus->pcie_mb_intr_addr, w);
 }
@@ -4720,6 +4817,11 @@ dhdpcie_send_mb_data(dhd_bus_t *bus, uint32 h2d_mb_data)
 	uint32 cur_h2d_mb_data = 0;
 
 	DHD_INFO_HW4(("%s: H2D_MB_DATA: 0x%08X\n", __FUNCTION__, h2d_mb_data));
+	if(bus->islinkdown) {
+		DHD_ERROR(("%s: PCIe link was down\n", __FUNCTION__));
+		return;
+	}
+
 	dhd_bus_cmn_readshared(bus, &cur_h2d_mb_data, H2D_MB_DATA, 0);
 
 	if (cur_h2d_mb_data != 0) {
@@ -4787,6 +4889,11 @@ dhdpcie_handle_mb_data(dhd_bus_t *bus)
 		return;
 	}
 	if (d2h_mb_data & D2H_DEV_DS_ENTER_REQ)  {
+		if ((bus->dhd->busstate == DHD_BUS_SUSPEND || bus->d3_suspend_pending) && bus->wait_for_d3_ack) {
+			DHD_ERROR(("DS-ENTRY AFTER D3-ACK!!!!! QUITING\n"));
+			bus->dhd->busstate = DHD_BUS_DOWN;
+			return;
+		}
 		
 		DHD_INFO(("D2H_MB_DATA: DEEP SLEEP REQ\n"));
 		dhdpcie_send_mb_data(bus, H2D_HOST_DS_ACK);
@@ -5213,6 +5320,7 @@ int dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 	init_waitqueue_head(&bus->rpm_queue);
 	mutex_init(&bus->pm_lock);
 #endif 
+	bus->d3_ack_war_cnt=0;
 	return ret;
 }
 

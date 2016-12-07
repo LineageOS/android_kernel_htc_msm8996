@@ -563,6 +563,7 @@ struct journal_s
 #define JBD2_LOADED	0x010	
 #define JBD2_BARRIER	0x020	
 #define JBD2_ABORT_ON_SYNCDATA_ERR	0x040	
+#define JBD2_REC_ERR	0x080	
 
 
 extern void jbd2_journal_unfile_buffer(journal_t *, struct journal_head *);

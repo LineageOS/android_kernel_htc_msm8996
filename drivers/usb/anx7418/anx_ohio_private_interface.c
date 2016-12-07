@@ -87,6 +87,10 @@ extern int dwc3_pd_drswap(int new_role);
 extern int usb_set_dwc_property(int prop_type,unsigned int value);
 extern void usb_downgrade_func(void);
 
+extern struct switch_dev sw_rara_cable;
+extern bool is_RaRaCable;
+extern void SendRaRaEvent(bool value);
+
 DECLARE_COMPLETION(pr_swap_rsp);
 DECLARE_COMPLETION(dr_swap_rsp);
 
@@ -700,7 +704,10 @@ u8 interface_send_msg_timeout(u8 type, u8 *pbuf, u8 len, int timeout_ms)
 		TX_ROUTINE_CHECK();
 	}
 	if (msg_total_len == 0x01) {
-		pr_info("succ << %s\n", interface_to_str(buf[1]));
+		if (buf[1] < 0x04)
+			pr_debug("succ << %s\n", interface_to_str(buf[1]));
+		else
+			pr_info("succ << %s\n", interface_to_str(buf[1]));
 		
 		return CMD_SUCCESS;
 	} else {
@@ -807,7 +814,7 @@ u8 polling_interface_msg(int timeout_ms)
 		checksum += buf[i];
 	if(checksum == 0) {
 		receiver_set_ack_status(0x01);
-		pr_info("\n>>%s\n", interface_to_str(buf[1]));
+		pr_info(">>%s\n", interface_to_str(buf[1]));
 		
 		dispatch_rcvd_pd_msg((PD_MSG_TYPE) buf[1], &(buf[2]), buf[0] - 1);
 		return CMD_SUCCESS;
@@ -1144,7 +1151,7 @@ void pd_vbus_control_default_func(bool on)
 	pr_info("vbus control %d\n", (int)on);
 	
 	if (on) {
-		ohio_hardware_disable_vconn();
+		ohio_hardware_disable_boost_5v();
 
 		ohio_set_data_value(OHIO_PROLE, PR_SOURCE);
 		ohio_set_data_value(OHIO_PMODE, MODE_DFP);
@@ -1237,9 +1244,14 @@ void pd_cc_status_default_func(u8 cc_status)
 	pr_info("cc status 0x%x\n", cc_status);
 #endif
 	pr_info("cc status 0x%x\n", cc_status);
+
 	if ((cc_status == 0x20) || (cc_status == 0x02)) {
 		pr_info("%s: open e-mark cable in\n", __func__);
 		ohio_set_data_value(OHIO_EMARKER, 1);
+	}
+	else if (cc_status == 0x22) {
+		is_RaRaCable = true;
+		SendRaRaEvent(is_RaRaCable);
 	}
 	usb_downgrade_func();
 }

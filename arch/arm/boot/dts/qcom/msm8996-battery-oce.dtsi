@@ -1,0 +1,126 @@
+/* 8996_OCEAN_Charger Config */
+
+// ================
+//  CHARGER DRIVER
+// ================
+
+// msm-pm8994.dtsi has these settings, we replace them right here
+&pm8994_mpps {
+	mpp@a100 { /*MPP 2*/
+		reg = <0xa100 0x100>;
+		qcom,pin-num = <2>;
+		qcom,mode = <4>;                /* QPNP_PIN_MODE_AIN */
+		qcom,vin-sel = <2>;             /* S4 1.8V */
+		qcom,src-sel = <0>;             /* Constant */
+		qcom,master-en = <1>;           /* Enable MPP */
+		qcom,ain-route = <1>;  /* QPNP_PIN_AIN_AMUX_CH6 */
+		status = "okay";
+	};
+
+	mpp@a400 { /*MPP 5*/
+		reg = <0xa400 0x100>;
+		qcom,pin-num = <5>;
+		qcom,mode = <4>;                /* QPNP_PIN_MODE_AIN */
+		qcom,vin-sel = <2>;             /* S4 1.8V */
+		qcom,src-sel = <0>;             /* Constant */
+		qcom,master-en = <1>;           /* Enable MPP */
+		qcom,ain-route = <0>;  /* QPNP_PIN_AIN_AMUX_CH5 */
+		status = "okay";
+	};
+
+	mpp@a600 { /*MPP 7*/
+		reg = <0xa600 0x100>;
+		qcom,pin-num = <7>;
+		qcom,mode = <4>;                /* QPNP_PIN_MODE_AIN */
+		qcom,vin-sel = <2>;             /* S4 1.8V */
+		qcom,src-sel = <0>;             /* Constant */
+		qcom,master-en = <1>;           /* Enable MPP */
+		qcom,ain-route = <2>;  /* QPNP_PIN_AIN_AMUX_CH7 */
+		status = "okay";
+	};
+};
+
+&pm8994_vadc {
+	chan@11 {
+		label = "mpp2_div1";
+		reg = <0x11>;
+		qcom,decimation = <0>;
+		qcom,pre-div-channel-scaling = <0>;
+		qcom,calibration-type = "ratiometric";
+		qcom,scale-function = <0>;
+		qcom,hw-settle-time = <1>;
+		qcom,fast-avg-setup = <2>;
+	};
+
+	chan@14 {
+		label = "mpp5_div1";
+		reg = <0x14>;
+		qcom,decimation = <0>;
+		qcom,pre-div-channel-scaling = <0>;
+		qcom,calibration-type = "ratiometric";
+		qcom,scale-function = <0>;
+		qcom,hw-settle-time = <1>;
+		qcom,fast-avg-setup = <2>;
+	};
+
+	chan@16 {
+		label = "mpp7_div1";
+		reg = <0x16>;
+		qcom,decimation = <0>;
+		qcom,pre-div-channel-scaling = <0>;
+		qcom,calibration-type = "ratiometric";
+		qcom,scale-function = <0>;
+		qcom,hw-settle-time = <1>;
+		qcom,fast-avg-setup = <2>;
+	};
+};
+
+&pmi8994_gpios {
+	gpio@c000 {
+		reg = <0xc000 0x100>;
+		qcom,pin-num = <1>;
+		qcom,mode = <1>;	/* DIGITAL OUT */
+		qcom,pull = <5>;	/* No Pull */
+		qcom,vin-sel = <2>;	/* 1.8 */
+		qcom,src-sel = <0>;	/* CONSTANT */
+		qcom,master-en = <1>;	/* ENABLE GPIO */
+		status = "okay";
+	};
+};
+
+&soc {
+	htc,htc-charger {
+		compatible = "htc,htc-charger";
+		qcom,charger-enable-gpio  = <&pmi8994_gpios 1 0>;
+		qcom,usb_in_isen-vadc = <&pm8994_vadc>;
+		qcom,usb_in_isen-channel = <0x11>; //MPP2
+		qcom,vbusdet-vadc = <&pm8994_vadc>;
+		qcom,vbusdet-channel = <0x14>; //MPP5
+		qcom,usb_pwr_temp-vadc = <&pm8994_vadc>;
+		qcom,usb_pwr_temp-channel = <0x16>; //MPP7
+		iusb_rsen = <732>;
+		iusb_multiplier = <2050>;
+
+		run_mode = <0>;
+	};
+};
+
+// Battery profile start
+
+/{
+	oce_batterydata: qcom,battery-data {
+		#include "batterydata-oce-id1.dtsi"
+		#include "batterydata-oce-id2.dtsi"
+	};
+};
+
+&pmi8994_charger {
+	qcom,battery-data = <&oce_batterydata>;
+};
+
+&pmi8994_fg {
+	qcom,battery-data = <&oce_batterydata>;
+};
+
+// Battery profile end
+

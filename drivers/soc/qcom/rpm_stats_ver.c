@@ -60,7 +60,7 @@ static int rpm_stats_ver_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Get the location of the NPA log's start address offset */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	rpm_ver_base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(rpm_ver_base))

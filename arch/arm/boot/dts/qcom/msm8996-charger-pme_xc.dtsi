@@ -1,4 +1,5 @@
 /* 8996PME Charger Config */
+/* CONFIG_HTC_BATT_PCN0016 */
 
 // ================
 //  CHARGER DRIVER Additional configurations on XC board

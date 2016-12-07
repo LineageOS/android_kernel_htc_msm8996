@@ -27,6 +27,7 @@
 #include <linux/uaccess.h>
 #include <asm/arch_timer.h>
 #include "rpm_stats.h"
+#include <soc/qcom/htc_util.h>
 
 #define GET_PDATA_OF_ATTR(attr) \
 	(container_of(attr, struct msm_rpmstats_kobj_attr, ka)->pd)
@@ -258,14 +259,20 @@ static inline int msm_rpmstats_copy_stats_v3(
         }
         return length;
 }
-void msm_rpm_dump_stat(void)
+void msm_rpm_dump_stat(bool print_embedded)
 {
         void __iomem *reg;
         struct msm_rpm_stats_data_v3 data_v3;
         int i;
+        char piece[32];
+        char output[256];
+
+        memset(piece, 0, sizeof(piece));
+        memset(output, 0, sizeof(output));
+
         if (rpm_stats_dev[DEV_V2].init) {
                 reg = rpm_stats_dev[DEV_V2].reg_base;
-                pr_info("%s: %u, %llums, %u, %llums\n", __func__,
+                k_pr_embedded_cond(print_embedded, "[K] %s: %u, %llums, %u, %llums\n", __func__,
                         msm_rpmstats_read_long_register_v2(reg, 0, offsetof(struct msm_rpm_stats_data_v2, count)),
                         get_time_in_msec(msm_rpmstats_read_quad_register_v2(reg, 0,
                                                         offsetof(struct msm_rpm_stats_data_v2, accumulated))),
@@ -289,11 +296,17 @@ void msm_rpm_dump_stat(void)
                         if (data_v3.is_sleep_mode)
                                 data_v3.total_duration += (arch_counter_get_cntpct() - data_v3.sleep_timestamp);
 
-                        pr_info("[K] sleep_info_m.%d - %u (%d), %llums\n", i, data_v3.count,
-                                                                        data_v3.is_sleep_mode,
-                                                                        get_time_in_msec(data_v3.total_duration));
+                        memset(piece, 0, sizeof(piece));
+                        snprintf(piece, sizeof(piece), "%s(%d,%u,%d,%llus)",
+                                i > 0 ? "," : "",
+                                i,
+                                data_v3.count,
+                                data_v3.is_sleep_mode,
+                                get_time_in_sec(data_v3.total_duration));
+                        strcat(output, piece);
                 }
         }
+        k_pr_embedded_cond(print_embedded, "[K] sleep_info_m: %s\n", output);
 }
 
 int htc_get_xo_vddmin_info(uint32_t *xo_count, uint64_t *xo_time, uint32_t *vddmin_count, uint64_t *vddmin_time)
@@ -618,7 +631,7 @@ static int msm_rpmstats_probe(struct platform_device *pdev)
 	offset = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 							"offset_addr");
 	if (offset) {
-		/* Remap the rpm-stats pointer */
+		
 		phys_ptr = ioremap_nocache(offset->start, SZ_4);
 		if (!phys_ptr) {
 			pr_err("%s: Failed to ioremap address: %x\n",

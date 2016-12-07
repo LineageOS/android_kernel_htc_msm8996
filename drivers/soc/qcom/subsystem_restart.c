@@ -42,7 +42,7 @@
 #include <asm/current.h>
 
 #include "pil-msa.h"
-#define subsys_to_drv(d) container_of(d, struct modem_data, subsys_desc)
+#include "peripheral-loader.h"
 
 #define DISABLE_SSR 0x9889deed
 static uint disable_restart_work;
@@ -61,11 +61,13 @@ enum p_subsys_state {
 };
 
 enum subsys_state {
+	SUBSYS_OFFLINING,
 	SUBSYS_OFFLINE,
 	SUBSYS_ONLINE,
 };
 
 static const char * const subsys_states[] = {
+	[SUBSYS_OFFLINING] = "OFFLINING",
 	[SUBSYS_OFFLINE] = "OFFLINE",
 	[SUBSYS_ONLINE] = "ONLINE",
 };
@@ -208,6 +210,11 @@ static struct subsys_device *to_subsys(struct device *d)
 	return container_of(d, struct subsys_device, dev);
 }
 
+void complete_err_ready(struct subsys_device *subsys)
+{
+	complete(&subsys->err_ready);
+}
+
 static struct subsys_tracking *subsys_get_track(struct subsys_device *subsys)
 {
 	struct subsys_soc_restart_order *order = subsys->restart_order;
@@ -283,8 +290,8 @@ static ssize_t firmware_name_store(struct device *dev,
 
 	pr_info("Changing subsys fw_name to %s\n", buf);
 	mutex_lock(&track->lock);
-        strlcpy(subsys->desc->fw_name, buf,
-                min(count + 1, sizeof(subsys->desc->fw_name)));
+	strlcpy(subsys->desc->fw_name, buf,
+			min(count + 1, sizeof(subsys->desc->fw_name)));
 	mutex_unlock(&track->lock);
 	return orig_count;
 }
@@ -752,11 +759,15 @@ static void enable_all_irqs(struct subsys_device *dev)
 	if (dev->desc->stop_ack_irq && dev->desc->stop_ack_handler)
 		enable_irq(dev->desc->stop_ack_irq);
 
+	if (dev->desc->generic_irq && dev->desc->generic_handler) {
+		enable_irq(dev->desc->generic_irq);
+		irq_set_irq_wake(dev->desc->generic_irq, 1);
+	}
+
 #if 1 
-	if (dev->desc->reboot_req_irq)
-		enable_irq(dev->desc->reboot_req_irq);
+        if (dev->desc->reboot_req_irq)
+                enable_irq(dev->desc->reboot_req_irq);
 #endif 
-	
 }
 
 static void disable_all_irqs(struct subsys_device *dev)
@@ -772,37 +783,23 @@ static void disable_all_irqs(struct subsys_device *dev)
 	if (dev->desc->stop_ack_irq && dev->desc->stop_ack_handler)
 		disable_irq(dev->desc->stop_ack_irq);
 
-#if 1 
-	if (dev->desc->reboot_req_irq)
-		disable_irq(dev->desc->reboot_req_irq);
-#endif 
-	
-}
-
-int wait_for_shutdown_ack(struct subsys_desc *desc)
-{
-	int count;
-
-	if (desc && !desc->shutdown_ack_gpio)
-		return 0;
-
-	for (count = SHUTDOWN_ACK_MAX_LOOPS; count > 0; count--) {
-		if (gpio_get_value(desc->shutdown_ack_gpio))
-			return count;
-		msleep(SHUTDOWN_ACK_DELAY_MS);
+	if (dev->desc->generic_irq && dev->desc->generic_handler) {
+		disable_irq(dev->desc->generic_irq);
+		irq_set_irq_wake(dev->desc->generic_irq, 0);
 	}
 
-	pr_err("[%s]: Timed out waiting for shutdown ack\n", desc->name);
-
-	return -ETIMEDOUT;
+#if 1 
+        if (dev->desc->reboot_req_irq)
+                disable_irq(dev->desc->reboot_req_irq);
+#endif 
 }
-EXPORT_SYMBOL(wait_for_shutdown_ack);
 
 static int wait_for_err_ready(struct subsys_device *subsys)
 {
 	int ret;
 
-	if (!subsys->desc->err_ready_irq || enable_debug == 1)
+	if ((subsys->desc->generic_irq <= 0 && !subsys->desc->err_ready_irq) ||
+				enable_debug == 1 || is_timeout_disabled())
 		return 0;
 
 	ret = wait_for_completion_timeout(&subsys->err_ready,
@@ -931,6 +928,7 @@ static void subsys_stop(struct subsys_device *subsys)
 
 	if (!of_property_read_bool(subsys->desc->dev->of_node,
 					"qcom,pil-force-shutdown")) {
+		subsys_set_state(subsys, SUBSYS_OFFLINING);
 		subsys->desc->sysmon_shutdown_ret =
 				sysmon_send_shutdown(subsys->desc);
 		if (subsys->desc->sysmon_shutdown_ret)
@@ -943,6 +941,31 @@ static void subsys_stop(struct subsys_device *subsys)
 	disable_all_irqs(subsys);
 	notify_each_subsys_device(&subsys, 1, SUBSYS_AFTER_SHUTDOWN, NULL);
 }
+
+int wait_for_shutdown_ack(struct subsys_desc *desc)
+{
+	int count;
+	struct subsys_device *dev;
+
+	if (!desc || !desc->shutdown_ack_gpio)
+		return 0;
+
+	dev = find_subsys(desc->name);
+	if (!dev)
+		return 0;
+
+	for (count = SHUTDOWN_ACK_MAX_LOOPS; count > 0; count--) {
+		if (gpio_get_value(desc->shutdown_ack_gpio))
+			return count;
+		else if (subsys_get_crash_status(dev))
+			break;
+		msleep(SHUTDOWN_ACK_DELAY_MS);
+	}
+
+	pr_err("[%s]: Timed out waiting for shutdown ack\n", desc->name);
+	return -ETIMEDOUT;
+}
+EXPORT_SYMBOL(wait_for_shutdown_ack);
 
 void *__subsystem_get(const char *name, const char *fw_name)
 {
@@ -1063,12 +1086,12 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 		track = &dev->track;
 	}
 
-        if (system_state == SYSTEM_RESTART
-                || system_state == SYSTEM_POWER_OFF) {
-                WARN(1, "SSR aborted: %s, system reboot/shutdown is under way\n",
-                        desc->name);
-                return;
-        }
+	if (system_state == SYSTEM_RESTART
+		|| system_state == SYSTEM_POWER_OFF) {
+		WARN(1, "SSR aborted: %s, system reboot/shutdown is under way\n",
+			desc->name);
+		return;
+	}
 
 	mutex_lock(&track->lock);
 	do_epoch_check(dev);
@@ -1677,6 +1700,13 @@ static int subsys_parse_devicetree(struct subsys_desc *desc)
 	if (ret > 0)
 		desc->wdog_bite_irq = ret;
 
+	if (of_property_read_bool(pdev->dev.of_node,
+					"qcom,pil-generic-irq-handler")) {
+		ret = platform_get_irq(pdev, 0);
+		if (ret > 0)
+			desc->generic_irq = ret;
+	}
+
 	order = ssr_parse_restart_orders(desc);
 	if (IS_ERR(order)) {
 		pr_err("Could not initialize SSR restart order, err = %ld\n",
@@ -1740,6 +1770,18 @@ static int subsys_setup_irqs(struct subsys_device *subsys)
 			return ret;
 		}
 		disable_irq(desc->wdog_bite_irq);
+	}
+
+	if (desc->generic_irq && desc->generic_handler) {
+		ret = devm_request_irq(desc->dev, desc->generic_irq,
+			desc->generic_handler,
+			IRQF_TRIGGER_HIGH, desc->name, desc);
+		if (ret < 0) {
+			dev_err(desc->dev, "[%s]: Unable to register generic irq handler!: %d\n",
+				desc->name, ret);
+			return ret;
+		}
+		disable_irq(desc->generic_irq);
 	}
 
 	if (desc->err_ready_irq) {

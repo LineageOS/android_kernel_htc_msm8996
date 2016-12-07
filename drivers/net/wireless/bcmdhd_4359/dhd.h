@@ -441,6 +441,8 @@ typedef struct dhd_pub {
 #endif
 	bool	dongle_isolation;
 	bool	dongle_trap_occured;	
+	bool    iovar_timeout_occured;  
+	bool    d3ack_timeout_occured;  
 	int   hang_was_sent;
 	int   rxcnt_timeout;		
 	int   txcnt_timeout;		
@@ -549,16 +551,12 @@ typedef struct dhd_pub {
 #ifdef CUSTOMER_HW_ONE
 	bool os_stopped;
 	bool allow_p2p_event;
-#ifdef CUSTOM_MIMO_MODE
-	int mimo_mode;
-#endif 
 	
-#ifdef TX_STUCK_DETECTION
+	
 	uint32 old_tx_completed_count;
 	uint32 new_tx_completed_count;
 	uint32 xmit_count;
 	uint32 xmit_record_time;
-#endif 
 	
 #endif 
 } dhd_pub_t;
@@ -1531,6 +1529,7 @@ do { \
 #define DHD_ENABLE_RUNTIME_PM(dhdp)
 #endif 
 
+extern bool dhd_query_bus_erros(dhd_pub_t *dhdp);
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 0))
 #undef DHD_TRACE_WAKE_LOCK
 #endif 

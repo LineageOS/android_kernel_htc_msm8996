@@ -48,13 +48,16 @@ Optional properties for WLED:
 - qcom,en-ext-pfet-sc-pro : Specify if external pfet short circuit protection is needed
 - qcom,cons-sync-write-delay-us : Specify in 'us' the duration of delay between two consecutive writes to
 				  SYNC register.
+- qcom,sc-deb-cycles	: debounce time for short circuit detection
 
 Optional properties if 'qcom,disp-type-amoled' is mentioned in DT:
 - qcom,loop-ea-gm	: control the gm for gm stage in control loop. default is 3.
 - qcom,loop-comp-res-kohm	: control to select the compensation resistor in kohm. default is 320.
 - qcom,vref-psm-mv	: reference psm voltage in mv. default for amoled is 450.
-- qcom,sc-deb-cycles	: debounce time for short circuit detection
-- qcom,avdd-trim-steps-from-center : The number of steps to trim the OVP threshold voltage. The possible values can be between -7 to 8.
+- qcom,avdd-target-voltage-mv: The target voltage desired for the AVDD module in mV.
+				The supported values are:
+				7900, 7600, 7300, 6400, 6100, 5800.
+				If not specified, default value used is 7600.
 
 - htc,hyb-thres-low	: Same as qcom,hyb-thres. Use another setting to PMIC in low brightness.
 - htc,hyb-thres-low-wm	: The brightness value watermark to switch qcom,hyb-thres and htc,hyb-thres-low.

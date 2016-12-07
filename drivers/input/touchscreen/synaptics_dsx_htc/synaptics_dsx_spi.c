@@ -205,26 +205,6 @@ static int parse_dt(struct device *dev, struct synaptics_dsx_board_data *bdata)
 	}
 	pr_info("%s: power_gpio = %d\n", __func__, bdata->power_gpio);
 
-#ifdef MTK_PLATFORM
-	if (of_property_read_u32(np, "synaptics,power-gpio-1v8", &value) == 0) {
-		bdata->power_gpio_1v8 = value;
-#else
-	gpio = of_get_named_gpio_flags(np,
-			"synaptics,power-gpio-1v8", 0, NULL);
-	if (gpio >= 0) {
-		bdata->power_gpio_1v8 = gpio;
-#endif
-		retval = of_property_read_u32(np, "synaptics,power-on-state",
-				&value);
-		if (retval < 0)
-			return retval;
-		else
-			bdata->power_on_state = value;
-	} else {
-		bdata->power_gpio_1v8 = -1;
-	}
-	pr_info("%s: power_gpio_1v8 = %d\n", __func__, bdata->power_gpio_1v8);
-
 	retval = of_property_read_u32(np, "synaptics,power-delay-ms",
 			&value);
 	if (retval < 0)

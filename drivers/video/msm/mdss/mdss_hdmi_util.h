@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -368,12 +368,15 @@
 #define HDMI_DEFAULT_TIMEOUT_HSYNC 28571
 
 enum hdmi_tx_feature_type {
-	HDMI_TX_FEAT_EDID,
-	HDMI_TX_FEAT_HDCP,
-	HDMI_TX_FEAT_HDCP2P2,
-	HDMI_TX_FEAT_CEC_HW,
-	HDMI_TX_FEAT_CEC_ABST,
-	HDMI_TX_FEAT_MAX,
+	HDMI_TX_FEAT_EDID     = BIT(0),
+	HDMI_TX_FEAT_HDCP     = BIT(1),
+	HDMI_TX_FEAT_HDCP2P2  = BIT(2),
+	HDMI_TX_FEAT_CEC_HW   = BIT(3),
+	HDMI_TX_FEAT_CEC_ABST = BIT(4),
+	HDMI_TX_FEAT_PANEL    = BIT(5),
+	HDMI_TX_FEAT_MAX      = HDMI_TX_FEAT_EDID | HDMI_TX_FEAT_HDCP |
+				HDMI_TX_FEAT_HDCP2P2 | HDMI_TX_FEAT_CEC_HW |
+				HDMI_TX_FEAT_CEC_ABST | HDMI_TX_FEAT_PANEL
 };
 
 enum hdmi_tx_scdc_access_type {
@@ -504,7 +507,6 @@ int hdmi_setup_ddc_timers(struct hdmi_tx_ddc_ctrl *ctrl,
 			  u32 type, u32 to_in_num_lines);
 void hdmi_scrambler_ddc_disable(struct hdmi_tx_ddc_ctrl *ctrl);
 void hdmi_hdcp2p2_ddc_disable(struct hdmi_tx_ddc_ctrl *ctrl);
-int hdmi_hdcp2p2_ddc_check_status(struct hdmi_tx_ddc_ctrl *ctrl);
 int hdmi_hdcp2p2_ddc_read_rxstatus(struct hdmi_tx_ddc_ctrl *ctrl);
 int hdmi_utils_get_timeout_in_hysnc(struct msm_hdmi_mode_timing_info *timing,
 	u32 timeout_ms);

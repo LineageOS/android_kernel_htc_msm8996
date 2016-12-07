@@ -1,6 +1,3 @@
-/*
- * Implement the manual drop-all-pagecache function
- */
 
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -10,10 +7,9 @@
 #include <linux/gfp.h>
 #include "internal.h"
 
-/* A global variable is a bit ugly, but it keeps the code simple */
 int sysctl_drop_caches;
 
-static void drop_pagecache_sb(struct super_block *sb, void *unused)
+void drop_pagecache_sb(struct super_block *sb, void *unused)
 {
 	struct inode *inode, *toput_inode = NULL;
 
@@ -36,6 +32,7 @@ static void drop_pagecache_sb(struct super_block *sb, void *unused)
 	spin_unlock(&inode_sb_list_lock);
 	iput(toput_inode);
 }
+EXPORT_SYMBOL(drop_pagecache_sb);
 
 static void drop_slab(void)
 {

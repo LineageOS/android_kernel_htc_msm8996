@@ -271,10 +271,23 @@ static void android_pm_qos_update_latency(struct android_dev *dev, s32 latency)
 		return;
 
 	pr_debug("%s: latency updated to: %d\n", __func__, latency);
-
-	pm_qos_update_request(&dev->pm_qos_req_dma, latency);
-
-	last_vote = latency;
+	if (latency == PM_QOS_DEFAULT_VALUE) {
+		pm_qos_update_request(&dev->pm_qos_req_dma, latency);
+		last_vote = latency;
+		pm_qos_remove_request(&dev->pm_qos_req_dma);
+	} else {
+		if (!pm_qos_request_active(&dev->pm_qos_req_dma)) {
+#ifdef CONFIG_SMP
+			dev->pm_qos_req_dma.type = PM_QOS_REQ_AFFINE_IRQ;
+			dev->pm_qos_req_dma.irq =
+				dev->cdev->gadget->interrupt_num;
+#endif
+			pm_qos_add_request(&dev->pm_qos_req_dma,
+				PM_QOS_CPU_DMA_LATENCY, PM_QOS_DEFAULT_VALUE);
+		}
+		pm_qos_update_request(&dev->pm_qos_req_dma, latency);
+		last_vote = latency;
+	}
 }
 
 #define DOWN_PM_QOS_SAMPLE_SEC		5
@@ -495,14 +508,26 @@ static void android_disable(struct android_dev *dev)
 
 	pr_debug("%s: disable_depth %d -> %d\n", __func__, dev->disable_depth, dev->disable_depth+1);	
 	if (dev->disable_depth++ == 0) {
-		usb_gadget_disconnect(cdev->gadget);
-		dev->last_disconnect = ktime_get();
+		usb_gadget_autopm_get(cdev->gadget);
+		if (gadget_is_dwc3(cdev->gadget)) {
+			
+			usb_ep_dequeue(cdev->gadget->ep0, cdev->req);
 
-		
-		usb_ep_dequeue(cdev->gadget->ep0, cdev->req);
+			list_for_each_entry(conf, &dev->configs, list_item)
+				usb_remove_config(cdev, &conf->usb_config);
+			usb_gadget_disconnect(cdev->gadget);
+			dev->last_disconnect = ktime_get();
+		} else {
+			usb_gadget_disconnect(cdev->gadget);
+			dev->last_disconnect = ktime_get();
 
-		list_for_each_entry(conf, &dev->configs, list_item)
-			usb_remove_config(cdev, &conf->usb_config);
+			
+			usb_ep_dequeue(cdev->gadget->ep0, cdev->req);
+
+			list_for_each_entry(conf, &dev->configs, list_item)
+				usb_remove_config(cdev, &conf->usb_config);
+		}
+		usb_gadget_autopm_put_async(cdev->gadget);
 	}
 }
 
@@ -676,9 +701,10 @@ static int functionfs_ready_callback(struct ffs_data *ffs)
 	struct functionfs_config *config = ffs_function.config;
 	int ret = 0;	
 
-	if (dev)
-		mutex_lock(&dev->mutex);
+	if (!dev)
+		return -ENODEV;
 
+	mutex_lock(&dev->mutex);
 	config->data = ffs;
 	config->opened = true;
 
@@ -992,7 +1018,6 @@ static int rmnet_function_bind_config(struct android_usb_function *f,
 	struct android_dev *dev = cdev_to_android_dev(c->cdev);
 
 	if (!rmnet_initialized) {
-		rmnet_initialized = 1;
 		if (dev->pdata->rmnet_transports_interface)
 			strlcpy(rmnet_transports, dev->pdata->rmnet_transports_interface, sizeof(rmnet_transports));
 		else
@@ -1025,8 +1050,11 @@ static int rmnet_function_bind_config(struct android_usb_function *f,
 		err = rmnet_gport_setup();
 		if (err) {
 			pr_err("rmnet: Cannot setup transports");
+			frmnet_deinit_port();
+			ports = 0;
 			goto out;
 		}
+		rmnet_initialized = 1;
 	}
 
 	for (i = 0; i < ports; i++) {
@@ -2031,6 +2059,14 @@ static int serial_function_bind_config(struct android_usb_function *f,
 			}
 		}
 	}
+	if ((config->instances_on == 1) && !serial_initialized) {
+		err = gserial_init_port(ports, "tty", "serial_tty");
+		if (err) {
+			pr_err("serial: Cannot open port '%s'", "tty");
+			goto out;
+		}
+		config->instances_on++;
+	}
 
 	
 	if (ports > config->instances_on)
@@ -2045,8 +2081,7 @@ static int serial_function_bind_config(struct android_usb_function *f,
 		goto out;
 	}
 
-	config->instances_on = ports;
-	for (i = 0; i < ports; i++) {
+	for (i = 0; i < config->instances_on; i++) {
 		config->f_serial_inst[i] = usb_get_function_instance("gser");
 		if (IS_ERR(config->f_serial_inst[i])) {
 			err = PTR_ERR(config->f_serial_inst[i]);
@@ -3698,6 +3733,7 @@ static int android_init_functions(struct android_usb_function **functions,
 	int err = 0;
 	int index = 2; 
 
+	cdev->use_os_string = true;
 	for (; (f = *functions++); index++) {
 		f->dev_name = kasprintf(GFP_KERNEL, "f_%s", f->name);
 		f->android_dev = NULL;
@@ -3799,20 +3835,6 @@ android_unbind_enabled_functions(struct android_dev *dev,
 		f_holder->f->bound = false;
 	}
 }
-static inline void check_streaming_func(struct usb_gadget *gadget,
-		struct android_usb_platform_data *pdata,
-		char *name)
-{
-	int i;
-
-	for (i = 0; i < pdata->streaming_func_count; i++) {
-		if (!strcmp(name, pdata->streaming_func[i])) {
-			pr_debug("set streaming_enabled to true\n");
-			gadget->streaming_enabled = true;
-			break;
-		}
-	}
-}
 static int android_enable_function(struct android_dev *dev,
 				   struct android_configuration *conf,
 				   char *name)
@@ -3820,8 +3842,6 @@ static int android_enable_function(struct android_dev *dev,
 	struct android_usb_function **functions = dev->functions;
 	struct android_usb_function *f;
 	struct android_usb_function_holder *f_holder;
-	struct android_usb_platform_data *pdata = dev->pdata;
-	struct usb_gadget *gadget = dev->cdev->gadget;
 
 	while ((f = *functions++)) {
 		if (!strcmp(name, f->name)) {
@@ -3841,7 +3861,6 @@ static int android_enable_function(struct android_dev *dev,
 				list_add_tail(&f_holder->enabled_list,
 					      &conf->enabled_functions);
 				pr_debug("func:%s is enabled.\n", f->name);
-				check_streaming_func(gadget, pdata, f->name);
 
 				return 0;
 			}
@@ -3929,6 +3948,7 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	struct android_usb_function_holder *f_holder;
 	char *name;
 	char buf[256], *b;
+	const char *buffer;
 	char aliases[256], *a;
 	int err;
 	int is_ffs;
@@ -3956,21 +3976,18 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	}
 
 	pr_info("%s: switch function to %s\n", __func__, buff);
-	if (get_radio_flag() & 0x20000 || (get_debug_flag() & 0x101)) {
-		buff = change_charging_to_ums(buff);
-		size = strlen(buff);
-	}
+	buffer = buff;
+	if (get_radio_flag() & 0x20000 || (get_debug_flag() & 0x101))
+		buffer = change_charging_to_ums(buff);
 
 	if (get_radio_flag() & 0x20000) {
-		buff = add_usb_radio_debug_function(buff);
-		size = strlen(buff);
-		pr_info("%s : switch to radio debug function %s\n", __func__, buff);
+		buffer = add_usb_radio_debug_function(buffer);
+		pr_info("%s : switch to radio debug function %s\n", __func__, buffer);
 	}
 
-	strlcpy(buf, buff, sizeof(buf));
+	strlcpy(buf, buffer, sizeof(buf));
 	b = strim(buf);
 
-	dev->cdev->gadget->streaming_enabled = false;
 	while (b) {
 		conf_str = strsep(&b, ":");
 		if (!conf_str)
@@ -4690,41 +4707,11 @@ static int android_probe(struct platform_device *pdev)
 		if (!ret)
 			pdata->usb_core_id = usb_core_id;
 
-		len = of_property_count_strings(pdev->dev.of_node,
-				"qcom,streaming-func");
-		if (len > MAX_STREAMING_FUNCS) {
-			pr_err("Invalid number of functions used.\n");
-			return -EINVAL;
-		}
-
-		for (i = 0; i < len; i++) {
-			const char *name = NULL;
-
-			of_property_read_string_index(pdev->dev.of_node,
-				"qcom,streaming-func", i, &name);
-
-			if (!name)
-				continue;
-
-			if (sizeof(name) > FUNC_NAME_LEN) {
-				pr_err("Function name is bigger than allowed.\n");
-				continue;
-			}
-
-			strlcpy(pdata->streaming_func[i], name,
-				sizeof(pdata->streaming_func[i]));
-			pr_debug("name of streaming function:%s\n",
-				pdata->streaming_func[i]);
-		}
-
-		pdata->streaming_func_count = len;
-
 		pdata->cdrom = of_property_read_bool(pdev->dev.of_node,
 				"qcom,android-usb-cdrom");
 		ret = of_property_read_u32(pdev->dev.of_node,
 				"htc,android-usb-nluns",
 				&pdata->nluns);
-
 	} else {
 		pdata = pdev->dev.platform_data;
 	}
@@ -4836,13 +4823,6 @@ static int android_probe(struct platform_device *pdev)
 	
 	android_dev->curr_pm_qos_state = NO_USB_VOTE;
 	if (pdata && pdata->pm_qos_latency[0]) {
-#ifdef CONFIG_SMP
-		android_dev->pm_qos_req_dma.type = PM_QOS_REQ_AFFINE_IRQ;
-		android_dev->pm_qos_req_dma.irq =
-				android_dev->cdev->gadget->interrupt_num;
-#endif
-		pm_qos_add_request(&android_dev->pm_qos_req_dma,
-			PM_QOS_CPU_DMA_LATENCY, PM_QOS_DEFAULT_VALUE);
 		android_dev->down_pm_qos_sample_sec = DOWN_PM_QOS_SAMPLE_SEC;
 		android_dev->down_pm_qos_threshold = DOWN_PM_QOS_THRESHOLD;
 		android_dev->up_pm_qos_sample_sec = UP_PM_QOS_SAMPLE_SEC;

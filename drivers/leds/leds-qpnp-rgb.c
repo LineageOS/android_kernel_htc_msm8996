@@ -2898,7 +2898,7 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 		}
 #ifdef CONFIG_LEDS_VIRTUAL_KEY_CHECK_SOURCE
 		if(strcmp(led->cdev.name, "button-backlight") == 0) {
-			if(check_power_source() != led->base) {
+			if(check_power_source() != led->base && led->base !=0xa100) {
 				LED_INFO("button-backlight not use power source 0x%04x\n", led->base);
 				goto fail_id_check;
 			}

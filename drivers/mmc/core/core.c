@@ -37,7 +37,6 @@
 #include <linux/blkdev.h>
 
 #include <trace/events/mmc.h>
-#define CREATE_TRACE_POINTS
 #include <trace/events/mmcio.h>
 
 #include <linux/mmc/card.h>
@@ -823,7 +822,6 @@ static int mmc_devfreq_set_target(struct device *dev,
 	clk_scaling->need_freq_change = false;
 
 	mmc_host_clk_hold(host);
-	mmc_get_card(host->card);
 	err = mmc_clk_update_freq(host, *freq, clk_scaling->state);
 	if (err && err != -EAGAIN)
 		pr_err("%s: clock scale to %lu failed with error %d\n",
@@ -832,7 +830,6 @@ static int mmc_devfreq_set_target(struct device *dev,
 		pr_debug("%s: clock change to %lu finished successfully (%s)\n",
 			mmc_hostname(host), *freq, current->comm);
 
-	mmc_put_card(host->card);
 
 	mmc_host_clk_release(host);
 	mmc_release_host(host);
@@ -1170,7 +1167,7 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 				if (host->card && mmc_card_mmc(host->card))
 					trace_mmc_request_done(&host->class_dev,
 						cmd->opcode, mrq->cmd->arg,
-						mrq->data->blocks, ktime_to_ms(diff));
+						mrq->data->blocks, ktime_to_ms(diff), 0);
 				spin_lock_irqsave(&host->lock, flags);
 				if (mrq->data->flags == MMC_DATA_READ) {
 					host->perf.rbytes_drv +=
@@ -1259,6 +1256,9 @@ mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 			mrq->data->blocks, mrq->data->flags,
 			mrq->data->timeout_ns / 1000000,
 			mrq->data->timeout_clks);
+		if (host->card && mmc_card_mmc(host->card))
+			trace_mmc_req_start(&host->class_dev, mrq->cmd->opcode,
+				mrq->cmd->arg, mrq->data->blocks, 0);
 	}
 
 	if (mrq->stop) {
@@ -1443,8 +1443,8 @@ int mmc_set_auto_bkops(struct mmc_card *card, bool enable)
 			mmc_update_bkops_auto_off(&card->bkops.stats);
 		}
 		card->ext_csd.bkops_en = bkops_en;
-		pr_info("%s: %s: bkops_en: %d\n",
-			mmc_hostname(card->host), __func__, bkops_en);
+		pr_debug("%s: %s: bkops state %x\n",
+				mmc_hostname(card->host), __func__, bkops_en);
 	}
 out:
 	return ret;
@@ -1457,9 +1457,7 @@ void mmc_check_bkops(struct mmc_card *card)
 
 	BUG_ON(!card);
 
-	if (unlikely(!mmc_card_configured_manual_bkops(card)))
-		return;
-	if (mmc_card_doing_bkops(card) || mmc_card_doing_auto_bkops(card))
+	if (mmc_card_doing_bkops(card))
 		return;
 
 	err = mmc_read_bkops_status(card);
@@ -1469,12 +1467,12 @@ void mmc_check_bkops(struct mmc_card *card)
 		return;
 	}
 
+	card->bkops.needs_check = false;
+
 	mmc_update_bkops_level(&card->bkops.stats,
 				card->ext_csd.raw_bkops_status);
-	if (card->ext_csd.raw_bkops_status < EXT_CSD_BKOPS_LEVEL_2)
-		return;
 
-	card->bkops.needs_manual = true;
+	card->bkops.needs_bkops = card->ext_csd.raw_bkops_status > 0;
 }
 EXPORT_SYMBOL(mmc_check_bkops);
 
@@ -1498,7 +1496,7 @@ void mmc_start_manual_bkops(struct mmc_card *card)
 	} else {
 		mmc_card_set_doing_bkops(card);
 		mmc_update_bkops_start(&card->bkops.stats);
-		card->bkops.needs_manual = false;
+		card->bkops.needs_bkops = false;
 	}
 }
 EXPORT_SYMBOL(mmc_start_manual_bkops);
@@ -1681,6 +1679,12 @@ int mmc_cmdq_halt(struct mmc_host *host, bool halt)
 {
 	int err = 0;
 
+	if (mmc_host_cq_disable(host)) {
+		pr_debug("%s: %s: CQE is already disabled\n",
+				mmc_hostname(host), __func__);
+		return 0;
+	}
+
 	if ((halt && mmc_host_halt(host)) ||
 			(!halt && !mmc_host_halt(host))) {
 		pr_debug("%s: %s: CQE is already %s\n", mmc_hostname(host),
@@ -1813,6 +1817,10 @@ EXPORT_SYMBOL(mmc_start_req);
 
 void mmc_wait_for_req(struct mmc_host *host, struct mmc_request *mrq)
 {
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	if (mmc_bus_needs_resume(host))
+		mmc_resume_bus(host);
+#endif
 	__mmc_start_req(host, mrq);
 	mmc_wait_for_req_done(host, mrq);
 }
@@ -1936,8 +1944,13 @@ int mmc_read_bkops_status(struct mmc_card *card)
 	if (err)
 		goto out;
 
-	card->ext_csd.raw_bkops_status = ext_csd[EXT_CSD_BKOPS_STATUS];
-	card->ext_csd.raw_exception_status = ext_csd[EXT_CSD_EXP_EVENTS_STATUS];
+	card->ext_csd.raw_bkops_status = ext_csd[EXT_CSD_BKOPS_STATUS] &
+		MMC_BKOPS_URGENCY_MASK;
+	card->ext_csd.raw_exception_status =
+		ext_csd[EXT_CSD_EXP_EVENTS_STATUS] & (EXT_CSD_URGENT_BKOPS |
+						      EXT_CSD_DYNCAP_NEEDED |
+						      EXT_CSD_SYSPOOL_EXHAUSTED
+						      | EXT_CSD_PACKED_FAILURE);
 out:
 	kfree(ext_csd);
 	return err;
@@ -1990,7 +2003,7 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 	}
 
 	if (mmc_card_long_read_time(card) && data->flags & MMC_DATA_READ) {
-		data->timeout_ns = 300000000;
+		data->timeout_ns = 4000000000u;
 		data->timeout_clks = 0;
 	}
 
@@ -2084,21 +2097,12 @@ void mmc_get_card(struct mmc_card *card)
 }
 EXPORT_SYMBOL(mmc_get_card);
 
-void __mmc_put_card(struct mmc_card *card)
-{
-	
-	if (card->host->bus_ops->runtime_idle)
-		pm_runtime_put(&card->dev);
-	else
-		pm_runtime_put_autosuspend(&card->dev);
-}
-EXPORT_SYMBOL(__mmc_put_card);
 
 void mmc_put_card(struct mmc_card *card)
 {
 	mmc_release_host(card->host);
 	pm_runtime_mark_last_busy(&card->dev);
-	__mmc_put_card(card);
+	pm_runtime_put_autosuspend(&card->dev);
 }
 EXPORT_SYMBOL(mmc_put_card);
 
@@ -2638,6 +2642,40 @@ static inline void mmc_bus_put(struct mmc_host *host)
 	spin_unlock_irqrestore(&host->lock, flags);
 }
 
+int mmc_resume_bus(struct mmc_host *host)
+{
+	unsigned long flags;
+	int err = 0;
+
+	if (!mmc_bus_needs_resume(host))
+		return -EINVAL;
+
+	pr_debug("%s: Starting deferred resume\n", mmc_hostname(host));
+	spin_lock_irqsave(&host->lock, flags);
+	host->bus_resume_flags &= ~MMC_BUSRESUME_NEEDS_RESUME;
+	spin_unlock_irqrestore(&host->lock, flags);
+
+	mmc_bus_get(host);
+	if (host->bus_ops && !host->bus_dead && host->card) {
+		mmc_power_up(host, host->card->ocr);
+		BUG_ON(!host->bus_ops->resume);
+		host->bus_ops->resume(host);
+		if (mmc_card_cmdq(host->card)) {
+			err = mmc_cmdq_halt(host, false);
+			if (err)
+				pr_err("%s: %s: unhalt failed: %d\n",
+				       mmc_hostname(host), __func__, err);
+			else
+				mmc_card_clr_suspended(host->card);
+		}
+	}
+
+	mmc_bus_put(host);
+	pr_debug("%s: Deferred resume completed\n", mmc_hostname(host));
+	return 0;
+}
+EXPORT_SYMBOL(mmc_resume_bus);
+
 void mmc_attach_bus(struct mmc_host *host, const struct mmc_bus_ops *ops)
 {
 	unsigned long flags;
@@ -2862,6 +2900,7 @@ static int mmc_cmdq_do_erase(struct mmc_cmdq_req *cmdq_req,
 	unsigned long timeout;
 	unsigned int fr, nr;
 	int err;
+	ktime_t start, diff;
 
 	fr = from;
 	nr = to - from + 1;
@@ -2884,6 +2923,10 @@ static int mmc_cmdq_do_erase(struct mmc_cmdq_req *cmdq_req,
 	if (err)
 		goto out;
 
+	trace_mmc_req_start(&(card->host->class_dev), MMC_ERASE,
+			from, to - from + 1, 0);
+
+	start = ktime_get();
 	err = mmc_cmdq_send_erase_cmd(cmdq_req, card, MMC_ERASE,
 			arg, qty);
 	if (err)
@@ -2911,6 +2954,19 @@ static int mmc_cmdq_do_erase(struct mmc_cmdq_req *cmdq_req,
 		}
 	} while (!(cmd->resp[0] & R1_READY_FOR_DATA) ||
 		 (R1_CURRENT_STATE(cmd->resp[0]) == R1_STATE_PRG));
+
+	diff = ktime_sub(ktime_get(), start);
+	if (ktime_to_ms(diff) >= 3000)
+		pr_info("%s: erase(sector %u to %u) takes %lld ms\n",
+			mmc_hostname(card->host), from, to, ktime_to_ms(diff));
+
+	card->host->perf.erase_blks += (to - from + 1);
+	card->host->perf.erase_time =
+		ktime_add(card->host->perf.erase_time, diff);
+	card->host->perf.erase_rq++;
+
+	trace_mmc_request_done(&(card->host->class_dev), MMC_ERASE,
+			from, to - from + 1, ktime_to_ms(diff), 0);
 out:
 	trace_mmc_blk_erase_end(arg, fr, nr);
 	return err;
@@ -2968,7 +3024,7 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 
 	if (mmc_card_mmc(card)) {
 		trace_mmc_req_start(&(card->host->class_dev), MMC_ERASE,
-			from, to - from + 1);
+			from, to - from + 1, 0);
 	}
 
 	start = ktime_get();
@@ -3025,7 +3081,7 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 
 	if (mmc_card_mmc(card)) {
 		trace_mmc_request_done(&(card->host->class_dev), MMC_ERASE,
-			from, to - from + 1, ktime_to_ms(diff));
+			from, to - from + 1, ktime_to_ms(diff), 0);
 	}
 out:
 
@@ -3477,6 +3533,7 @@ EXPORT_SYMBOL(mmc_detect_card_removed);
 
 void mmc_rescan(struct work_struct *work)
 {
+	unsigned long flags;
 	struct mmc_host *host =
 		container_of(work, struct mmc_host, detect.work);
 
@@ -3513,8 +3570,13 @@ void mmc_rescan(struct work_struct *work)
 		host->trigger_card_event = false;
 	}
 
-	if (host->rescan_disable)
+	spin_lock_irqsave(&host->lock, flags);
+	if (host->rescan_disable) {
+		spin_unlock_irqrestore(&host->lock, flags);
 		return;
+	}
+	spin_unlock_irqrestore(&host->lock, flags);
+
 #if 0
 	
 	if ((host->caps & MMC_CAP_NONREMOVABLE) && host->rescan_entered)
@@ -3734,8 +3796,10 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 	case PM_RESTORE_PREPARE:
 		spin_lock_irqsave(&host->lock, flags);
 		host->rescan_disable = 1;
+		host->retry_disable = 1;
 		spin_unlock_irqrestore(&host->lock, flags);
 		cancel_delayed_work_sync(&host->detect);
+		host->retry_disable = 0;
 
 		if (!host->bus_ops)
 			break;
@@ -3761,6 +3825,10 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 
 		spin_lock_irqsave(&host->lock, flags);
 		host->rescan_disable = 0;
+		if (mmc_bus_manual_resume(host)) {
+			spin_unlock_irqrestore(&host->lock, flags);
+			break;
+		}
 		spin_unlock_irqrestore(&host->lock, flags);
 		_mmc_detect_change(host, 0, false);
 

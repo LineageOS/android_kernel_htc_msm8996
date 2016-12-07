@@ -541,7 +541,7 @@ dhdpcie_pci_remove(struct pci_dev *pdev)
 	osh = pch->osh;
 
 #ifdef CUSTOMER_HW_ONE
-	if (bus->cleanup_wq)
+	if (bus && bus->cleanup_wq)
 		destroy_workqueue(bus->cleanup_wq);
 #endif
 
@@ -700,7 +700,6 @@ void dhdpcie_linkdown_cb(struct msm_pcie_notify *noti)
 						"due to PCIe linkdown\n",
 						__FUNCTION__));
 					bus->islinkdown = TRUE;
-					DHD_OS_WAKE_LOCK(dhd);
 					dhd_os_send_hang_message(dhd);
 				}
 			}

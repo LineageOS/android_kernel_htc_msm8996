@@ -878,6 +878,7 @@ struct snd_soc_component *soc_find_component(
 	const struct device_node *of_node, const char *name)
 {
 	struct snd_soc_component *component;
+	bool found = false;
 
 	if (!of_node && !name) {
 		pr_err("%s: Either of_node or name must be valid\n",
@@ -885,16 +886,25 @@ struct snd_soc_component *soc_find_component(
 		return NULL;
 	}
 
+	mutex_lock(&client_mutex);
 	list_for_each_entry(component, &component_list, list) {
 		if (of_node) {
-			if (component->dev->of_node == of_node)
-				return component;
+			if (component->dev->of_node == of_node) {
+				found = true;
+				goto exit;
+			}
 		} else if (strcmp(component->name, name) == 0) {
-			return component;
+			found = true;
+			goto exit;
 		}
 	}
 
-	return NULL;
+exit:
+	mutex_unlock(&client_mutex);
+	if (found)
+		return component;
+	else
+		return NULL;
 }
 EXPORT_SYMBOL(soc_find_component);
 
@@ -903,7 +913,9 @@ static struct snd_soc_dai *snd_soc_find_dai(
 {
 	struct snd_soc_component *component;
 	struct snd_soc_dai *dai;
+	bool found = false;
 
+	mutex_lock(&client_mutex);
 	/* Find CPU DAI from registered DAIs*/
 	list_for_each_entry(component, &component_list, list) {
 		if (dlc->of_node && component->dev->of_node != dlc->of_node)
@@ -914,11 +926,17 @@ static struct snd_soc_dai *snd_soc_find_dai(
 			if (dlc->dai_name && strcmp(dai->name, dlc->dai_name))
 				continue;
 
-			return dai;
+			found = true;
+			goto exit;
 		}
 	}
 
-	return NULL;
+exit:
+	mutex_unlock(&client_mutex);
+	if (found)
+		return dai;
+	else
+		return NULL;
 }
 
 static int soc_bind_dai_link(struct snd_soc_card *card, int num)
@@ -2740,7 +2758,7 @@ int snd_soc_get_volsw_sx(struct snd_kcontrol *kcontrol,
 	unsigned int rshift = mc->rshift;
 	int max = mc->max;
 	int min = mc->min;
-	int mask = (1 << (fls(min + max) - 1)) - 1;
+	unsigned int mask = (unsigned int)(1 << (fls(min + max) - 1)) - 1;
 	unsigned int val;
 	int ret;
 

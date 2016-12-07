@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -374,6 +374,12 @@
 		ipc_log_string((dev)->ipc_log, "%s: " fmt, __func__, arg); \
 	pr_err("%s: " fmt, __func__, arg);  \
 	} while (0)
+
+#ifdef HTC_DEBUG_FLAG
+#define PCIE_ERR_INTERNAL        PCIE_ERR
+#else
+#define PCIE_ERR_INTERNAL        PCIE_DBG
+#endif 
 
 
 enum msm_pcie_res {
@@ -3991,10 +3997,11 @@ int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 	int link_check_count = 0;
 
 	
+	
 #if 0
 	PCIE_DBG(dev, "RC%d: entry\n", dev->rc_idx);
 #else
-	PCIE_ERR(dev, "RC%d: entry\n", dev->rc_idx);
+	PCIE_ERR_INTERNAL(dev, "RC%d: entry\n", dev->rc_idx);
 #endif
 	
 
@@ -4008,8 +4015,17 @@ int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 
 	
 
+	
+	
+#if 0
 	PCIE_INFO(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
 		dev->rc_idx);
+#else
+	PCIE_ERR_INTERNAL(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
+		dev->rc_idx);
+#endif
+	
+
 	gpio_set_value(dev->gpio[MSM_PCIE_GPIO_PERST].num,
 				dev->gpio[MSM_PCIE_GPIO_PERST].on);
 	usleep_range(PERST_PROPAGATION_DELAY_US_MIN,
@@ -4109,7 +4125,14 @@ int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 		dev->rc_idx, retries);
 
 	if (pcie_phy_is_ready(dev))
+		
+		
+#if 0
 		PCIE_INFO(dev, "PCIe RC%d PHY is ready!\n", dev->rc_idx);
+#else
+		PCIE_ERR_INTERNAL(dev, "PCIe RC%d PHY is ready!\n", dev->rc_idx);
+#endif
+		
 	else {
 		PCIE_ERR(dev, "PCIe PHY RC%d failed to come up!\n",
 			dev->rc_idx);
@@ -4129,8 +4152,16 @@ int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 
 	
 
+	
+	
+#if 0
 	PCIE_INFO(dev, "PCIe: Release the reset of endpoint of RC%d.\n",
 		dev->rc_idx);
+#else
+	PCIE_ERR_INTERNAL(dev, "PCIe: Release the reset of endpoint of RC%d.\n",
+		dev->rc_idx);
+#endif
+	
 	gpio_set_value(dev->gpio[MSM_PCIE_GPIO_PERST].num,
 				1 - dev->gpio[MSM_PCIE_GPIO_PERST].on);
 	usleep_range(PERST_PROPAGATION_DELAY_US_MIN,
@@ -4157,7 +4188,14 @@ int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 		msm_pcie_confirm_linkup(dev, false, false)) {
 		PCIE_DBG(dev, "Link is up after %d checkings\n",
 			link_check_count);
+		
+		
+#if 0
 		PCIE_INFO(dev, "PCIe RC%d link initialized\n", dev->rc_idx);
+#else
+		PCIE_ERR_INTERNAL(dev, "PCIe RC%d link initialized\n", dev->rc_idx);
+#endif
+		
 
 		
 		logger_cnt = 0;
@@ -4238,10 +4276,11 @@ out:
 void msm_pcie_disable(struct msm_pcie_dev_t *dev, u32 options)
 {
 	
+	
 #if 0
 	PCIE_DBG(dev, "RC%d: entry\n", dev->rc_idx);
 #else
-	PCIE_ERR(dev, "RC%d: entry\n", dev->rc_idx);
+	PCIE_ERR_INTERNAL(dev, "RC%d: entry\n", dev->rc_idx);
 #endif
 	
 
@@ -4259,8 +4298,16 @@ void msm_pcie_disable(struct msm_pcie_dev_t *dev, u32 options)
 	dev->power_on = false;
 	dev->link_turned_off_counter++;
 
+	
+	
+#if 0
 	PCIE_INFO(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
 		dev->rc_idx);
+#else
+	PCIE_ERR_INTERNAL(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
+		dev->rc_idx);
+#endif
+	
 
 	gpio_set_value(dev->gpio[MSM_PCIE_GPIO_PERST].num,
 				dev->gpio[MSM_PCIE_GPIO_PERST].on);
@@ -6028,10 +6075,11 @@ static int msm_pcie_pm_suspend(struct pci_dev *dev,
 	struct msm_pcie_dev_t *pcie_dev = PCIE_BUS_PRIV_DATA(dev->bus);
 
 	
+	
 #if 0
 	PCIE_DBG(pcie_dev, "RC%d: entry\n", pcie_dev->rc_idx);
 #else
-	PCIE_ERR(pcie_dev, "RC%d: entry\n", pcie_dev->rc_idx);
+	PCIE_ERR_INTERNAL(pcie_dev, "RC%d: entry\n", pcie_dev->rc_idx);
 #endif
 	
 
@@ -6068,11 +6116,12 @@ static int msm_pcie_pm_suspend(struct pci_dev *dev,
 				BIT(4));
 
 	
+	
 #if 0
 	PCIE_DBG(pcie_dev, "RC%d: PME_TURNOFF_MSG is sent out\n",
 		pcie_dev->rc_idx);
 #else
-	PCIE_ERR(pcie_dev, "RC%d: PME_TURNOFF_MSG is sent out\n",
+	PCIE_ERR_INTERNAL(pcie_dev, "RC%d: PME_TURNOFF_MSG is sent out\n",
 		pcie_dev->rc_idx);
 #endif
 	
@@ -6095,7 +6144,8 @@ static int msm_pcie_pm_suspend(struct pci_dev *dev,
 			pcie_dev->rc_idx);
 #else
 	if (!ret_l23) {
-		PCIE_ERR(pcie_dev, "RC%d: PM_Enter_L23 is received\n",
+		
+		PCIE_ERR_INTERNAL(pcie_dev, "RC%d: PM_Enter_L23 is received\n",
 			pcie_dev->rc_idx);
 	} else {
 		PCIE_ERR(pcie_dev, "RC%d: PM_Enter_L23 is NOT received\n",
@@ -6121,10 +6171,11 @@ static void msm_pcie_fixup_suspend(struct pci_dev *dev)
 	struct msm_pcie_dev_t *pcie_dev = PCIE_BUS_PRIV_DATA(dev->bus);
 
 	
+	
 #if 0
 	PCIE_DBG(pcie_dev, "RC%d\n", pcie_dev->rc_idx);
 #else
-	PCIE_ERR(pcie_dev, "RC%d\n", pcie_dev->rc_idx);
+	PCIE_ERR_INTERNAL(pcie_dev, "RC%d\n", pcie_dev->rc_idx);
 #endif
 	
 
@@ -6163,10 +6214,11 @@ static int msm_pcie_pm_resume(struct pci_dev *dev,
 	struct msm_pcie_dev_t *pcie_dev = PCIE_BUS_PRIV_DATA(dev->bus);
 
 	
+	
 #if 0
 	PCIE_DBG(pcie_dev, "RC%d: entry\n", pcie_dev->rc_idx);
 #else
-	PCIE_ERR(pcie_dev, "RC%d: entry\n", pcie_dev->rc_idx);
+	PCIE_ERR_INTERNAL(pcie_dev, "RC%d: entry\n", pcie_dev->rc_idx);
 #endif
 	
 
@@ -6230,10 +6282,11 @@ void msm_pcie_fixup_resume(struct pci_dev *dev)
 	struct msm_pcie_dev_t *pcie_dev = PCIE_BUS_PRIV_DATA(dev->bus);
 
 	
+	
 #if 0
 	PCIE_DBG(pcie_dev, "RC%d\n", pcie_dev->rc_idx);
 #else
-	PCIE_ERR(pcie_dev, "RC%d\n", pcie_dev->rc_idx);
+	PCIE_ERR_INTERNAL(pcie_dev, "RC%d\n", pcie_dev->rc_idx);
 #endif
 	
 
@@ -6259,10 +6312,11 @@ void msm_pcie_fixup_resume_early(struct pci_dev *dev)
 	struct msm_pcie_dev_t *pcie_dev = PCIE_BUS_PRIV_DATA(dev->bus);
 
 	
+	
 #if 0
 	PCIE_DBG(pcie_dev, "RC%d\n", pcie_dev->rc_idx);
 #else
-	PCIE_ERR(pcie_dev, "RC%d\n", pcie_dev->rc_idx);
+	PCIE_ERR_INTERNAL(pcie_dev, "RC%d\n", pcie_dev->rc_idx);
 #endif
 	
 

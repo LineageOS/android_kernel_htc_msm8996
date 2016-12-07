@@ -41,3 +41,10 @@
 		};
 	};
 };
+
+&spi_2 {
+        htc_mcu@0 {
+                mcu,need_notify_display = <0>;
+                mcu,need_compass_filter = <1>;
+        };
+};

@@ -125,6 +125,7 @@ struct mmc_ext_csd {
 	u8			raw_pwr_cl_ddr_52_360;	
 	u8			raw_pwr_cl_ddr_200_360;	
 	u8			cache_flush_policy;	
+#define MMC_BKOPS_URGENCY_MASK 0x3
 	u8			raw_bkops_status;	
 	u8			raw_sectors[4];		
 	u8			cmdq_depth;		
@@ -295,7 +296,8 @@ struct mmc_bkops_stats {
 struct mmc_bkops_info {
 	struct mmc_bkops_stats stats;
 	bool needs_check;
-	bool needs_manual;
+	bool needs_bkops;
+	u32  retry_counter;
 };
 
 enum mmc_pon_type {

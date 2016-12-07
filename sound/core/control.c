@@ -159,6 +159,8 @@ void snd_ctl_notify(struct snd_card *card, unsigned int mask,
 	
 	if (snd_BUG_ON(!card || !id))
 		return;
+	if (card->shutdown)
+		return;
 	read_lock(&card->ctl_files_rwlock);
 #if IS_ENABLED(CONFIG_SND_MIXER_OSS)
 	card->mixer_oss_change_count++;
@@ -722,7 +724,7 @@ static int snd_ctl_elem_read(struct snd_card *card,
 	if (kctl == NULL) {
 #ifdef CONFIG_HTC_DEBUG_DSP
 		if (snd_BUG_ON(&control->id))
-			pr_aud_err("%s: kctl not find: %d\n", __func__, control->id.numid); 
+			pr_aud_err("%s: kctl not find: %d\n", __func__, control->id.numid);
 #endif
 		result = -ENOENT;
 	} else {
@@ -774,7 +776,7 @@ static int snd_ctl_elem_write(struct snd_card *card, struct snd_ctl_file *file,
 	if (kctl == NULL) {
 #ifdef CONFIG_HTC_DEBUG_DSP
 		if (snd_BUG_ON(&control->id))
-			pr_aud_err("%s: kctl not find: %d\n", __func__, control->id.numid); 
+			pr_aud_err("%s: kctl not find: %d\n", __func__, control->id.numid);
 #endif
 		result = -ENOENT;
 	} else {
@@ -785,7 +787,7 @@ static int snd_ctl_elem_write(struct snd_card *card, struct snd_ctl_file *file,
 		    (file && vd->owner && vd->owner != file)) {
 			result = -EPERM;
 #ifdef CONFIG_HTC_DEBUG_DSP
-			pr_aud_err("%s: kctl invalid: %d\n", __func__, control->id.numid); 
+			pr_aud_err("%s: kctl invalid: %d\n", __func__, control->id.numid);
 #endif
 		} else {
 #ifdef CONFIG_HTC_DEBUG_DSP

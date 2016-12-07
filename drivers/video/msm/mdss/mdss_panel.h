@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -144,6 +144,11 @@ struct mdss_panel_cfg {
 #define MDP_INTF_DSI_CMD_FIFO_UNDERFLOW		0x0001
 #define MDP_INTF_DSI_VIDEO_FIFO_OVERFLOW	0x0002
 
+
+enum {
+	MDP_INTF_CALLBACK_DSI_WAIT,
+};
+
 struct mdss_intf_recovery {
 	void (*fxn)(void *ctx, int event);
 	void *data;
@@ -172,6 +177,7 @@ enum mdss_intf_events {
 	MDSS_EVENT_DSI_STREAM_SIZE,
 	MDSS_EVENT_DSI_UPDATE_PANEL_DATA,
 	MDSS_EVENT_REGISTER_RECOVERY_HANDLER,
+	MDSS_EVENT_REGISTER_MDP_CALLBACK,
 	MDSS_EVENT_DSI_PANEL_STATUS,
 	MDSS_EVENT_DSI_DYNAMIC_SWITCH,
 	MDSS_EVENT_DSI_RECONFIG_CMD,
@@ -179,6 +185,7 @@ enum mdss_intf_events {
 	MDSS_EVENT_PANEL_TIMING_SWITCH,
 	MDSS_EVENT_PANEL_VDDIO_SWITCH_ON,
 	MDSS_EVENT_PANEL_VDDIO_SWITCH_OFF,
+	MDSS_EVENT_MAX,
 };
 
 struct lcd_panel_info {
@@ -199,6 +206,7 @@ struct lcd_panel_info {
 	u32 xres_pad;
 	
 	u32 yres_pad;
+	u32 frame_rate;
 };
 
 
@@ -287,10 +295,19 @@ struct mipi_panel_info {
 
 	char lp11_init;
 	u32  init_delay;
+	u32  post_init_delay;
 };
 
 struct edp_panel_info {
 	char frame_rate;	
+};
+
+struct dynamic_fps_data {
+	u32 hfp;
+	u32 hbp;
+	u32 hpw;
+	u32 clk_rate;
+	u32 fps;
 };
 
 enum dynamic_fps_update {
@@ -298,6 +315,8 @@ enum dynamic_fps_update {
 	DFPS_IMMEDIATE_CLK_UPDATE_MODE,
 	DFPS_IMMEDIATE_PORCH_UPDATE_MODE_VFP,
 	DFPS_IMMEDIATE_PORCH_UPDATE_MODE_HFP,
+	DFPS_IMMEDIATE_MULTI_UPDATE_MODE_CLK_HFP,
+	DFPS_IMMEDIATE_MULTI_MODE_HFP_CALC_CLK,
 	DFPS_MODE_MAX
 };
 
@@ -319,6 +338,9 @@ enum {
 };
 
 struct dsc_desc {
+	u8 version; 
+	u8 scr_rev; 
+
 	int pic_height;
 	int pic_width;
 	int initial_lines;
@@ -409,7 +431,17 @@ struct mdss_mdp_pp_tear_check {
 	u32 sync_threshold_continue;
 	u32 start_pos;
 	u32 rd_ptr_irq;
+	u32 wr_ptr_irq;
 	u32 refx100;
+};
+
+struct mdss_panel_roi_alignment {
+	u32 xstart_pix_align;
+	u32 width_pix_align;
+	u32 ystart_pix_align;
+	u32 height_pix_align;
+	u32 min_width;
+	u32 min_height;
 };
 
 struct htc_backlight1_table {
@@ -455,6 +487,7 @@ struct mdss_panel_info {
 	bool ulps_suspend_enabled;
 	bool panel_ack_disabled;
 	bool esd_check_enabled;
+	bool allow_phy_power_off;
 	char dfps_update;
 	
 	int new_fps;
@@ -470,15 +503,10 @@ struct mdss_panel_info {
 	int panel_max_fps;
 	int panel_max_vtotal;
 	u32 mode_gpio_state;
-	u32 xstart_pix_align;
-	u32 width_pix_align;
-	u32 ystart_pix_align;
-	u32 height_pix_align;
-	u32 min_width;
-	u32 min_height;
 	u32 min_fps;
 	u32 max_fps;
 	u32 prg_fet;
+	struct mdss_panel_roi_alignment roi_alignment;
 
 	u32 cont_splash_enabled;
 	bool esd_rdy;
@@ -517,6 +545,8 @@ struct mdss_panel_info {
 
 	u8 dsc_enc_total; 
 	struct dsc_desc dsc;
+
+	bool send_pps_before_switch;
 
 	struct lcd_panel_info lcdc;
 	struct fbc_panel_info fbc;
@@ -568,6 +598,7 @@ struct mdss_panel_timing {
 	u32 compression_mode;
 
 	struct mdss_mdp_pp_tear_check te;
+	struct mdss_panel_roi_alignment roi_alignment;
 };
 
 struct mdss_panel_data {
@@ -582,12 +613,14 @@ struct mdss_panel_data {
 	struct mdss_panel_timing *current_timing;
 	bool active;
 
-	struct device_node *cfg_np; 
+	
+	char dsc_cfg_np_name[MDSS_MAX_PANEL_LEN];
 	struct mdss_panel_data *next;
 };
 
 struct mdss_panel_debugfs_info {
 	struct dentry *root;
+	struct dentry *parent;
 	struct mdss_panel_info panel_info;
 	u32 override_flag;
 	struct mdss_panel_debugfs_info *next;
@@ -612,6 +645,13 @@ static inline u32 mdss_panel_get_framerate(struct mdss_panel_info *panel_info)
 	case WRITEBACK_PANEL:
 		frame_rate = DEFAULT_FRAME_RATE;
 		break;
+	case DTV_PANEL:
+		if (panel_info->dynamic_fps) {
+			frame_rate = panel_info->lcdc.frame_rate / 1000;
+			if (panel_info->lcdc.frame_rate % 1000)
+				frame_rate += 1;
+			break;
+		}
 	default:
 		pixel_total = (panel_info->lcdc.h_back_porch +
 			  panel_info->lcdc.h_front_porch +
@@ -702,16 +742,40 @@ static inline bool mdss_panel_is_power_on_ulp(int panel_power_state)
 	return panel_power_state == MDSS_PANEL_POWER_LP2;
 }
 
+static inline void mdss_panel_update_clk_rate(struct mdss_panel_info *pinfo,
+	u32 fps)
+{
+	struct lcd_panel_info *lcdc = &pinfo->lcdc;
+	u32 htotal, vtotal;
+
+	if (pinfo->type == DTV_PANEL) {
+		htotal = pinfo->xres + lcdc->h_front_porch +
+				lcdc->h_back_porch + lcdc->h_pulse_width;
+		vtotal = pinfo->yres + lcdc->v_front_porch +
+				lcdc->v_back_porch + lcdc->v_pulse_width;
+
+		pinfo->clk_rate = mult_frac(htotal * vtotal, fps, 1000);
+
+		pr_debug("vtotal %d, htotal %d, rate %llu\n",
+			vtotal, htotal, pinfo->clk_rate);
+	}
+}
+
 static inline u8 mdss_panel_calc_frame_rate(struct mdss_panel_info *pinfo)
 {
 		u32 pixel_total = 0;
 		u8 frame_rate = 0;
-		unsigned long pclk_rate = pinfo->clk_rate;
+		unsigned long pclk_rate = pinfo->mipi.dsi_pclk_rate;
+		u32 xres;
+
+		xres = pinfo->xres;
+		if (pinfo->compression_mode == COMPRESSION_DSC)
+			xres /= 3;
 
 		pixel_total = (pinfo->lcdc.h_back_porch +
 			  pinfo->lcdc.h_front_porch +
 			  pinfo->lcdc.h_pulse_width +
-			  pinfo->xres) *
+			  xres) *
 			 (pinfo->lcdc.v_back_porch +
 			  pinfo->lcdc.v_front_porch +
 			  pinfo->lcdc.v_pulse_width +
@@ -721,7 +785,7 @@ static inline u8 mdss_panel_calc_frame_rate(struct mdss_panel_info *pinfo)
 			frame_rate =
 				DIV_ROUND_CLOSEST(pclk_rate, pixel_total);
 		else
-			frame_rate = DEFAULT_FRAME_RATE;
+			frame_rate = pinfo->panel_max_fps;
 
 		return frame_rate;
 }
@@ -743,7 +807,7 @@ void mdss_panel_dsc_initial_line_calc(struct dsc_desc *dsc, int enc_ip_width);
 void mdss_panel_dsc_pclk_param_calc(struct dsc_desc *dsc, int intf_width);
 
 int mdss_panel_dsc_prepare_pps_buf(struct dsc_desc *dsc, char *buf,
-	int pps_id, int major, int minor);
+	int pps_id);
 #ifdef CONFIG_FB_MSM_MDSS
 int mdss_panel_debugfs_init(struct mdss_panel_info *panel_info,
 		char const *panel_name);

@@ -21,7 +21,7 @@
 
 / {
 	model = "HTC Corporation. MSM8996v3 PME PVT";
-	qcom,msm-id = <402 0x30001>, <403 0x30001>, <405 0x30001>, <406 0x30001>;
+	qcom,msm-id = <402 0x30001>, <403 0x30001>, <405 0x30001>;
 	qcom,board-id = <0x80 0>;
 };
 
@@ -39,7 +39,8 @@
 
 &spi_2 {
 	htc_mcu@0 {
-		mcu,is_pvt = <1>;
+		mcu,need_notify_display = <1>;
+		mcu,need_compass_filter = <0>;
 	};
 };
 

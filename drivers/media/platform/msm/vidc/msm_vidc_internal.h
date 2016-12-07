@@ -45,7 +45,6 @@
 #define MIN_SUPPORTED_HEIGHT 32
 #define DEFAULT_FPS 15
 
-/* Maintains the number of FTB's between each FBD over a window */
 #define DCVS_FTB_WINDOW 32
 
 #define V4L2_EVENT_VIDC_BASE  10
@@ -81,8 +80,6 @@ enum vidc_core_state {
 	VIDC_CORE_INVALID
 };
 
-/* Do not change the enum values unless
- * you know what you are doing*/
 enum instance_state {
 	MSM_VIDC_CORE_UNINIT_DONE = 0x0001,
 	MSM_VIDC_CORE_INIT,
@@ -148,6 +145,7 @@ struct msm_vidc_drv {
 	int num_cores;
 	struct dentry *debugfs_root;
 	int thermal_level;
+	u32 platform_version;
 };
 
 struct msm_video_device {
@@ -366,7 +364,6 @@ struct msm_smem *msm_smem_user_to_kernel(void *clt, int fd, u32 offset,
 struct context_bank_info *msm_smem_get_context_bank(void *clt,
 		bool is_secure, enum hal_buffer buffer_type);
 void msm_vidc_fw_unload_handler(struct work_struct *work);
-/* XXX: normally should be in msm_vidc.h, but that's meant for public APIs,
- * whereas this is private */
+int8_t msm_smem_compare_buffers(void *clt, int fd, void *priv);
 int msm_vidc_destroy(struct msm_vidc_inst *inst);
 #endif

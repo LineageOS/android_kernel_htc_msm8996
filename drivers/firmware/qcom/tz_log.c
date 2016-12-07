@@ -37,6 +37,7 @@
 #define TZBSP_DIAG_VMID_DESC_LEN 7
 #define TZBSP_DIAG_INT_NUM  32
 #define TZBSP_MAX_INT_DESC 16
+#define QSEE_VERSION_TZ_3_X 0x800000
 struct tzdbg_vmid_t {
 	uint8_t vmid; 
 	uint8_t desc[TZBSP_DIAG_VMID_DESC_LEN];	
@@ -48,6 +49,16 @@ struct tzdbg_boot_info_t {
 	uint32_t pc_exit_cnt;	
 	uint32_t warm_jmp_addr;	
 	uint32_t spare;	
+};
+struct tzdbg_boot_info64_t {
+	uint32_t wb_entry_cnt;  
+	uint32_t wb_exit_cnt;   
+	uint32_t pc_entry_cnt;  
+	uint32_t pc_exit_cnt;   
+	uint32_t psci_entry_cnt;
+	uint32_t psci_exit_cnt;   
+	uint64_t warm_jmp_addr; 
+	uint32_t warm_jmp_instr; 
 };
 struct tzdbg_reset_info_t {
 	uint32_t reset_type;	
@@ -245,30 +256,90 @@ static int _disp_tz_boot_stats(void)
 {
 	int i;
 	int len = 0;
-	struct tzdbg_boot_info_t *ptr;
+	struct tzdbg_boot_info_t *ptr = NULL;
+	struct tzdbg_boot_info64_t *ptr_64 = NULL;
+	int ret = 0;
+	uint32_t smc_id = 0;
+	uint32_t feature = 10;
+	struct qseecom_command_scm_resp resp = {};
+	struct scm_desc desc = {0};
 
-	ptr = (struct tzdbg_boot_info_t *)((unsigned char *)tzdbg.diag_buf +
-					tzdbg.diag_buf->boot_info_off);
+	if (!is_scm_armv8()) {
+		ret = scm_call(SCM_SVC_INFO, SCM_SVC_UTIL,  &feature,
+					sizeof(feature), &resp, sizeof(resp));
+	} else {
+		smc_id = TZ_INFO_GET_FEATURE_VERSION_ID;
+		desc.arginfo = TZ_INFO_GET_FEATURE_VERSION_ID_PARAM_ID;
+		desc.args[0] = feature;
+		ret = scm_call2(smc_id, &desc);
+		resp.result = desc.ret[0];
+	}
+
+	if (ret) {
+		pr_err("%s: scm_call to register log buffer failed\n",
+				__func__);
+		return 0;
+	}
+	pr_info("qsee_version = 0x%x\n", resp.result);
+
+	if (resp.result >= QSEE_VERSION_TZ_3_X) {
+		ptr_64 = (struct tzdbg_boot_info64_t *)((unsigned char *)
+			tzdbg.diag_buf + tzdbg.diag_buf->boot_info_off);
+	} else {
+		ptr = (struct tzdbg_boot_info_t *)((unsigned char *)
+			tzdbg.diag_buf + tzdbg.diag_buf->boot_info_off);
+	}
 
 	for (i = 0; i < tzdbg.diag_buf->cpu_count; i++) {
-		len += snprintf(tzdbg.disp_buf + len,
-				(debug_rw_buf_size - 1) - len,
-				"  CPU #: %d\n"
-				"     Warmboot jump address     : 0x%x\n"
-				"     Warmboot entry CPU counter: 0x%x\n"
-				"     Warmboot exit CPU counter : 0x%x\n"
-				"     Power Collapse entry CPU counter: 0x%x\n"
-				"     Power Collapse exit CPU counter : 0x%x\n",
-				i, ptr->warm_jmp_addr, ptr->wb_entry_cnt,
-				ptr->wb_exit_cnt, ptr->pc_entry_cnt,
-				ptr->pc_exit_cnt);
+		if (resp.result >= QSEE_VERSION_TZ_3_X) {
+			len += snprintf(tzdbg.disp_buf + len,
+					(debug_rw_buf_size - 1) - len,
+					"  CPU #: %d\n"
+					"     Warmboot jump address : 0x%llx\n"
+					"     Warmboot entry CPU counter : 0x%x\n"
+					"     Warmboot exit CPU counter : 0x%x\n"
+					"     Power Collapse entry CPU counter : 0x%x\n"
+					"     Power Collapse exit CPU counter : 0x%x\n"
+					"     Psci entry CPU counter : 0x%x\n"
+					"     Psci exit CPU counter : 0x%x\n"
+					"     Warmboot Jump Address Instruction : 0x%x\n",
+					i, (uint64_t)ptr_64->warm_jmp_addr,
+					ptr_64->wb_entry_cnt,
+					ptr_64->wb_exit_cnt,
+					ptr_64->pc_entry_cnt,
+					ptr_64->pc_exit_cnt,
+					ptr_64->psci_entry_cnt,
+					ptr_64->psci_exit_cnt,
+					ptr_64->warm_jmp_instr);
 
-		if (len > (debug_rw_buf_size - 1)) {
-			pr_warn("%s: Cannot fit all info into the buffer\n",
-								__func__);
-			break;
+			if (len > (debug_rw_buf_size - 1)) {
+				pr_warn("%s: Cannot fit all info into the buffer\n",
+						__func__);
+				break;
+			}
+			ptr_64++;
+		} else {
+			len += snprintf(tzdbg.disp_buf + len,
+					(debug_rw_buf_size - 1) - len,
+					"  CPU #: %d\n"
+					"     Warmboot jump address     : 0x%x\n"
+					"     Warmboot entry CPU counter: 0x%x\n"
+					"     Warmboot exit CPU counter : 0x%x\n"
+					"     Power Collapse entry CPU counter: 0x%x\n"
+					"     Power Collapse exit CPU counter : 0x%x\n",
+					i, ptr->warm_jmp_addr,
+					ptr->wb_entry_cnt,
+					ptr->wb_exit_cnt,
+					ptr->pc_entry_cnt,
+					ptr->pc_exit_cnt);
+
+			if (len > (debug_rw_buf_size - 1)) {
+				pr_warn("%s: Cannot fit all info into the buffer\n",
+						__func__);
+				break;
+			}
+			ptr++;
 		}
-		ptr++;
 	}
 	tzdbg.stat[TZDBG_BOOT].data = tzdbg.disp_buf;
 	return len;

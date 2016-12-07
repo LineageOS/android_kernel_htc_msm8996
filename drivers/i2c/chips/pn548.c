@@ -48,10 +48,6 @@ int is_uicc_swp = 1;
 
 #define SW_ENABLE_OFFMODECHARGING
 #ifdef SW_ENABLE_OFFMODECHARGING
-uint8_t CORE_RESET[] = {0x20, 0x00, 0x01, 0x00};
-uint8_t CORE_INIT[] = {0x20,0x01,0x00};
-uint8_t NFCEE_MODE_SET[] = {0x22,0x01,0x02,0x02,0x01};
-uint8_t RF_DISCOVER[] = {0x21,0x03,0x07,0x03,0x80,0x01,0x81,0x01,0x82,0x01};
 struct workqueue_struct *nfc_wq;
 struct delayed_work nfc_work;
 #endif
@@ -94,8 +90,6 @@ struct pn544_dev	{
 	int boot_mode;
 	bool                     isReadBlock;
 };
-
-
 
 struct pn544_dev *pn_info;
 
@@ -333,7 +327,11 @@ static ssize_t pn544_dev_read(struct file *filp, char __user *buf,
 		D("%s : wait_event_interruptible done\n", __func__);
 
 		if (ret) {
-			I("pn544_dev_read wait_event_interruptible breaked ret=%d\n", ret);
+			if(ret != - ERESTARTSYS) {
+				I("pn544_dev_read wait_event_interruptible breaked ret=%d\n", ret);
+			} else {
+				D("pn544_dev_read wait_event_interruptible breaked ret=%d\n", ret);
+			}
 			goto fail;
 		}
 
@@ -432,7 +430,6 @@ static long pn544_dev_ioctl(struct file *filp,
 		unsigned int cmd, unsigned long arg)
 {
 	struct pn544_dev *pni = pn_info;
-
 	switch (cmd) {
 	case PN544_SET_PWR:
 		if (arg == 3) {
@@ -1151,26 +1148,22 @@ static int mfg_nfc_test(int code)
 #endif  
         case 88:
 #ifdef SW_ENABLE_OFFMODECHARGING
-                        pn544_hw_reset_control(1);
-                        INIT_DELAYED_WORK(&nfc_work, pn544_process_irq);
-                        nfc_wq = create_singlethread_workqueue("htc_nfc");
-                        queue_delayed_work(nfc_wq, &nfc_work, 0);
-                        mdelay(1);
-                        if(pn544_TxData(CORE_RESET,4) < 0)
-                                E("%s: CORE_RESET_CMD fail",__func__);
-                        mdelay(NFC_READ_DELAY);
-                        if(pn544_TxData(CORE_INIT,3) < 0)
-                                E("%s: CORE_INIT_CMD fail",__func__);
-                        mdelay(NFC_READ_DELAY);
-                        if(pn544_TxData(NFCEE_MODE_SET,5) < 0)
-                                E("%s: NFCEE_MODE_SET_CMD fail",__func__);
-                        mdelay(NFC_READ_DELAY);
-                        if(pn544_TxData(RF_DISCOVER,10)<0)
-                                E("%s: RF_DISCOVERY_CMD fail",__func__);
-                        mdelay(NFC_READ_DELAY);
-                        I("%s:off_mode_charging complete!!",__func__);
+		pn544_hw_reset_control(1);
+		I("%s: off_mode_charging script :\n", __func__);
+		if (script_processor(nfc_off_mode_charging_enble_script, sizeof(nfc_off_mode_charging_enble_script)) == 0) {
+			I("%s: store value = %d\n", __func__, code);
+			mfc_nfc_cmd_result = 1;
+			INIT_DELAYED_WORK(&nfc_work, pn544_process_irq);
+			nfc_wq = create_singlethread_workqueue("htc_nfc");
+			queue_delayed_work(nfc_wq, &nfc_work, 0);
+			mdelay(1);
+			I("%s: off_mode_charging complete!!\n",__func__);
+		} else {
+			E("%s: off_mode_charging fail!!\n",__func__);
+			pn544_hw_reset_control(0);
+		}
 #endif
-                        break;
+		break;
 	case 99:
 		I("%s: nfc_standby_enble_script :\n", __func__);
 		pn544_hw_reset_control(1);
@@ -1344,6 +1337,7 @@ static int pn544_parse_dt(struct device *dev, struct pn544_i2c_platform_data *pd
 	if(!gpio_is_valid(pdata->firm_gpio)) {
 		goto parse_error;
 	}
+
 #ifdef PME_NFC_POWER_CONTROL
 	NFC_I2C_SCL = of_get_named_gpio_flags(dt, "nfc_i2c_scl", 0, NULL);
         if(!gpio_is_valid(NFC_I2C_SCL)) {
@@ -1470,6 +1464,7 @@ static int pn544_probe(struct i2c_client *client,
 		ret = -ENODEV;
 		goto err_request_gpio_firm;
 	}
+
 	pni = kzalloc(sizeof(struct pn544_dev), GFP_KERNEL);
 	if (pni == NULL) {
 		dev_err(&client->dev, \
@@ -1674,7 +1669,7 @@ static int pn544_suspend(struct i2c_client *client, pm_message_t state)
 {
 	struct pn544_dev *pni = pn_info;
 
-        I("%s: irq = %d, ven_gpio = %d, isEn = %d, isReadBlock =%d\n", __func__, \
+        D("%s: irq = %d, ven_gpio = %d, isEn = %d, isReadBlock =%d\n", __func__, \
                 gpio_get_value(pni->irq_gpio), gpio_get_value(pni->ven_gpio), pn544_isEn(), pni->isReadBlock);
 
 	if (pni->ven_value && pni->isReadBlock && is_alive) {
@@ -1690,7 +1685,7 @@ static int pn544_resume(struct i2c_client *client)
 {
 	struct pn544_dev *pni = pn_info;
 
-        I("%s: irq = %d, ven_gpio = %d, isEn = %d, isReadBlock =%d\n", __func__, \
+        D("%s: irq = %d, ven_gpio = %d, isEn = %d, isReadBlock =%d\n", __func__, \
                 gpio_get_value(pni->irq_gpio), gpio_get_value(pni->ven_gpio), pn544_isEn(), pni->isReadBlock);
 
 	if (pni->ven_value && pni->isReadBlock && is_alive) {

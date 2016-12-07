@@ -374,13 +374,13 @@ void msm_dealloc_port(struct slim_controller *ctrl, u8 pn)
 	if (pn >= dev->port_nums)
 		return;
 	endpoint = &dev->pipes[pn];
-	if (dev->pipes[pn].connected)
-		msm_slim_disconn_pipe_port(dev, pn);
-	if (endpoint->sps) {
+	if (dev->pipes[pn].connected) {
 		struct sps_connect *config = &endpoint->config;
-		msm_slim_free_endpoint(endpoint);
+		msm_slim_disconn_pipe_port(dev, pn);
 		msm_slim_sps_mem_free(dev, &config->desc);
 	}
+	if (endpoint->sps)
+		msm_slim_free_endpoint(endpoint);
 }
 
 enum slim_port_err msm_slim_port_xfer_status(struct slim_controller *ctr,
@@ -512,7 +512,6 @@ void msm_slim_tx_msg_return(struct msm_slim_ctrl *dev, int err)
 			return;
 		}
 		if (addr == dev->bulk.wr_dma) {
-			SLIM_INFO(dev, "BULK WR complete");
 			dma_unmap_single(dev->dev, dev->bulk.wr_dma,
 					 dev->bulk.size, DMA_TO_DEVICE);
 			if (!dev->bulk.cb)
@@ -522,9 +521,11 @@ void msm_slim_tx_msg_return(struct msm_slim_ctrl *dev, int err)
 			dev->bulk.in_progress = false;
 			pm_runtime_mark_last_busy(dev->dev);
 			return;
-		} else if (addr < mem->phys_base || (addr > (mem->phys_base +
-				(MSM_TX_BUFS * SLIM_MSGQ_BUF_LEN)))) {
-			SLIM_WARN(dev, "BUF out of bounds:base:0x%pa, io:0x%pa", &mem->phys_base, &addr);
+		} else if (addr < mem->phys_base ||
+			   (addr > (mem->phys_base +
+				    (MSM_TX_BUFS * SLIM_MSGQ_BUF_LEN)))) {
+			SLIM_WARN(dev, "BUF out of bounds:base:0x%pa, io:0x%pa",
+					&mem->phys_base, &addr);
 			continue;
 		}
 		idx = (int) ((addr - mem->phys_base)
@@ -532,7 +533,7 @@ void msm_slim_tx_msg_return(struct msm_slim_ctrl *dev, int err)
 		if (dev->wr_comp[idx]) {
 			struct completion *comp = dev->wr_comp[idx];
 			dev->wr_comp[idx] = NULL;
-	                complete(comp);
+			complete(comp);
 		}
 		if (err) {
 			int i;

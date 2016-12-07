@@ -73,12 +73,13 @@ static u64 zcache_reclaim_fail;
 static u64 zcache_pool_shrink;
 static u64 zcache_pool_shrink_fail;
 static u64 zcache_pool_shrink_pages;
+static u64 zcache_store_failed;
 static atomic_t zcache_stored_pages = ATOMIC_INIT(0);
 static atomic_t zcache_stored_zero_pages = ATOMIC_INIT(0);
 
 #define GFP_ZCACHE \
 	(__GFP_FS | __GFP_NORETRY | __GFP_NOWARN | \
-		__GFP_NOMEMALLOC | __GFP_NO_KSWAPD)
+		__GFP_NOMEMALLOC | __GFP_NO_KSWAPD | __GFP_ZERO)
 
 /*
  * Make sure this is different from radix tree
@@ -568,10 +569,17 @@ static int zcache_store_zaddr(struct zcache_pool *zpool,
 	/* Insert zcache_ra_handle to ratree */
 	ret = radix_tree_insert(&rbnode->ratree, ra_index,
 				(void *)zaddr);
-	if (unlikely(ret))
-		if (zcache_rbnode_empty(rbnode))
-			zcache_rbnode_isolate(zpool, rbnode, 0);
 	spin_unlock_irqrestore(&rbnode->ra_lock, flags);
+	if (unlikely(ret)) {
+		write_lock_irqsave(&zpool->rb_lock, flags);
+		spin_lock(&rbnode->ra_lock);
+
+		if (zcache_rbnode_empty(rbnode))
+			zcache_rbnode_isolate(zpool, rbnode, 1);
+
+		spin_unlock(&rbnode->ra_lock);
+		write_unlock_irqrestore(&zpool->rb_lock, flags);
+	}
 
 	kref_put(&rbnode->refcount, zcache_rbnode_release);
 	return ret;
@@ -597,9 +605,15 @@ static void *zcache_load_delete_zaddr(struct zcache_pool *zpool,
 
 	spin_lock_irqsave(&rbnode->ra_lock, flags);
 	zaddr = radix_tree_delete(&rbnode->ratree, ra_index);
-	if (zcache_rbnode_empty(rbnode))
-		zcache_rbnode_isolate(zpool, rbnode, 0);
 	spin_unlock_irqrestore(&rbnode->ra_lock, flags);
+
+	/* rb_lock and ra_lock must be taken again in the given sequence */
+	write_lock_irqsave(&zpool->rb_lock, flags);
+	spin_lock(&rbnode->ra_lock);
+	if (zcache_rbnode_empty(rbnode))
+		zcache_rbnode_isolate(zpool, rbnode, 1);
+	spin_unlock(&rbnode->ra_lock);
+	write_unlock_irqrestore(&zpool->rb_lock, flags);
 
 	kref_put(&rbnode->refcount, zcache_rbnode_release);
 out:
@@ -685,10 +699,6 @@ static void zcache_store_page(int pool_id, struct cleancache_filekey key,
 	}
 
 	zhandle = (struct zcache_ra_handle *)zbud_map(zpool->pool, zaddr);
-	zhandle->ra_index = index;
-	zhandle->rb_index = key.u.ino;
-	zhandle->zlen = zlen;
-	zhandle->zpool = zpool;
 
 	/* Compressed page data stored at the end of zcache_ra_handle */
 	zpage = (u8 *)(zhandle + 1);
@@ -703,15 +713,20 @@ zero:
 	/* store zcache handle */
 	ret = zcache_store_zaddr(zpool, index, key.u.ino, zaddr);
 	if (ret) {
-		pr_err("%s: store handle error %d\n", __func__, ret);
+		zcache_store_failed++;
 		if (!zero)
 			zbud_free(zpool->pool, zaddr);
+		return;
 	}
 
 	/* update stats */
 	if (zero) {
 		atomic_inc(&zcache_stored_zero_pages);
 	} else {
+		zhandle->ra_index = index;
+		zhandle->rb_index = key.u.ino;
+		zhandle->zlen = zlen;
+		zhandle->zpool = zpool;
 		atomic_inc(&zcache_stored_pages);
 		zpool->size = zbud_get_pool_size(zpool->pool);
 	}
@@ -794,6 +809,7 @@ static void zcache_flush_ratree(struct zcache_pool *zpool,
 	unsigned long index = 0;
 	int count, i;
 	struct zcache_ra_handle *zhandle;
+	void *zaddr = NULL;
 
 	do {
 		void *zaddrs[FREE_BATCH];
@@ -805,14 +821,18 @@ static void zcache_flush_ratree(struct zcache_pool *zpool,
 
 		for (i = 0; i < count; i++) {
 			if (zaddrs[i] == ZERO_HANDLE) {
-				radix_tree_delete(&rbnode->ratree, indices[i]);
-				atomic_dec(&zcache_stored_zero_pages);
+				zaddr = radix_tree_delete(&rbnode->ratree,
+					indices[i]);
+				if (zaddr)
+					atomic_dec(&zcache_stored_zero_pages);
 				continue;
 			}
 			zhandle = (struct zcache_ra_handle *)zbud_map(
 					zpool->pool, (unsigned long)zaddrs[i]);
 			index = zhandle->ra_index;
-			radix_tree_delete(&rbnode->ratree, index);
+			zaddr = radix_tree_delete(&rbnode->ratree, index);
+			if (!zaddr)
+				continue;
 			zbud_unmap(zpool->pool, (unsigned long)zaddrs[i]);
 			zbud_free(zpool->pool, (unsigned long)zaddrs[i]);
 			atomic_dec(&zcache_stored_pages);
@@ -907,7 +927,10 @@ static int zcache_evict_zpage(struct zbud_pool *pool, unsigned long zaddr)
 	zhandle = (struct zcache_ra_handle *)zbud_map(pool, zaddr);
 
 	zpool = zhandle->zpool;
-	BUG_ON(!zpool);
+	/* There can be a race with zcache store */
+	if (!zpool)
+		return -EINVAL;
+
 	BUG_ON(pool != zpool->pool);
 
 	zaddr_intree = zcache_load_delete_zaddr(zpool, zhandle->rb_index,
@@ -1080,6 +1103,8 @@ static int __init zcache_debugfs_init(void)
 			zcache_debugfs_root, &zcache_pool_shrink_fail);
 	debugfs_create_u64("pool_shrink_pages", S_IRUGO,
 			zcache_debugfs_root, &zcache_pool_shrink_pages);
+	debugfs_create_u64("store_fail", S_IRUGO,
+			zcache_debugfs_root, &zcache_store_failed);
 	return 0;
 }
 

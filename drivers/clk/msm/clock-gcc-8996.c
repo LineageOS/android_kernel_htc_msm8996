@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1340,7 +1340,10 @@ static struct rcg_clk pdm2_clk_src = {
 };
 
 static struct clk_freq_tbl ftbl_qspi_ser_clk_src[] = {
-	F( 192000000,  gpll4_out_main,    2,    0,     0),
+	F(  75000000,  gpll0_out_main,    8,    0,     0),
+	F( 150000000,  gpll0_out_main,    4,    0,     0),
+	F( 256000000,  gpll4_out_main,  1.5,    0,     0),
+	F( 300000000,  gpll0_out_main,    2,    0,     0),
 	F_END
 };
 
@@ -3663,10 +3666,6 @@ static int msm_gcc_8996_probe(struct platform_device *pdev)
 	regval = readl_relaxed(virt_base + GCC_APCS_CLOCK_BRANCH_ENA_VOTE);
 	regval |= BIT(21);
 	writel_relaxed(regval, virt_base + GCC_APCS_CLOCK_BRANCH_ENA_VOTE);
-
-	regval = readl_relaxed(virt_base + GCC_APCS_CLOCK_SLEEP_ENA_VOTE);
-	regval |= BIT(21);
-	writel_relaxed(regval, virt_base + GCC_APCS_CLOCK_SLEEP_ENA_VOTE);
 
 	vdd_dig.vdd_uv[1] = RPM_REGULATOR_CORNER_SVS_KRAIT;
 	vdd_dig.regulator[0] = devm_regulator_get(&pdev->dev, "vdd_dig");

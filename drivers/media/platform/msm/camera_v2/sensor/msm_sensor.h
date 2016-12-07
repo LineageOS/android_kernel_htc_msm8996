@@ -61,10 +61,12 @@ struct msm_sensor_fn_t {
 	int (*sensor_power_down)(struct msm_sensor_ctrl_t *);
 	int (*sensor_power_up)(struct msm_sensor_ctrl_t *);
 	int (*sensor_match_id)(struct msm_sensor_ctrl_t *);
-   int (*sensor_i2c_read_fuseid)(struct sensorb_cfg_data *cdata, struct msm_sensor_ctrl_t *s_ctrl); 
+/*HTC_START, HTC_VCM*/
+   int (*sensor_i2c_read_fuseid)(struct sensorb_cfg_data *cdata, struct msm_sensor_ctrl_t *s_ctrl); /*HTC Harvey 20130628 - Porting read OTP*/
 #ifdef CONFIG_COMPAT
-	int (*sensor_i2c_read_fuseid32)(struct sensorb_cfg_data32 *cdata, struct msm_sensor_ctrl_t *s_ctrl); 
+	int (*sensor_i2c_read_fuseid32)(struct sensorb_cfg_data32 *cdata, struct msm_sensor_ctrl_t *s_ctrl); /*HTC Harvey 20130628 - Porting read OTP*/
 #endif
+/*HTC_END, HTC_VCM*/
 };
 
 struct msm_sensor_ctrl_t {
@@ -95,7 +97,9 @@ struct msm_sensor_ctrl_t {
 };
 
 #ifdef CONFIG_OIS_CALIBRATION
+/*HTC_START*/
 int htc_ois_calibration(struct msm_sensor_ctrl_t *s_ctrl, int cam_id);
+/*HTC_END*/
 #endif
 int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp);
 

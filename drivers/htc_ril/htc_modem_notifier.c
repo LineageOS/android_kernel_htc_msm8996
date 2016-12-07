@@ -44,7 +44,7 @@ static int notify_modem_app_reboot_call(struct notifier_block *this,
 	switch (code) {
 		case SYS_RESTART:
 		case SYS_POWER_OFF:
-			
+			//We only pass reason "oem-9x" to modem after modem power up
 			if(modem_is_load && _cmd && (strlen(_cmd)==6) && !strncmp(_cmd, "oem-9", 5) ) {
 				pr_info("[modem_notifier]%s: send reboot reason to modem.\n", __func__);
 				oem_code = simple_strtoul(_cmd + 4, 0, 16) & 0xff;
@@ -76,7 +76,7 @@ static int modem_notifier_cb(struct notifier_block *this,
             case SUBSYS_AFTER_SHUTDOWN:
                 modem_is_load = 0;
                 break;
-	    case SUBSYS_SOC_RESET:  
+	    case SUBSYS_SOC_RESET:  //for offline ramdump
                 pr_info("[modem_notifier]%s: notify modem to do cache flush [Before]\n", __func__);
                 if ( !htc_check_modem_crash_status() && modem_is_load ) {
 	          pr_info("[modem_notifier]%s: notify modem to do cache flush [Start]\n", __func__);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -108,7 +108,7 @@ static int diag_usb_buf_tbl_add(struct diag_usb_info *usb_info,
 		}
 	}
 
-	
+	/* New buffer, not found in the list */
 	entry = kzalloc(sizeof(struct diag_usb_buf_tbl_t), GFP_ATOMIC);
 	if (!entry)
 		return -ENOMEM;
@@ -132,8 +132,12 @@ static void diag_usb_buf_tbl_remove(struct diag_usb_info *usb_info,
 	list_for_each_safe(start, temp, &usb_info->buf_tbl) {
 		entry = list_entry(start, struct diag_usb_buf_tbl_t, track);
 		if (entry->buf == buf) {
-			DIAG_LOG(DIAG_DEBUG_MUX, "ref_count-- for %p\n", buf);
+			DIAG_LOG(DIAG_DEBUG_MUX, "ref_count-- for %pK\n", buf);
 			atomic_dec(&entry->ref_count);
+			/*
+			 * Remove reference from the table if it is the
+			 * only instance of the buffer
+			 */
 			if (atomic_read(&entry->ref_count) == 0)
 				list_del(&entry->track);
 			break;
@@ -151,7 +155,7 @@ static struct diag_usb_buf_tbl_t *diag_usb_buf_tbl_get(
 	list_for_each_safe(start, temp, &usb_info->buf_tbl) {
 		entry = list_entry(start, struct diag_usb_buf_tbl_t, track);
 		if (entry->buf == buf) {
-			DIAG_LOG(DIAG_DEBUG_MUX, "ref_count-- for %p\n", buf);
+			DIAG_LOG(DIAG_DEBUG_MUX, "ref_count-- for %pK\n", buf);
 			atomic_dec(&entry->ref_count);
 			return entry;
 		}
@@ -160,11 +164,15 @@ static struct diag_usb_buf_tbl_t *diag_usb_buf_tbl_get(
 	return NULL;
 }
 
+/*
+ * This function is called asynchronously when USB is connected and
+ * synchronously when Diag wants to connect to USB explicitly.
+ */
 static void usb_connect(struct diag_usb_info *ch)
 {
 	int err = 0;
 	int num_write = 0;
-	int num_read = 1; 
+	int num_read = 1; /* Only one read buffer for any USB channel */
 
 	if (!ch || !atomic_read(&ch->connected))
 		return;
@@ -181,9 +189,15 @@ static void usb_connect(struct diag_usb_info *ch)
 		if (atomic_read(&ch->diag_state)) {
 			ch->ops->open(ch->ctxt, DIAG_USB_MODE);
 		} else {
+			/*
+			 * This case indicates that the USB is connected
+			 * but the logging is still happening in MEMORY
+			 * DEVICE MODE. Continue the logging without
+			 * resetting the buffers.
+			 */
 		}
 	}
-	
+	/* As soon as we open the channel, queue a read */
 	queue_work(ch->usb_wq, &(ch->read_work));
 }
 
@@ -194,6 +208,11 @@ static void usb_connect_work_fn(struct work_struct *work)
 	usb_connect(ch);
 }
 
+/*
+ * This function is called asynchronously when USB is disconnected
+ * and synchronously when Diag wants to disconnect from USB
+ * explicitly.
+ */
 static void usb_disconnect(struct diag_usb_info *ch)
 {
 	if (ch && ch->ops && ch->ops->close)
@@ -254,12 +273,17 @@ static void usb_read_done_work_fn(struct work_struct *work)
 	if (!ch)
 		return;
 
+	/*
+	 * USB is disconnected/Disabled before the previous read completed.
+	 * Discard the packet and don't do any further processing.
+	 */
 	if (!atomic_read(&ch->connected) || !ch->enabled ||
 	    !atomic_read(&ch->diag_state))
 		return;
 
 	req = ch->read_ptr;
 	ch->read_cnt++;
+/*++ 2015/10/26, USB Team, PCN00028 ++*/
 #if DIAG_XPST && !defined(CONFIG_DIAGFWD_BRIDGE_CODE)
        if (driver->nohdlc) {
                req->buf = ch->read_buf;
@@ -268,6 +292,7 @@ static void usb_read_done_work_fn(struct work_struct *work)
                return;
        }
 #endif
+/*-- 2015/10/26, USB Team, PCN00028 --*/
 
 	if (ch->ops && ch->ops->read_done && req->status >= 0)
 		ch->ops->read_done(req->buf, req->actual, ch->ctxt);
@@ -288,7 +313,7 @@ static void diag_usb_write_done(struct diag_usb_info *ch,
 	ch->write_cnt++;
 	entry = diag_usb_buf_tbl_get(ch, req->context);
 	if (!entry) {
-		pr_err_ratelimited("diag: In %s, unable to find entry %p in the table\n",
+		pr_err_ratelimited("diag: In %s, unable to find entry %pK in the table\n",
 				   __func__, req->context);
 		return;
 	}
@@ -308,10 +333,13 @@ static void diag_usb_write_done(struct diag_usb_info *ch,
 	len = entry->len;
 	kfree(entry);
 	diag_ws_on_copy_complete(DIAG_WS_MUX);
-	spin_unlock_irqrestore(&ch->write_lock, flags);
 
 	if (ch->ops && ch->ops->write_done)
 		ch->ops->write_done(buf, len, ctxt, DIAG_USB_MODE);
+	buf = NULL;
+	len = 0;
+	ctxt = 0;
+	spin_unlock_irqrestore(&ch->write_lock, flags);
 	diagmem_free(driver, req, ch->mempool);
 }
 
@@ -380,7 +408,7 @@ static int diag_usb_write_ext(struct diag_usb_info *usb_info,
 	struct diag_request *req = NULL;
 
 	if (!usb_info || !buf || len <= 0) {
-		pr_err_ratelimited("diag: In %s, usb_info: %p buf: %p, len: %d\n",
+		pr_err_ratelimited("diag: In %s, usb_info: %pK buf: %pK, len: %d\n",
 				   __func__, usb_info, buf, len);
 		return -EINVAL;
 	}
@@ -390,6 +418,13 @@ static int diag_usb_write_ext(struct diag_usb_info *usb_info,
 		req = diagmem_alloc(driver, sizeof(struct diag_request),
 				    usb_info->mempool);
 		if (!req) {
+			/*
+			 * This should never happen. It either means that we are
+			 * trying to write more buffers than the max supported
+			 * by this particualar diag USB channel at any given
+			 * instance, or the previous write ptrs are stuck in
+			 * the USB layer.
+			 */
 			pr_err_ratelimited("diag: In %s, cannot retrieve USB write ptrs for USB channel %s\n",
 					   __func__, usb_info->name);
 			spin_unlock_irqrestore(&usb_info->write_lock, flags);
@@ -468,6 +503,12 @@ int diag_usb_write(int id, unsigned char *buf, int len, int ctxt)
 	req = diagmem_alloc(driver, sizeof(struct diag_request),
 			    usb_info->mempool);
 	if (!req) {
+		/*
+		 * This should never happen. It either means that we are
+		 * trying to write more buffers than the max supported by
+		 * this particualar diag USB channel at any given instance,
+		 * or the previous write ptrs are stuck in the USB layer.
+		 */
 		pr_err_ratelimited("diag: In %s, cannot retrieve USB write ptrs for USB channel %s\n",
 				   __func__, usb_info->name);
 		return -ENOMEM;
@@ -487,7 +528,8 @@ int diag_usb_write(int id, unsigned char *buf, int len, int ctxt)
 
 	spin_lock_irqsave(&usb_info->write_lock, flags);
 	if (diag_usb_buf_tbl_add(usb_info, buf, len, ctxt)) {
-		DIAG_LOG(DIAG_DEBUG_MUX, "ERR! unable to add buf %p to table\n",
+		DIAG_LOG(DIAG_DEBUG_MUX,
+					"ERR! unable to add buf %pK to table\n",
 			 buf);
 		diagmem_free(driver, req, usb_info->mempool);
 		spin_unlock_irqrestore(&usb_info->write_lock, flags);
@@ -511,6 +553,11 @@ int diag_usb_write(int id, unsigned char *buf, int len, int ctxt)
 	return err;
 }
 
+/*
+ * This functions performs USB connect operations wrt Diag synchronously. It
+ * doesn't translate to actual USB connect. This is used when Diag switches
+ * logging to USB mode and wants to mimic USB connection.
+ */
 void diag_usb_connect_all(void)
 {
 	int i = 0;
@@ -525,6 +572,11 @@ void diag_usb_connect_all(void)
 	}
 }
 
+/*
+ * This functions performs USB disconnect operations wrt Diag synchronously.
+ * It doesn't translate to actual USB disconnect. This is used when Diag
+ * switches logging from USB mode and want to mimic USB disconnect.
+ */
 void diag_usb_disconnect_all(void)
 {
 	int i = 0;
@@ -567,6 +619,11 @@ int diag_usb_register(int id, int ctxt, struct diag_mux_ops *ops)
 		goto err;
 	atomic_set(&ch->connected, 0);
 	atomic_set(&ch->read_pending, 0);
+	/*
+	 * This function is called when the mux registers with Diag-USB.
+	 * The registration happens during boot up and Diag always starts
+	 * in USB mode. Set the state to 1.
+	 */
 	atomic_set(&ch->diag_state, 1);
 	INIT_LIST_HEAD(&ch->buf_tbl);
 	diagmem_init(driver, ch->mempool);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -37,11 +37,27 @@ struct cpr3_fuse_param {
 
 #define MAX_CHARS_PER_INT	10
 
+struct cpr4_sdelta {
+	bool	allow_core_count_adj;
+	bool	allow_temp_adj;
+	int	max_core_count;
+	int	temp_band_count;
+	int	cap_volt;
+	int	*table;
+	bool	allow_boost;
+	int	boost_num_cores;
+	int	*boost_table;
+};
+
 struct cpr3_corner {
 	int			floor_volt;
 	int			ceiling_volt;
 	int			open_loop_volt;
 	int			last_volt;
+	int			abs_ceiling_volt;
+	int			unaged_floor_volt;
+	int			unaged_ceiling_volt;
+	int			unaged_open_loop_volt;
 	int			system_volt;
 	int			mem_acc_volt;
 	u32			proc_freq;
@@ -51,6 +67,13 @@ struct cpr3_corner {
 	u32			ro_mask;
 	u32			irq_en;
 	int			aging_derate;
+	bool			use_open_loop;
+	struct cpr4_sdelta	*sdelta;
+};
+
+struct cprh_corner_band {
+	int			corner;
+	struct cpr4_sdelta	*sdelta;
 };
 
 /**
@@ -75,6 +98,9 @@ struct cpr3_corner {
  *			manage LDO retention bypass state
  * @corner:		Array of all corners supported by this CPR3 regulator
  * @corner_count:	The number of elements in the corner array
+ * @corner_band:	Array of all corner bands supported by CPRh compatible
+ *			controllers
+ * @corner_band_count:	The number of elements in the corner band array
  * @platform_fuses:	Pointer to platform specific CPR fuse data (only used by
  *			platform specific CPR3 driver)
  * @speed_bin_fuse:	Value read from the speed bin fuse parameter
@@ -86,6 +112,14 @@ struct cpr3_corner {
  * @fuse_combos_supported: The number of fuse combinations supported by the
  *			device tree configuration for this CPR3 regulator
  * @fuse_corner_count:	Number of corners defined by fuse parameters
+ * @fuse_corner_map:	Array of length fuse_corner_count which specifies the
+ *			highest corner associated with each fuse corner.  Note
+ *			that each element must correspond to a valid corner
+ *			and that element values must be strictly increasing.
+ *			Also, it is acceptable for the lowest fuse corner to map
+ *			to a corner other than the lowest.  Likewise, it is
+ *			acceptable for the highest fuse corner to map to a
+ *			corner other than the highest.
  * @fuse_combo_corner_sum: The sum of the corner counts across all fuse combos
  * @fuse_combo_offset:	The device tree property array offset for the selected
  *			fuse combo
@@ -94,6 +128,17 @@ struct cpr3_corner {
  *			support is not required.
  * @speed_bin_offset:	The device tree property array offset for the selected
  *			speed bin
+ * @fuse_combo_corner_band_sum: The sum of the corner band counts across all
+ *			fuse combos
+ * @fuse_combo_corner_band_offset: The device tree property array offset for
+ *			the corner band count corresponding to the selected
+ *			fuse combo
+ * @speed_bin_corner_band_sum: The sum of the corner band counts across all
+ *			speed bins. This may be specified as 0 if per speed bin
+ *			parsing support is not required
+ * @speed_bin_corner_band_offset: The device tree property array offset for the
+ *			corner band count corresponding to the selected speed
+ *			bin
  * @pd_bypass_mask:	Bit mask of power domains associated with this CPR3
  *			regulator
  * @dynamic_floor_corner: Index identifying the voltage corner for the CPR3
@@ -134,12 +179,25 @@ struct cpr3_corner {
  * @aging_allowed:	Boolean defining if CPR aging adjustments are allowed
  *			for this CPR3 regulator given the fuse combo of the
  *			device
+ * @aging_allow_open_loop_adj: Boolean defining if the open-loop voltage of each
+ *			corner of this regulator should be adjusted as a result
+ *			of an aging measurement.  This flag can be set to false
+ *			when the open-loop voltage adjustments have been
+ *			specified such that they include the maximum possible
+ *			aging adjustment.  This flag is only used if
+ *			aging_allowed == true.
  * @aging_corner:	The corner that should be configured for this regulator
  *			when an aging measurement is performed.
  * @aging_max_adjust_volt: The maximum aging voltage margin in microvolts that
  *			may be added to the target quotients of this regulator.
  *			A value of 0 may be specified if this regulator does not
  *			require any aging adjustment.
+ * @allow_core_count_adj: Core count adjustments are allowed for this regulator.
+ * @allow_temp_adj:	Temperature based adjustments are allowed for this
+ *			regulator.
+ * @max_core_count:	Maximum number of cores considered for core count
+ *			adjustment logic.
+ * @allow_boost:	Voltage boost allowed for this regulator.
  *
  * This structure contains both configuration and runtime state data.  The
  * elements current_corner, last_closed_loop_corner, aggregated, debug_corner,
@@ -157,6 +215,8 @@ struct cpr3_regulator {
 	struct regulator	*ldo_ret_regulator;
 	struct cpr3_corner	*corner;
 	int			corner_count;
+	struct cprh_corner_band *corner_band;
+	u32			corner_band_count;
 
 	void			*platform_fuses;
 	int			speed_bin_fuse;
@@ -165,10 +225,15 @@ struct cpr3_regulator {
 	int			fuse_combo;
 	int			fuse_combos_supported;
 	int			fuse_corner_count;
+	int			*fuse_corner_map;
 	int			fuse_combo_corner_sum;
 	int			fuse_combo_offset;
 	int			speed_bin_corner_sum;
 	int			speed_bin_offset;
+	int			fuse_combo_corner_band_sum;
+	int			fuse_combo_corner_band_offset;
+	int			speed_bin_corner_band_sum;
+	int			speed_bin_corner_band_offset;
 	u32			pd_bypass_mask;
 	int			dynamic_floor_corner;
 	bool			uses_dynamic_floor;
@@ -186,8 +251,14 @@ struct cpr3_regulator {
 	bool			vreg_enabled;
 
 	bool			aging_allowed;
+	bool			aging_allow_open_loop_adj;
 	int			aging_corner;
 	int			aging_max_adjust_volt;
+
+	bool			allow_core_count_adj;
+	bool			allow_temp_adj;
+	int			max_core_count;
+	bool			allow_boost;
 };
 
 /**
@@ -247,6 +318,7 @@ enum cpr3_count_mode {
 enum cpr_controller_type {
 	CPR_CTRL_TYPE_CPR3,
 	CPR_CTRL_TYPE_CPR4,
+	CPR_CTRL_TYPE_CPRH,
 };
 
 struct cpr3_aging_sensor_info {
@@ -257,9 +329,21 @@ struct cpr3_aging_sensor_info {
 	u32			bypass_mask[CPR3_MAX_SENSOR_COUNT / 32];
 };
 
+struct cpr3_reg_info {
+	const char	*name;
+	u32		addr;
+	u32		value;
+};
+
+struct cpr3_panic_regs_info {
+	int			reg_count;
+	struct cpr3_reg_info	*regs;
+};
+
 struct cpr3_controller {
 	struct device		*dev;
 	const char		*name;
+	int			ctrl_id;
 	void __iomem		*cpr_ctrl_base;
 	void __iomem		*fuse_base;
 	struct list_head	list;
@@ -280,12 +364,16 @@ struct cpr3_controller {
 	struct clk		*iface_clk;
 	struct clk		*bus_clk;
 	int			irq;
+	struct cpumask		irq_affinity_mask;
+	struct notifier_block	cpu_hotplug_notifier;
 	int			ceiling_irq;
 	struct msm_apm_ctrl_dev *apm;
 	int			apm_threshold_volt;
 	int			apm_adj_volt;
 	enum msm_apm_supply	apm_high_supply;
 	enum msm_apm_supply	apm_low_supply;
+	int			base_volt;
+	u32			corner_switch_delay_time;
 	u32			cpr_clock_rate;
 	u32			sensor_time;
 	u32			loop_time;
@@ -320,6 +408,21 @@ struct cpr3_controller {
 	bool			aging_failed;
 	struct cpr3_aging_sensor_info *aging_sensor;
 	int			aging_sensor_count;
+	u32			aging_gcnt_scaling_factor;
+
+	u32			step_quot_fixed;
+	u32			initial_temp_band;
+	bool			use_dynamic_step_quot;
+	bool			allow_core_count_adj;
+	bool			allow_temp_adj;
+	bool			allow_boost;
+	int			temp_band_count;
+	int			*temp_points;
+	u32			temp_sensor_id_start;
+	u32			temp_sensor_id_end;
+	u32			voltage_settling_time;
+	struct cpr3_panic_regs_info *panic_regs_info;
+	struct notifier_block	panic_notifier;
 };
 
 #define CPR3_ROUND(n, d) (DIV_ROUND_UP(n, d) * (d))
@@ -354,6 +457,8 @@ int cpr3_parse_array_property(struct cpr3_regulator *vreg,
 			const char *prop_name, int tuple_size, u32 *out);
 int cpr3_parse_corner_array_property(struct cpr3_regulator *vreg,
 			const char *prop_name, int tuple_size, u32 *out);
+int cpr3_parse_corner_band_array_property(struct cpr3_regulator *vreg,
+			const char *prop_name, int tuple_size, u32 *out);
 int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg);
 int cpr3_parse_thread_u32(struct cpr3_thread *thread, const char *propname,
 			u32 *out_value, u32 value_min, u32 value_max);
@@ -373,8 +478,12 @@ int cpr3_voltage_adjustment(int ro_scale, int quot_adjust);
 int cpr3_parse_closed_loop_voltage_adjustments(struct cpr3_regulator *vreg,
 			u64 *ro_sel, int *volt_adjust,
 			int *volt_adjust_fuse, int *ro_scale);
+int cpr4_parse_core_count_temp_voltage_adj(struct cpr3_regulator *vreg,
+			bool use_corner_band);
 int cpr3_apm_init(struct cpr3_controller *ctrl);
 int cpr3_mem_acc_init(struct cpr3_regulator *vreg);
+int cpr3_parse_fuse_combo_map(struct cpr3_regulator *vreg, u64 *fuse_val,
+			int fuse_count);
 
 #else
 
@@ -442,6 +551,13 @@ static inline int cpr3_parse_array_property(struct cpr3_regulator *vreg,
 
 static inline int cpr3_parse_corner_array_property(struct cpr3_regulator *vreg,
 			const char *prop_name, int tuple_size, u32 *out)
+{
+	return -EPERM;
+}
+
+static inline int cpr3_parse_corner_band_array_property(
+			struct cpr3_regulator *vreg, const char *prop_name,
+			int tuple_size, u32 *out)
 {
 	return -EPERM;
 }
@@ -524,6 +640,12 @@ static inline int cpr3_parse_closed_loop_voltage_adjustments(
 	return 0;
 }
 
+static inline int cpr4_parse_core_count_temp_voltage_adj(
+			struct cpr3_regulator *vreg, bool use_corner_band)
+{
+	return 0;
+}
+
 static inline int cpr3_apm_init(struct cpr3_controller *ctrl)
 {
 	return 0;
@@ -532,6 +654,12 @@ static inline int cpr3_apm_init(struct cpr3_controller *ctrl)
 static inline int cpr3_mem_acc_init(struct cpr3_regulator *vreg)
 {
 	return 0;
+}
+
+static int cpr3_parse_fuse_combo_map(struct cpr3_regulator *vreg, u64 *fuse_val,
+			int fuse_count)
+{
+	return -EPERM;
 }
 
 #endif 

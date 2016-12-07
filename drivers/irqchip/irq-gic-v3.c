@@ -132,6 +132,7 @@ static void __maybe_unused gic_write_pmr(u64 val)
 {
 	asm volatile("msr_s " __stringify(ICC_PMR_EL1) ", %0" : : "r" (val));
 	
+	isb();
 	mb();
 }
 
@@ -151,6 +152,7 @@ static void __maybe_unused gic_write_sgi1r(u64 val)
 {
 	asm volatile("msr_s " __stringify(ICC_SGI1R_EL1) ", %0" : : "r" (val));
 	
+	isb();
 	mb();
 }
 
@@ -168,6 +170,7 @@ static void gic_enable_sre(void)
 		pr_err("GIC: unable to set SRE (disabled at EL2), panic ahead\n");
 }
 
+#ifdef CONFIG_ARM_GIC_V3_NO_ACCESS_CONTROL
 static void gic_enable_redist(bool enable)
 {
 	void __iomem *rbase;
@@ -201,6 +204,9 @@ static void gic_enable_redist(bool enable)
 		pr_err_ratelimited("redistributor failed to %s...\n",
 				   enable ? "wakeup" : "sleep");
 }
+#else
+static void gic_enable_redist(bool enable) { }
+#endif
 
 static void gic_poke_irq(struct irq_data *d, u32 offset)
 {
@@ -262,7 +268,9 @@ static int gic_set_type(struct irq_data *d, unsigned int type)
 	if (irq < 16)
 		return -EINVAL;
 
-	if (type != IRQ_TYPE_LEVEL_HIGH && type != IRQ_TYPE_EDGE_RISING)
+	
+	if (irq >= 32 && type != IRQ_TYPE_LEVEL_HIGH &&
+			 type != IRQ_TYPE_EDGE_RISING)
 		return -EINVAL;
 
 	if (gic_irq_in_rdist(d)) {
@@ -276,9 +284,7 @@ static int gic_set_type(struct irq_data *d, unsigned int type)
 	if (gic_arch_extn.irq_set_type)
 		gic_arch_extn.irq_set_type(d, type);
 
-	gic_configure_irq(irq, type, base, rwp_wait);
-
-	return 0;
+	return gic_configure_irq(irq, type, base, rwp_wait);
 }
 
 static int gic_retrigger(struct irq_data *d)
@@ -348,25 +354,35 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	u32 enabled;
 	u32 pending[32];
 	void __iomem *base = gic_data_dist_base(gic);
+
 	msm_show_resume_irq_mask = 1;
 	if (!msm_show_resume_irq_mask)
-	return;
+		return;
 
 	raw_spin_lock(&irq_controller_lock);
 	for (i = 0; i * 32 < gic->irq_nr; i++) {
-		enabled = readl_relaxed(base + 0x180 + i * 4);
-		pending[i] = readl_relaxed(base + 0x200 + i * 4);
+		enabled = readl_relaxed(base + GICD_ICENABLER + i * 4);
+		pending[i] = readl_relaxed(base + GICD_ISPENDR + i * 4);
 		pending[i] &= enabled;
 	}
 	raw_spin_unlock(&irq_controller_lock);
 
 	for (i = find_first_bit((unsigned long *)pending, gic->irq_nr);
-		i < gic->irq_nr;
-		i = find_next_bit((unsigned long *)pending, gic->irq_nr, i+1)) {
+	     i < gic->irq_nr;
+	     i = find_next_bit((unsigned long *)pending, gic->irq_nr, i+1)) {
+		unsigned int irq = irq_find_mapping(gic->domain, i);
+		struct irq_desc *desc = irq_to_desc(irq);
+		const char *name = "null";
+
+		if (desc == NULL)
+			name = "stray irq";
+		else if (desc->action && desc->action->name)
+			name = desc->action->name;
+
 #ifdef CONFIG_HTC_POWER_DEBUG
-		pr_info("[WAKEUP] Resume caused by gic-%d\n",i);
+		pr_info("[WAKEUP] Resume caused by gic-%d, %d triggered %s\n", i, irq, name);
 #else
-		pr_warning("%s: %d triggered %s\n", __func__, i);
+		pr_warn("%s: %d triggered %s\n", __func__, irq, name);
 #endif
 	}
 }
@@ -375,6 +391,7 @@ static void gic_resume_one(struct gic_chip_data *gic)
 {
 	unsigned int i;
 	void __iomem *base = gic_data_dist_base(gic);
+
 	gic_show_resume_irq(gic);
 
 	for (i = 0; i * 32 < gic->irq_nr; i++) {

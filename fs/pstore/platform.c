@@ -39,6 +39,11 @@
 
 #include "internal.h"
 
+/*
+ * We defer making "oops" entries appear in pstore - see
+ * whether the system is actually still running well enough
+ * to let someone see the entry
+ */
 static int pstore_update_ms = -1;
 module_param_named(update_ms, pstore_update_ms, int, 0600);
 MODULE_PARM_DESC(update_ms, "milliseconds before pstore updates its content "
@@ -54,11 +59,16 @@ static DEFINE_TIMER(pstore_timer, pstore_timefunc, 0, 0);
 static void pstore_dowork(struct work_struct *);
 static DECLARE_WORK(pstore_work, pstore_dowork);
 
+/*
+ * pstore_lock just protects "psinfo" during
+ * calls to pstore_register()
+ */
 static DEFINE_SPINLOCK(pstore_lock);
 struct pstore_info *psinfo;
 
 static char *backend;
 
+/* Compression parameters */
 #define COMPR_LEVEL 6
 #define WINDOW_BITS 12
 #define MEM_LEVEL 4
@@ -67,6 +77,7 @@ static struct z_stream_s stream;
 static char *big_oops_buf;
 static size_t big_oops_buf_sz;
 
+/* How much of the console log to snapshot */
 static unsigned long kmsg_bytes = 10240;
 
 void pstore_set_kmsg_bytes(int bytes)
@@ -74,6 +85,7 @@ void pstore_set_kmsg_bytes(int bytes)
 	kmsg_bytes = bytes;
 }
 
+/* Tag each group of saved records with a sequence number */
 static int	oopscount;
 
 static const char *get_reason_str(enum kmsg_dump_reason reason)
@@ -98,13 +110,17 @@ static const char *get_reason_str(enum kmsg_dump_reason reason)
 
 bool pstore_cannot_block_path(enum kmsg_dump_reason reason)
 {
+	/*
+	 * In case of NMI path, pstore shouldn't be blocked
+	 * regardless of reason.
+	 */
 	if (in_nmi())
 		return true;
 
 	switch (reason) {
-	
+	/* In panic case, other cpus are stopped by smp_send_stop(). */
 	case KMSG_DUMP_PANIC:
-	
+	/* Emergency restart shouldn't be blocked by spin lock. */
 	case KMSG_DUMP_EMERG:
 		return true;
 	default:
@@ -113,6 +129,7 @@ bool pstore_cannot_block_path(enum kmsg_dump_reason reason)
 }
 EXPORT_SYMBOL_GPL(pstore_cannot_block_path);
 
+/* Derived from logfs_compress() */
 static int pstore_compress(const void *in, void *out, size_t inlen,
 							size_t outlen)
 {
@@ -147,6 +164,7 @@ error:
 	return ret;
 }
 
+/* Derived from logfs_uncompress */
 static int pstore_decompress(void *in, void *out, size_t inlen, size_t outlen)
 {
 	int err, ret;
@@ -181,10 +199,12 @@ static void allocate_buf_for_compression(void)
 	size_t size;
 	size_t cmpr;
 
+	/* HTC: disable pstore buf compression; we prefer plain text OOPS
+	 * for debugging */
 	return;
 
 	switch (psinfo->bufsize) {
-	
+	/* buffer range for efivars */
 	case 1000 ... 2000:
 		cmpr = 56;
 		break;
@@ -194,7 +214,7 @@ static void allocate_buf_for_compression(void)
 	case 3001 ... 3999:
 		cmpr = 52;
 		break;
-	
+	/* buffer range for nvram, erst */
 	case 4000 ... 10000:
 		cmpr = 45;
 		break;
@@ -221,6 +241,13 @@ static void allocate_buf_for_compression(void)
 
 }
 
+/*
+ * Called when compression fails, since the printk buffer
+ * would be fetched for compression calling it again when
+ * compression fails would have moved the iterator of
+ * printk buffer which results in fetching old contents.
+ * Copy the recent messages from big_oops_buf to psinfo->buf
+ */
 static size_t copy_kmsg_to_buffer(int hsize, size_t len)
 {
 	size_t total_len;
@@ -381,6 +408,15 @@ static int pstore_write_compat(enum pstore_type_id type,
 			     size, psi);
 }
 
+/*
+ * platform specific persistent storage driver registers with
+ * us here. If pstore is already mounted, call the platform
+ * read function right away to populate the file system. If not
+ * then the pstore mount code will call us later to fill out
+ * the file system.
+ *
+ * Register with kmsg_dump to save last part of console log on panic.
+ */
 int pstore_register(struct pstore_info *psi)
 {
 	struct module *owner = psi->owner;
@@ -430,6 +466,12 @@ int pstore_register(struct pstore_info *psi)
 }
 EXPORT_SYMBOL_GPL(pstore_register);
 
+/*
+ * Read all the records from the persistent store. Create
+ * files in our filesystem.  Don't warn about -EEXIST errors
+ * when we are re-scanning the backing store looking to add new
+ * error records.
+ */
 void pstore_get_records(int quiet)
 {
 	struct pstore_info *psi = psinfo;
@@ -472,7 +514,7 @@ void pstore_get_records(int quiet)
 		rc = pstore_mkfile(type, psi->name, id, count, buf,
 				  compressed, (size_t)size, time, psi);
 		if (unzipped_len < 0) {
-			
+			/* Free buffer other than big oops */
 			kfree(buf);
 			buf = NULL;
 		} else

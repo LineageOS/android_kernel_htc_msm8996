@@ -102,7 +102,7 @@ struct sync_pt {
 struct sync_fence {
 	struct file		*file;
 	struct kref		kref;
-	char			name[32];
+	char			name[64];
 
 	
 	struct list_head	pt_list_head;

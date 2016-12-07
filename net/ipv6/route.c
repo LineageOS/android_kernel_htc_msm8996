@@ -2653,6 +2653,7 @@ void inet6_rt_notify(int event, struct rt6_info *rt, struct nl_info *info)
 		goto errout;
 	}
 
+#ifdef CONFIG_HTC_NETWORK_MODIFY
     if((rt->rt6i_dst.addr.s6_addr32[0] == 0x0) && (rt->rt6i_dst.addr.s6_addr32[1] == 0x0) &&
        (rt->rt6i_dst.addr.s6_addr32[2] == 0x0) && (rt->rt6i_dst.addr.s6_addr32[3] == 0x0))  
     {
@@ -2669,6 +2670,7 @@ void inet6_rt_notify(int event, struct rt6_info *rt, struct nl_info *info)
             (event == RTM_NEWROUTE) ? "RTM_NEWROUTE" : ((event == RTM_DELROUTE) ? "RTM_DELROUTE" : "UNKNOWN")
             );
     }
+#endif
 
 	rtnl_notify(skb, net, info->portid, RTNLGRP_IPV6_ROUTE,
 		    info->nlh, gfp_any());

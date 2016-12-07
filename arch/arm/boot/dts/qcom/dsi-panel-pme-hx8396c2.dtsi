@@ -36,7 +36,7 @@
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
-		qcom,mdss-dsi-panel-timings-8996 = [
+		qcom,mdss-dsi-panel-timings-phy-v2 = [
 			22 1E 07 08 04 03 04 a0
 			22 1E 07 08 04 03 04 a0
 			22 1E 07 08 04 03 04 a0
@@ -153,7 +153,7 @@
 		qcom,panel-supply-entries = <&dsi_panel_pwr_supply_hx8396c>;
 		qcom,mdss-dsi-lp11-init;
 
-		htc,brt-bl-table = <30 66>, <142 1075>, <255 4095>;
+		htc,brt-bl-table = <30 41>, <142 1075>, <255 4095>;
 		htc,mdss-camera-blk = <170>;
 		htc,cabc-off-cmds = [
 			39 01 00 00 05 00 02 55 00
@@ -233,7 +233,7 @@
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
-		qcom,mdss-dsi-panel-timings-8996 = [
+		qcom,mdss-dsi-panel-timings-phy-v2 = [
 			22 1E 07 08 04 03 04 a0
 			22 1E 07 08 04 03 04 a0
 			22 1E 07 08 04 03 04 a0
@@ -361,11 +361,18 @@
 		qcom,panel-supply-entries = <&dsi_panel_pwr_supply_hx8396c>;
 		qcom,mdss-dsi-lp11-init;
 		qcom,esd-check-enabled;
-		qcom,mdss-dsi-panel-status-check-mode = "te_signal_check";
+		qcom,mdss-dsi-panel-status-check-mode = "te_signal_check_v2";
+		/* XXX: Don't care */
+		qcom,mdss-dsi-panel-status-command = [06 01 00 01 05 00 02 0A 00];
+		qcom,mdss-dsi-panel-status-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-panel-status-read-length = <4>;
+		qcom,mdss-dsi-panel-max-error-count = <3>;
+		qcom,mdss-dsi-panel-status-value = <0x1e 0x1e 0x1e 0x1e>;
+
 		qcom,config-select = <&dsi_dual_hx8396c2_cmd_config2>;
 
 		htc,dsi_panel_power_control = "hx8396c2";
-		htc,brt-bl-table = <30 66>, <142 1075>, <255 4095>;
+		htc,brt-bl-table = <30 41>, <142 1075>, <255 4095>;
 		htc,mdss-camera-blk = <170>;
 		htc,cabc-off-cmds = [
 			39 01 00 00 05 00 02 55 00
@@ -455,7 +462,7 @@
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
-		qcom,mdss-dsi-panel-timings-8996 = [
+		qcom,mdss-dsi-panel-timings-phy-v2 = [
 			22 1E 07 08 04 03 04 a0
 			22 1E 07 08 04 03 04 a0
 			22 1E 07 08 04 03 04 a0
@@ -517,11 +524,18 @@
 		qcom,panel-supply-entries = <&dsi_panel_pwr_supply_hx8396c>;
 		qcom,mdss-dsi-lp11-init;
 		qcom,esd-check-enabled;
-		qcom,mdss-dsi-panel-status-check-mode = "te_signal_check";
+		qcom,mdss-dsi-panel-status-check-mode = "te_signal_check_v2";
+		/* XXX: Don't care */
+		qcom,mdss-dsi-panel-status-command = [06 01 00 01 05 00 02 0A 00];
+		qcom,mdss-dsi-panel-status-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-panel-status-read-length = <4>;
+		qcom,mdss-dsi-panel-max-error-count = <3>;
+		qcom,mdss-dsi-panel-status-value = <0x1e 0x1e 0x1e 0x1e>;
+
 		qcom,config-select = <&dsi_dual_hx8396c2_cmd_config2>;
 
 		htc,dsi_panel_power_control = "hx8396c2";
-		htc,brt-bl-table = <30 77>, <142 1162>, <255 4095>;
+		htc,brt-bl-table = <30 48>, <142 1162>, <255 4095>;
 		htc,mdss-camera-blk = <179>;
 		htc,cabc-off-cmds = [
 			39 01 00 00 05 00 02 55 00
@@ -611,7 +625,7 @@
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
-		qcom,mdss-dsi-panel-timings-8996 = [
+		qcom,mdss-dsi-panel-timings-phy-v2 = [
 			24 1F 08 09 05 03 04 a0
 			24 1F 08 09 05 03 04 a0
 			24 1F 08 09 05 03 04 a0
@@ -658,7 +672,7 @@
 		qcom,panel-supply-entries = <&dsi_panel_pwr_supply_hx8396c>;
 		qcom,mdss-dsi-lp11-init;
 
-		htc,brt-bl-table = <30 77>, <142 1162>, <255 4095>;
+		htc,brt-bl-table = <30 48>, <142 1162>, <255 4095>;
 		htc,mdss-camera-blk = <179>;
 		htc,cabc-off-cmds = [
 			39 01 00 00 05 00 02 55 00
@@ -737,7 +751,7 @@
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
-		qcom,mdss-dsi-panel-timings-8996 = [
+		qcom,mdss-dsi-panel-timings-phy-v2 = [
 			1F 1B 05 06 03 03 04 a0
 			1F 1B 05 06 03 03 04 a0
 			1F 1B 05 06 03 03 04 a0
@@ -870,10 +884,17 @@
 		qcom,panel-supply-entries = <&dsi_panel_pwr_supply_hx8396c>;
 		qcom,mdss-dsi-lp11-init;
 		qcom,esd-check-enabled;
-		qcom,mdss-dsi-panel-status-check-mode = "te_signal_check";
+		qcom,mdss-dsi-panel-status-check-mode = "te_signal_check_v2";
+		/* XXX: Don't care */
+		qcom,mdss-dsi-panel-status-command = [06 01 00 01 05 00 02 0A 00];
+		qcom,mdss-dsi-panel-status-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-panel-status-read-length = <4>;
+		qcom,mdss-dsi-panel-max-error-count = <3>;
+		qcom,mdss-dsi-panel-status-value = <0x1e 0x1e 0x1e 0x1e>;
+
 		qcom,compression-mode = "dsc";
 		qcom,config-select = <&dsi_pme_dsc_cmd_config0>;
-		htc,brt-bl-table = <30 66>, <142 1075>, <255 4095>;
+		htc,brt-bl-table = <30 41>, <142 1075>, <255 4095>;
 		htc,mdss-camera-blk = <170>;
 		htc,cabc-off-cmds = [
 			39 01 00 00 05 00 02 55 00
@@ -962,7 +983,7 @@
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
-		qcom,mdss-dsi-panel-timings-8996 = [
+		qcom,mdss-dsi-panel-timings-phy-v2 = [
 			1F 1C 04 06 03 03 04 a0
 			1F 1C 04 06 03 03 04 a0
 			1F 1C 04 06 03 03 04 a0
@@ -1085,7 +1106,7 @@
 		qcom,mdss-dsi-lp11-init;
 		qcom,compression-mode = "dsc";
 		qcom,config-select = <&dsi_pme_dsc_cmd_config0>;
-		htc,brt-bl-table = <30 66>, <142 1075>, <255 4095>;
+		htc,brt-bl-table = <30 41>, <142 1075>, <255 4095>;
 		htc,mdss-camera-blk = <170>;
 		htc,cabc-off-cmds = [
 			39 01 00 00 05 00 02 55 00
@@ -1164,7 +1185,7 @@
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
-		qcom,mdss-dsi-panel-timings-8996 = [
+		qcom,mdss-dsi-panel-timings-phy-v2 = [
 			1F 1B 05 06 03 03 04 a0
 			1F 1B 05 06 03 03 04 a0
 			1F 1B 05 06 03 03 04 a0
@@ -1228,10 +1249,17 @@
 		qcom,panel-supply-entries = <&dsi_panel_pwr_supply_hx8396c>;
 		qcom,mdss-dsi-lp11-init;
 		qcom,esd-check-enabled;
-		qcom,mdss-dsi-panel-status-check-mode = "te_signal_check";
+		qcom,mdss-dsi-panel-status-check-mode = "te_signal_check_v2";
+		/* XXX: Don't care */
+		qcom,mdss-dsi-panel-status-command = [06 01 00 01 05 00 02 0A 00];
+		qcom,mdss-dsi-panel-status-command-state = "dsi_hs_mode";
+		qcom,mdss-dsi-panel-status-read-length = <4>;
+		qcom,mdss-dsi-panel-max-error-count = <3>;
+		qcom,mdss-dsi-panel-status-value = <0x1e 0x1e 0x1e 0x1e>;
+
 		qcom,compression-mode = "dsc";
 		qcom,config-select = <&dsi_pme_dsc_cmd_config0>;
-		htc,brt-bl-table = <30 77>, <142 1162>, <255 4095>;
+		htc,brt-bl-table = <30 48>, <142 1162>, <255 4095>;
 		htc,mdss-camera-blk = <179>;
 		htc,cabc-off-cmds = [
 			39 01 00 00 05 00 02 55 00
@@ -1320,7 +1348,7 @@
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings = [D6 32 22 00 62 66 26 36 28 03 04 00];
-		qcom,mdss-dsi-panel-timings-8996 = [
+		qcom,mdss-dsi-panel-timings-phy-v2 = [
 			1F 1C 04 06 03 03 04 a0
 			1F 1C 04 06 03 03 04 a0
 			1F 1C 04 06 03 03 04 a0
@@ -1374,7 +1402,7 @@
 		qcom,mdss-dsi-lp11-init;
 		qcom,compression-mode = "dsc";
 		qcom,config-select = <&dsi_pme_dsc_cmd_config0>;
-		htc,brt-bl-table = <30 77>, <142 1162>, <255 4095>;
+		htc,brt-bl-table = <30 48>, <142 1162>, <255 4095>;
 		htc,mdss-camera-blk = <179>;
 		htc,cabc-off-cmds = [
 			39 01 00 00 05 00 02 55 00

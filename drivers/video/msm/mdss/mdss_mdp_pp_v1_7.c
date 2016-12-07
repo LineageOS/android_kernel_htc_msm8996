@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,6 +18,7 @@
 #include "mdss_fb.h"
 #include "mdss_mdp.h"
 #include "mdss_mdp_pp.h"
+#include "mdss_mdp_pp_common.h"
 
 
 /* MDP v1.7 specific macros */
@@ -242,10 +243,10 @@ static int pp_dither_get_version(u32 *version);
 static int pp_hist_lut_get_version(u32 *version);
 static void pp_gamut_clock_gating_en(char __iomem *base_addr);
 
-void *pp_get_driver_ops(struct mdp_pp_driver_ops *ops)
+void *pp_get_driver_ops_v1_7(struct mdp_pp_driver_ops *ops)
 {
 	if (!ops) {
-		pr_err("PP driver ops invalid %p\n", ops);
+		pr_err("PP driver ops invalid %pK\n", ops);
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -307,7 +308,7 @@ static void pp_opmode_config(int location, struct pp_sts_type *pp_sts,
 		u32 *opmode, int side)
 {
 	if (!pp_sts || !opmode) {
-		pr_err("Invalid pp_sts %p or opmode %p\n", pp_sts, opmode);
+		pr_err("Invalid pp_sts %pK or opmode %pK\n", pp_sts, opmode);
 		return;
 	}
 	switch (location) {
@@ -361,7 +362,7 @@ static int pp_hist_lut_get_config(char __iomem *base_addr, void *cfg_data,
 	struct mdp_hist_lut_data *lut_cfg_data = NULL;
 
 	if (!base_addr || !cfg_data) {
-		pr_err("invalid params base_addr %p cfg_data %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK\n",
 		       base_addr, cfg_data);
 		return -EINVAL;
 	}
@@ -373,7 +374,7 @@ static int pp_hist_lut_get_config(char __iomem *base_addr, void *cfg_data,
 	}
 	if (lut_cfg_data->version != mdp_hist_lut_v1_7 ||
 		!lut_cfg_data->cfg_payload) {
-		pr_err("invalid hist_lut version %d payload %p\n",
+		pr_err("invalid hist_lut version %d payload %pK\n",
 		       lut_cfg_data->version, lut_cfg_data->cfg_payload);
 		return -EINVAL;
 	}
@@ -420,7 +421,7 @@ static int pp_hist_lut_get_config(char __iomem *base_addr, void *cfg_data,
 		hist_addr += 4;
 	}
 	if (copy_to_user(lut_data->data, data, sz)) {
-		pr_err("faild to copy the hist_lut back to user\n");
+		pr_err("failed to copy the hist_lut back to user\n");
 		ret = -EFAULT;
 	}
 	kfree(data);
@@ -438,7 +439,7 @@ static int pp_hist_lut_set_config(char __iomem *base_addr,
 	char __iomem *hist_addr = NULL, *swap_addr = NULL;
 
 	if (!base_addr || !cfg_data || !pp_sts) {
-		pr_err("invalid params base_addr %p cfg_data %p pp_sts_type %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK pp_sts_type %pK\n",
 		      base_addr, cfg_data, pp_sts);
 		return -EINVAL;
 	}
@@ -464,12 +465,12 @@ static int pp_hist_lut_set_config(char __iomem *base_addr,
 	}
 	lut_data = lut_cfg_data->cfg_payload;
 	if (!lut_data) {
-		pr_err("invalid hist_lut cfg_payload %p\n", lut_data);
+		pr_err("invalid hist_lut cfg_payload %pK\n", lut_data);
 		return -EINVAL;
 	}
 
 	if (lut_data->len != ENHIST_LUT_ENTRIES || !lut_data->data) {
-		pr_err("invalid hist_lut len %d data %p\n",
+		pr_err("invalid hist_lut len %d data %pK\n",
 		       lut_data->len, lut_data->data);
 		return -EINVAL;
 	}
@@ -502,7 +503,8 @@ static int pp_hist_lut_set_config(char __iomem *base_addr,
 	}
 	if (lut_cfg_data->hist_lut_first)
 		pp_sts->enhist_sts |= PP_STS_PA_LUT_FIRST;
-
+	else
+		pp_sts->enhist_sts &= ~PP_STS_PA_LUT_FIRST;
 
 	writel_relaxed(1, swap_addr);
 
@@ -530,13 +532,15 @@ static int pp_dither_set_config(char __iomem *base_addr,
 	u32 data;
 	struct mdp_dither_cfg_data *dither_cfg_data = NULL;
 	struct mdp_dither_data_v1_7 *dither_data = NULL;
+	uint32_t *pdata = NULL;
 
 	if (!base_addr || !cfg_data || !pp_sts) {
-		pr_err("invalid params base_addr %p cfg_data %p pp_sts_type %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK pp_sts_type %pK\n",
 		      base_addr, cfg_data, pp_sts);
 		return -EINVAL;
 	}
-
+	if (block_type != DSPP)
+		return -ENOTSUPP;
 	dither_cfg_data = (struct mdp_dither_cfg_data *) cfg_data;
 
 	if (dither_cfg_data->version != mdp_dither_v1_7) {
@@ -559,29 +563,33 @@ static int pp_dither_set_config(char __iomem *base_addr,
 
 	dither_data = dither_cfg_data->cfg_payload;
 	if (!dither_data) {
-		pr_err("invalid payload for dither %p\n", dither_data);
+		pr_err("invalid payload for dither %pK\n", dither_data);
 		return -EINVAL;
 	}
 
 	if ((dither_data->g_y_depth >= DITHER_DEPTH_MAP_INDEX) ||
 		(dither_data->b_cb_depth >= DITHER_DEPTH_MAP_INDEX) ||
-		(dither_data->r_cr_depth >= DITHER_DEPTH_MAP_INDEX)) {
-		pr_err("invalid data for dither, g_y_depth %d y_cb_depth %d r_cr_depth %d\n",
+		(dither_data->r_cr_depth >= DITHER_DEPTH_MAP_INDEX) ||
+		(dither_data->len > DITHER_MATRIX_INDEX)) {
+		pr_err("invalid data for dither, g_y_depth %d y_cb_depth %d r_cr_depth %d\n len %d",
 			dither_data->g_y_depth, dither_data->b_cb_depth,
-			dither_data->r_cr_depth);
+			dither_data->r_cr_depth, dither_data->len);
 		return -EINVAL;
 	}
+	if (!dither_data->len)
+		pdata = dither_matrix;
+	else
+		pdata = dither_data->data;
+
 	data = dither_depth_map[dither_data->g_y_depth];
 	data |= dither_depth_map[dither_data->b_cb_depth] << 2;
 	data |= dither_depth_map[dither_data->r_cr_depth] << 4;
-	data |= dither_cfg_data->mode << 8;
+	data |= (dither_data->temporal_en) ? (1  << 8) : 0;
 	writel_relaxed(data, base_addr);
 	base_addr += DITHER_MATRIX_OFF;
 	for (i = 0; i < DITHER_MATRIX_INDEX; i += 4) {
-		data = dither_matrix[i] |
-			(dither_matrix[i + 1] << 4) |
-			(dither_matrix[i + 2] << 8) |
-			(dither_matrix[i + 3] << 12);
+		data = pdata[i] | (pdata[i + 1] << 4) |
+		       (pdata[i + 2] << 8) | (pdata[i + 3] << 12);
 		writel_relaxed(data, base_addr);
 		base_addr += 4;
 	}
@@ -603,7 +611,7 @@ static int pp_hist_get_config(char __iomem *base_addr, void *cfg_data,
 	struct pp_hist_col_info *hist_info = NULL;
 
 	if (!base_addr || !cfg_data) {
-		pr_err("invalid params base_addr %p cfg_data %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK\n",
 		       base_addr, cfg_data);
 		return -EINVAL;
 	}
@@ -641,7 +649,7 @@ static int pp_get_hist_offset(u32 block, u32 *ctl_off)
 	int ret = 0;
 
 	if (!ctl_off) {
-		pr_err("invalid params ctl_off %p\n", ctl_off);
+		pr_err("invalid params ctl_off %pK\n", ctl_off);
 		return -EINVAL;
 	}
 	switch (block) {
@@ -662,7 +670,7 @@ static int pp_get_hist_offset(u32 block, u32 *ctl_off)
 static int pp_get_hist_isr(u32 *isr_mask)
 {
 	if (!isr_mask) {
-		pr_err("invalid params isr_mask %p\n", isr_mask);
+		pr_err("invalid params isr_mask %pK\n", isr_mask);
 		return -EINVAL;
 	}
 
@@ -688,7 +696,7 @@ static int pp_gamut_get_config(char __iomem *base_addr, void *cfg_data,
 	u32 clk_gate_disable = 0;
 
 	if (!base_addr || !cfg_data) {
-		pr_err("invalid params base_addr %p cfg_data %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK\n",
 		       base_addr, cfg_data);
 		return -EINVAL;
 	}
@@ -826,7 +834,7 @@ static int pp_gamut_set_config(char __iomem *base_addr,
 	struct mdp_gamut_data_v1_7 *gamut_data = NULL;
 	char __iomem *base_addr_scale = base_addr;
 	if (!base_addr || !cfg_data || !pp_sts) {
-		pr_err("invalid params base_addr %p cfg_data %p pp_sts_type %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK pp_sts_type %pK\n",
 		      base_addr, cfg_data, pp_sts);
 		return -EINVAL;
 	}
@@ -848,7 +856,7 @@ static int pp_gamut_set_config(char __iomem *base_addr,
 	gamut_data = (struct mdp_gamut_data_v1_7 *)
 		      gamut_cfg_data->cfg_payload;
 	if (!gamut_data) {
-		pr_err("invalid payload for gamut %p\n", gamut_data);
+		pr_err("invalid payload for gamut %pK\n", gamut_data);
 		return -EINVAL;
 	}
 
@@ -867,7 +875,7 @@ static int pp_gamut_set_config(char __iomem *base_addr,
 	for (i = 0; i < MDP_GAMUT_TABLE_NUM_V1_7; i++) {
 		if (!gamut_data->c0_data[i] || !gamut_data->c1_c2_data[i]
 		    || (gamut_data->tbl_size[i] != tbl_sz)) {
-			pr_err("invalid param for c0 %p c1c2 %p table %d size %d expected sz %d\n",
+			pr_err("invalid param for c0 %pK c1c2 %pK table %d size %d expected sz %d\n",
 			       gamut_data->c0_data[i],
 			       gamut_data->c1_c2_data[i], i,
 			       gamut_data->tbl_size[i], tbl_sz);
@@ -878,7 +886,7 @@ static int pp_gamut_set_config(char __iomem *base_addr,
 		    (!gamut_data->scale_off_data[i] ||
 		    (gamut_data->tbl_scale_off_sz[i] !=
 		    MDP_GAMUT_SCALE_OFF_SZ))) {
-			pr_err("invalid param for scale table %p for c%d size %d expected size%d\n",
+			pr_err("invalid param for scale table %pK for c%d size %d expected size%d\n",
 				gamut_data->scale_off_data[i], i,
 				gamut_data->tbl_scale_off_sz[i],
 				MDP_GAMUT_SCALE_OFF_SZ);
@@ -943,7 +951,7 @@ static int pp_pcc_set_config(char __iomem *base_addr,
 	u32 opmode = 0;
 
 	if (!base_addr || !cfg_data || !pp_sts) {
-		pr_err("invalid params base_addr %p cfg_data %p pp_sts %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK pp_sts %pK\n",
 			base_addr, cfg_data, pp_sts);
 		return -EINVAL;
 	}
@@ -958,7 +966,7 @@ static int pp_pcc_set_config(char __iomem *base_addr,
 	}
 	pcc_data = pcc_cfg_data->cfg_payload;
 	if (!pcc_data) {
-		pr_err("invalid payload for pcc %p\n", pcc_data);
+		pr_err("invalid payload for pcc %pK\n", pcc_data);
 		return -EINVAL;
 	}
 
@@ -1028,7 +1036,7 @@ static int pp_pcc_get_config(char __iomem *base_addr, void *cfg_data,
 	struct mdp_pcc_data_v1_7 pcc_data;
 
 	if (!base_addr || !cfg_data) {
-		pr_err("invalid params base_addr %p cfg_data %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK\n",
 		       base_addr, cfg_data);
 		return -EINVAL;
 	}
@@ -1225,7 +1233,7 @@ static void pp_pa_set_six_zone(char __iomem *base_addr,
 
 	if (!pa_data->six_zone_len || !pa_data->six_zone_curve_p0 ||
 	    !pa_data->six_zone_curve_p1) {
-		pr_err("Invalid six zone data: len %d curve_p0 %p curve_p1 %p\n",
+		pr_err("Invalid six zone data: len %d curve_p0 %pK curve_p1 %pK\n",
 		       pa_data->six_zone_len,
 		       pa_data->six_zone_curve_p0,
 		       pa_data->six_zone_curve_p1);
@@ -1264,74 +1272,6 @@ static void pp_pa_set_six_zone(char __iomem *base_addr,
 	*pa_hold_mask |= PA_HOLD_SIX_ZONE_MASK;
 }
 
-static void pp_pa_set_sts(struct pp_sts_type *pp_sts,
-				struct mdp_pa_data_v1_7 *pa_data,
-				int enable_flag,
-				int block_type)
-{
-	pp_sts->pa_sts = 0;
-
-	if (enable_flag & MDP_PP_OPS_ENABLE)
-		pp_sts->pa_sts |= PP_STS_ENABLE;
-	/* Disable takes priority over all flags */
-	if (enable_flag & MDP_PP_OPS_DISABLE) {
-		pp_sts->pa_sts &= ~PP_STS_ENABLE;
-		return;
-	}
-
-	if (!pa_data) {
-		pr_err("PA cfg payload is null, enable flag %d\n", enable_flag);
-		return;
-	}
-
-	/* Global HSV STS update */
-	if (pa_data->mode & MDP_PP_PA_HUE_MASK)
-		pp_sts->pa_sts |= PP_STS_PA_HUE_MASK;
-	if (pa_data->mode & MDP_PP_PA_SAT_MASK)
-		pp_sts->pa_sts |= PP_STS_PA_SAT_MASK;
-	if (pa_data->mode & MDP_PP_PA_VAL_MASK)
-		pp_sts->pa_sts |= PP_STS_PA_VAL_MASK;
-	if (pa_data->mode & MDP_PP_PA_CONT_MASK)
-		pp_sts->pa_sts |= PP_STS_PA_CONT_MASK;
-	if (pa_data->mode & MDP_PP_PA_SAT_ZERO_EXP_EN)
-		pp_sts->pa_sts |= PP_STS_PA_SAT_ZERO_EXP_EN;
-
-	/* Memory Protect STS update */
-	if (pa_data->mode & MDP_PP_PA_MEM_PROT_HUE_EN)
-		pp_sts->pa_sts |= PP_STS_PA_MEM_PROT_HUE_EN;
-	if (pa_data->mode & MDP_PP_PA_MEM_PROT_SAT_EN)
-		pp_sts->pa_sts |= PP_STS_PA_MEM_PROT_SAT_EN;
-	if (pa_data->mode & MDP_PP_PA_MEM_PROT_VAL_EN)
-		pp_sts->pa_sts |= PP_STS_PA_MEM_PROT_VAL_EN;
-	if (pa_data->mode & MDP_PP_PA_MEM_PROT_CONT_EN)
-		pp_sts->pa_sts |= PP_STS_PA_MEM_PROT_CONT_EN;
-	if (pa_data->mode & MDP_PP_PA_MEM_PROT_BLEND_EN)
-		pp_sts->pa_sts |= PP_STS_PA_MEM_PROT_BLEND_EN;
-	if ((block_type == DSPP) &&
-			(pa_data->mode & MDP_PP_PA_MEM_PROT_SIX_EN))
-		pp_sts->pa_sts |= PP_STS_PA_MEM_PROT_SIX_EN;
-
-	/* Memory Color STS update */
-	if (pa_data->mode & MDP_PP_PA_MEM_COL_SKIN_MASK)
-		pp_sts->pa_sts |= PP_STS_PA_MEM_COL_SKIN_MASK;
-	if (pa_data->mode & MDP_PP_PA_MEM_COL_SKY_MASK)
-		pp_sts->pa_sts |= PP_STS_PA_MEM_COL_SKY_MASK;
-	if (pa_data->mode & MDP_PP_PA_MEM_COL_FOL_MASK)
-		pp_sts->pa_sts |= PP_STS_PA_MEM_COL_FOL_MASK;
-
-	/* Six Zone STS update */
-	if (block_type == DSPP) {
-		if (pa_data->mode & MDP_PP_PA_SIX_ZONE_HUE_MASK)
-			pp_sts->pa_sts |= PP_STS_PA_SIX_ZONE_HUE_MASK;
-		if (pa_data->mode & MDP_PP_PA_SIX_ZONE_SAT_MASK)
-			pp_sts->pa_sts |= PP_STS_PA_SIX_ZONE_SAT_MASK;
-		if (pa_data->mode & MDP_PP_PA_SIX_ZONE_VAL_MASK)
-			pp_sts->pa_sts |= PP_STS_PA_SIX_ZONE_VAL_MASK;
-
-		pp_sts_set_split_bits(&pp_sts->pa_sts, enable_flag);
-	}
-}
-
 static int pp_pa_set_config(char __iomem *base_addr,
 			struct pp_sts_type *pp_sts, void *cfg_data,
 			u32 block_type)
@@ -1343,7 +1283,7 @@ static int pp_pa_set_config(char __iomem *base_addr,
 	int ret = 0;
 
 	if (!base_addr || !cfg_data || !pp_sts) {
-		pr_err("invalid params base_addr %p cfg_data %p pp_sts_type %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK pp_sts_type %pK\n",
 		      base_addr, cfg_data, pp_sts);
 		return -EINVAL;
 	}
@@ -1368,7 +1308,7 @@ static int pp_pa_set_config(char __iomem *base_addr,
 
 	pa_data = pa_cfg_data->cfg_payload;
 	if (!pa_data) {
-		pr_err("invalid payload for pa %p\n", pa_data);
+		pr_err("invalid payload for pa %pK\n", pa_data);
 		return -EINVAL;
 	}
 
@@ -1513,9 +1453,9 @@ static void pp_pa_get_mem_col(char __iomem *base_addr,
 		pp_pa_get_mem_col_regs(mem_col_p0_addr, mem_col_p2_addr,
 				       &pa_data->fol_cfg);
 		mem_col_hold = pa_hold >> PA_HOLD_FOL_SHIFT;
-		pa_data->sky_cfg.sat_hold = (mem_col_hold >>
+		pa_data->fol_cfg.sat_hold = (mem_col_hold >>
 				PA_HOLD_SAT_SHIFT) & PA_HOLD_MASK;
-		pa_data->sky_cfg.val_hold = (mem_col_hold >>
+		pa_data->fol_cfg.val_hold = (mem_col_hold >>
 				PA_HOLD_VAL_SHIFT) & PA_HOLD_MASK;
 	}
 }
@@ -1617,7 +1557,7 @@ static int pp_pa_get_config(char __iomem *base_addr, void *cfg_data,
 	char __iomem *pa_hold_addr = NULL;
 
 	if (!base_addr || !cfg_data) {
-		pr_err("invalid params base_addr %p cfg_data %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK\n",
 		      base_addr, cfg_data);
 		return -EINVAL;
 	}
@@ -1750,7 +1690,7 @@ static int pp_igc_set_config(char __iomem *base_addr,
 	u32 data;
 
 	if (!base_addr || !cfg_data || !pp_sts) {
-		pr_err("invalid params base_addr %p cfg_data %p pp_sts_type %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK pp_sts_type %pK\n",
 		      base_addr, cfg_data, pp_sts);
 		return -EINVAL;
 	}
@@ -1758,7 +1698,7 @@ static int pp_igc_set_config(char __iomem *base_addr,
 	lut_cfg_data = (struct mdp_igc_lut_data *) cfg_data;
 	if (lut_cfg_data->version != mdp_igc_v1_7 ||
 	    !lut_cfg_data->cfg_payload) {
-		pr_err("invalid igc version %d payload %p\n",
+		pr_err_once("invalid igc version %d payload %pK\n",
 		       lut_cfg_data->version, lut_cfg_data->cfg_payload);
 		return -EINVAL;
 	}
@@ -1777,7 +1717,7 @@ static int pp_igc_set_config(char __iomem *base_addr,
 	lut_data = lut_cfg_data->cfg_payload;
 	if (lut_data->len != IGC_LUT_ENTRIES || !lut_data->c0_c1_data ||
 	    !lut_data->c2_data) {
-		pr_err("invalid lut len %d c0_c1_data %p  c2_data %p\n",
+		pr_err("invalid lut len %d c0_c1_data %pK  c2_data %pK\n",
 		       lut_data->len, lut_data->c0_c1_data, lut_data->c2_data);
 		return -EINVAL;
 	}
@@ -1844,7 +1784,7 @@ static int pp_igc_get_config(char __iomem *base_addr, void *cfg_data,
 	u32 data = 0, sz = 0;
 
 	if (!base_addr || !cfg_data || block_type != DSPP) {
-		pr_err("invalid params base_addr %p cfg_data %p block_type %d\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK block_type %d\n",
 		      base_addr, cfg_data, block_type);
 		return -EINVAL;
 	}
@@ -1856,7 +1796,7 @@ static int pp_igc_get_config(char __iomem *base_addr, void *cfg_data,
 	if (lut_cfg_data->version != mdp_igc_v1_7 ||
 	    !lut_cfg_data->cfg_payload ||
 	    lut_cfg_data->block > IGC_MASK_MAX) {
-		pr_err("invalid igc version %d payload %p block %d\n",
+		pr_err("invalid igc version %d payload %pK block %d\n",
 		       lut_cfg_data->version, lut_cfg_data->cfg_payload,
 		       lut_cfg_data->block);
 		ret = -EINVAL;
@@ -1921,7 +1861,7 @@ static int pp_pgc_set_config(char __iomem *base_addr,
 	struct mdp_pgc_lut_data_v1_7  *pgc_data_v17 = NULL;
 
 	if (!base_addr || !cfg_data || !pp_sts) {
-		pr_err("invalid params base_addr %p cfg_data %p pp_sts_type %p\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK pp_sts_type %pK\n",
 		      base_addr, cfg_data, pp_sts);
 		return -EINVAL;
 	}
@@ -1947,13 +1887,13 @@ static int pp_pgc_set_config(char __iomem *base_addr,
 
 	pgc_data_v17 = (struct mdp_pgc_lut_data_v1_7 *) pgc_data->cfg_payload;
 	if (!pgc_data_v17) {
-		pr_err("invalid payload for GC %p\n", pgc_data_v17);
+		pr_err("invalid payload for GC %pK\n", pgc_data_v17);
 		return -EINVAL;
 	}
 
 	if (pgc_data_v17->len != PGC_LUT_ENTRIES || !pgc_data_v17->c0_data ||
 	    !pgc_data_v17->c1_data || !pgc_data_v17->c2_data) {
-		pr_err("Invalid params entries %d c0_data %p c1_data %p c2_data %p\n",
+		pr_err("Invalid params entries %d c0_data %pK c1_data %pK c2_data %pK\n",
 			pgc_data_v17->len, pgc_data_v17->c0_data,
 			pgc_data_v17->c1_data, pgc_data_v17->c2_data);
 		return -EINVAL;
@@ -1990,6 +1930,8 @@ set_ops:
 		writel_relaxed(0, base_addr + PGC_OPMODE_OFF);
 	} else if (pgc_data->flags & MDP_PP_OPS_ENABLE) {
 		val = PGC_ENABLE;
+		val |= (pgc_data->flags & MDP_PP_PGC_ROUNDING_ENABLE)
+			? BIT(1) : 0;
 		writel_relaxed(val, base_addr + PGC_OPMODE_OFF);
 		*sts |= PP_STS_ENABLE;
 	}
@@ -2006,7 +1948,7 @@ static int pp_pgc_get_config(char __iomem *base_addr, void *cfg_data,
 	struct mdp_pgc_lut_data *pgc_data = NULL;
 	struct mdp_pgc_lut_data_v1_7  *pgc_data_v17 = NULL;
 	if (!base_addr || !cfg_data) {
-		pr_err("invalid params base_addr %p cfg_data %p block_type %d\n",
+		pr_err("invalid params base_addr %pK cfg_data %pK block_type %d\n",
 		      base_addr, cfg_data, block_type);
 		return -EINVAL;
 	}
@@ -2014,7 +1956,7 @@ static int pp_pgc_get_config(char __iomem *base_addr, void *cfg_data,
 	pgc_data_v17 = (struct mdp_pgc_lut_data_v1_7 *)
 			pgc_data->cfg_payload;
 	if (pgc_data->version != mdp_pgc_v1_7 || !pgc_data_v17) {
-		pr_err("invalid pgc version %d payload %p\n",
+		pr_err("invalid pgc version %d payload %pK\n",
 			pgc_data->version, pgc_data_v17);
 		return -EINVAL;
 	}
@@ -2076,7 +2018,7 @@ static int pp_pgc_get_config(char __iomem *base_addr, void *cfg_data,
 static int pp_pcc_get_version(u32 *version)
 {
 	if (!version) {
-		pr_err("invalid param version %p\n", version);
+		pr_err("invalid param version %pK\n", version);
 		return -EINVAL;
 	}
 	*version = mdp_pcc_v1_7;
@@ -2086,7 +2028,7 @@ static int pp_pcc_get_version(u32 *version)
 static int pp_igc_get_version(u32 *version)
 {
 	if (!version) {
-		pr_err("invalid param version %p\n", version);
+		pr_err("invalid param version %pK\n", version);
 		return -EINVAL;
 	}
 	*version = mdp_igc_v1_7;
@@ -2096,7 +2038,7 @@ static int pp_igc_get_version(u32 *version)
 static int pp_pgc_get_version(u32 *version)
 {
 	if (!version) {
-		pr_err("invalid param version %p\n", version);
+		pr_err("invalid param version %pK\n", version);
 		return -EINVAL;
 	}
 	*version = mdp_pgc_v1_7;
@@ -2106,7 +2048,7 @@ static int pp_pgc_get_version(u32 *version)
 static int pp_pa_get_version(u32 *version)
 {
 	if (!version) {
-		pr_err("invalid param version %p\n", version);
+		pr_err("invalid param version %pK\n", version);
 		return -EINVAL;
 	}
 	*version = mdp_pa_v1_7;
@@ -2116,7 +2058,7 @@ static int pp_pa_get_version(u32 *version)
 static int pp_gamut_get_version(u32 *version)
 {
 	if (!version) {
-		pr_err("invalid param version %p\n", version);
+		pr_err("invalid param version %pK\n", version);
 		return -EINVAL;
 	}
 	*version = mdp_gamut_v1_7;
@@ -2126,7 +2068,7 @@ static int pp_gamut_get_version(u32 *version)
 static int pp_dither_get_version(u32 *version)
 {
 	if (!version) {
-		pr_err("invalid param version %p\n", version);
+		pr_err("invalid param version %pK\n", version);
 		return -EINVAL;
 	}
 	*version = mdp_dither_v1_7;
@@ -2136,7 +2078,7 @@ static int pp_dither_get_version(u32 *version)
 static int pp_hist_lut_get_version(u32 *version)
 {
 	if (!version) {
-		pr_err("invalid param version %p\n", version);
+		pr_err("invalid param version %pK\n", version);
 		return -EINVAL;
 	}
 	*version = mdp_hist_lut_v1_7;

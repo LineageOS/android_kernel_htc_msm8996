@@ -114,6 +114,12 @@ do {										\
 		}								\
 } while (0)
 
+#ifdef HTC_DEBUG_FLAG
+#define WL_ERR_HW_ONE        WL_ERR
+#else
+#define WL_ERR_HW_ONE        WL_INFORM
+#endif 
+
 
 #ifdef WL_SCAN
 #undef WL_SCAN
@@ -696,35 +702,6 @@ static inline struct wl_bss_info *next_bss(struct wl_scan_results *list, struct 
 	return bss = bss ?
 		(struct wl_bss_info *)((uintptr) bss + dtoh32(bss->length)) : list->bss_info;
 }
-static inline s32
-wl_alloc_netinfo(struct bcm_cfg80211 *cfg, struct net_device *ndev,
-	struct wireless_dev * wdev, s32 mode, bool pm_block, u8 bssidx)
-{
-	struct net_info *_net_info;
-	s32 err = 0;
-	unsigned long int flags;
-
-	if (cfg->iface_cnt == IFACE_MAX_CNT)
-		return -ENOMEM;
-	_net_info = kzalloc(sizeof(struct net_info), GFP_KERNEL);
-	if (!_net_info)
-		err = -ENOMEM;
-	else {
-		_net_info->mode = mode;
-		_net_info->ndev = ndev;
-		_net_info->wdev = wdev;
-		_net_info->pm_restore = 0;
-		_net_info->pm = 0;
-		_net_info->pm_block = pm_block;
-		_net_info->roam_off = WL_INVALID;
-		_net_info->bssidx = bssidx;
-		spin_lock_irqsave(&cfg->net_list_sync, flags);
-		cfg->iface_cnt++;
-		list_add(&_net_info->list, &cfg->net_list);
-		spin_unlock_irqrestore(&cfg->net_list_sync, flags);
-	}
-	return err;
-}
 
 
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == \
@@ -741,6 +718,26 @@ _Pragma("GCC diagnostic pop") \
 list_for_each_entry_safe((pos), (next), (head), member) \
 
 #endif 
+
+static inline void
+wl_probe_wdev_all(struct bcm_cfg80211 *cfg)
+{
+	struct net_info *_net_info, *next;
+	unsigned long int flags;
+	int idx = 0;
+	spin_lock_irqsave(&cfg->net_list_sync, flags);
+
+	BCM_LIST_FOR_EACH_ENTRY_SAFE(_net_info, next,
+		&cfg->net_list, list) {
+		WL_ERR(("%s: net_list[%d] bssidx: %d, "
+			"ndev: %p, wdev: %p \n", __FUNCTION__,
+			idx++, _net_info->bssidx,
+			_net_info->ndev, _net_info->wdev));
+	}
+
+	spin_unlock_irqrestore(&cfg->net_list_sync, flags);
+	return;
+}
 
 static inline void
 wl_dealloc_netinfo_by_wdev(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev)
@@ -1046,6 +1043,50 @@ wl_get_netinfo_by_bssidx(struct bcm_cfg80211 *cfg, s32 bssidx)
 	}
 	spin_unlock_irqrestore(&cfg->net_list_sync, flags);
 	return info;
+}
+
+static inline s32
+wl_alloc_netinfo(struct bcm_cfg80211 *cfg, struct net_device *ndev,
+	struct wireless_dev * wdev, s32 mode, bool pm_block, u8 bssidx)
+{
+	struct net_info *_net_info;
+	s32 err = 0;
+	unsigned long int flags;
+
+#ifdef DHD_IFDEBUG
+	WL_ERR(("alloc_netinfo enter bssidx=%d wdev=%p ndev=%p\n", bssidx, wdev, ndev));
+#endif
+
+	if ((_net_info = wl_get_netinfo_by_bssidx(cfg, bssidx))) {
+		WL_ERR(("Duplicate entry for bssidx=%d present\n", bssidx));
+		wl_probe_wdev_all(cfg);
+		WL_ERR(("Removing the Dup entry for bssidx=%d \n", bssidx));
+		wl_dealloc_netinfo_by_wdev(cfg, _net_info->wdev);
+	}
+
+	if (cfg->iface_cnt == IFACE_MAX_CNT)
+		return -ENOMEM;
+	_net_info = kzalloc(sizeof(struct net_info), GFP_KERNEL);
+	if (!_net_info)
+		err = -ENOMEM;
+	else {
+		_net_info->mode = mode;
+		_net_info->ndev = ndev;
+		_net_info->wdev = wdev;
+		_net_info->pm_restore = 0;
+		_net_info->pm = 0;
+		_net_info->pm_block = pm_block;
+		_net_info->roam_off = WL_INVALID;
+		_net_info->bssidx = bssidx;
+		spin_lock_irqsave(&cfg->net_list_sync, flags);
+		cfg->iface_cnt++;
+		list_add(&_net_info->list, &cfg->net_list);
+		spin_unlock_irqrestore(&cfg->net_list_sync, flags);
+	}
+#ifdef DHD_IFDEBUG
+	WL_ERR(("alloc_netinfo exit iface_cnt=%d \n", cfg->iface_cnt));
+#endif
+	return err;
 }
 
 #define is_p2p_group_iface(wdev) (((wdev->iftype == NL80211_IFTYPE_P2P_GO) || \

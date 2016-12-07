@@ -23,6 +23,8 @@
 #include "mdss_mdp.h"
 #include "mdss_dsi.h"
 
+#define UNDEF_VALUE -1U
+
 enum {
 	CABC_INDEX = 0,
 	COLOR_TEMP_INDEX = 1,

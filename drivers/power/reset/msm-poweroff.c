@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -42,6 +42,7 @@
 #define EMERGENCY_DLOAD_MAGIC1    0x322A4F99
 #define EMERGENCY_DLOAD_MAGIC2    0xC67E4350
 #define EMERGENCY_DLOAD_MAGIC3    0x77777777
+#define EMMC_DLOAD_TYPE		0x2
 
 #define SCM_IO_DISABLE_PMIC_ARBITER	1
 #define SCM_IO_DEASSERT_PS_HOLD		2
@@ -60,6 +61,13 @@ static bool scm_pmic_arbiter_disable_supported;
 static bool scm_deassert_ps_hold_supported;
 static void __iomem *msm_ps_hold;
 static phys_addr_t tcsr_boot_misc_detect;
+static void scm_disable_sdi(void);
+
+#ifdef CONFIG_MSM_DLOAD_MODE
+static int download_mode = 1;
+#else
+static const int download_mode;
+#endif
 
 static int in_panic;
 static int panic_prep_restart(struct notifier_block *this,
@@ -83,11 +91,25 @@ static void *dload_mode_addr;
 static bool dload_mode_enabled;
 static void *emergency_dload_mode_addr;
 static bool scm_dload_supported;
+static struct kobject dload_kobj;
+static void *dload_type_addr;
 
 static int dload_set(const char *val, struct kernel_param *kp);
-static int download_mode = 1;
-module_param_call(download_mode, dload_set, param_get_int, &download_mode, 0644);
+struct reset_attribute {
+	struct attribute        attr;
+	ssize_t (*show)(struct kobject *kobj, struct attribute *attr,
+			char *buf);
+	size_t (*store)(struct kobject *kobj, struct attribute *attr,
+			const char *buf, size_t count);
+};
+#define to_reset_attr(_attr) \
+	container_of(_attr, struct reset_attribute, attr)
+#define RESET_ATTR(_name, _mode, _show, _store)	\
+	static struct reset_attribute reset_attr_##_name = \
+			__ATTR(_name, _mode, _show, _store)
 
+module_param_call(download_mode, dload_set, param_get_int,
+			&download_mode, 0644);
 
 int scm_set_dload_mode(int arg1, int arg2)
 {
@@ -179,7 +201,10 @@ static int dload_set(const char *val, struct kernel_param *kp)
 	return 0;
 }
 #else
-#define set_dload_mode(x) do {} while (0)
+static void set_dload_mode(int on)
+{
+	return;
+}
 
 static void enable_emergency_dload_mode(void)
 {
@@ -191,6 +216,26 @@ static bool get_dload_mode(void)
 	return false;
 }
 #endif
+
+static void scm_disable_sdi(void)
+{
+	int ret;
+	struct scm_desc desc = {
+		.args[0] = 1,
+		.args[1] = 0,
+		.arginfo = SCM_ARGS(2),
+	};
+
+	
+	if (!is_scm_armv8())
+		ret = scm_call_atomic2(SCM_SVC_BOOT,
+			       SCM_WDOG_DEBUG_BOOT_PART, 1, 0);
+	else
+		ret = scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_BOOT,
+			  SCM_WDOG_DEBUG_BOOT_PART), &desc);
+	if (ret)
+		pr_err("Failed to disable secure wdog debug: %d\n", ret);
+}
 
 void msm_set_restart_mode(int mode)
 {
@@ -291,7 +336,9 @@ static void msm_restart_prepare(char mode, const char *cmd)
 
 	if (qpnp_pon_check_hard_reset_stored()) {
 		
-		if (get_dload_mode())
+		if (get_dload_mode() ||
+			((cmd != NULL && cmd[0] != '\0') &&
+			!strcmp(cmd, "edl")))
 			need_warm_reset = true;
 	} else {
 		need_warm_reset = (get_dload_mode() ||
@@ -403,13 +450,6 @@ static void deassert_ps_hold(void)
 
 static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 {
-	int ret;
-	struct scm_desc desc = {
-		.args[0] = 1,
-		.args[1] = 0,
-		.arginfo = SCM_ARGS(2),
-	};
-
 	pr_notice("[K] Going down for restart now\n");
 
 	msm_restart_prepare((char)reboot_mode, cmd);
@@ -420,16 +460,7 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 		msm_trigger_wdog_bite();
 #endif
 
-	
-	if (!is_scm_armv8())
-		ret = scm_call_atomic2(SCM_SVC_BOOT,
-			       SCM_WDOG_DEBUG_BOOT_PART, 1, 0);
-	else
-		ret = scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_BOOT,
-			  SCM_WDOG_DEBUG_BOOT_PART), &desc);
-	if (ret)
-		pr_err("Failed to disable secure wdog debug: %d\n", ret);
-
+	scm_disable_sdi();
 	halt_spmi_pmic_arbiter();
 	deassert_ps_hold();
 
@@ -438,27 +469,10 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 
 static void do_msm_poweroff(void)
 {
-	int ret;
-	struct scm_desc desc = {
-		.args[0] = 1,
-		.args[1] = 0,
-		.arginfo = SCM_ARGS(2),
-	};
-
 	pr_notice("[K] Powering off the SoC\n");
-#ifdef CONFIG_MSM_DLOAD_MODE
 	set_dload_mode(0);
-#endif
+	scm_disable_sdi();
 	qpnp_pon_system_pwr_off(PON_POWER_OFF_SHUTDOWN);
-	
-	if (!is_scm_armv8())
-		ret = scm_call_atomic2(SCM_SVC_BOOT,
-			       SCM_WDOG_DEBUG_BOOT_PART, 1, 0);
-	else
-		ret = scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_BOOT,
-			  SCM_WDOG_DEBUG_BOOT_PART), &desc);
-	if (ret)
-		pr_err("Failed to disable wdog debug: %d\n", ret);
 
 	halt_spmi_pmic_arbiter();
 	deassert_ps_hold();
@@ -467,6 +481,86 @@ static void do_msm_poweroff(void)
 	pr_err("Powering off has failed\n");
 	return;
 }
+
+#ifdef CONFIG_MSM_DLOAD_MODE
+static ssize_t attr_show(struct kobject *kobj, struct attribute *attr,
+				char *buf)
+{
+	struct reset_attribute *reset_attr = to_reset_attr(attr);
+	ssize_t ret = -EIO;
+
+	if (reset_attr->show)
+		ret = reset_attr->show(kobj, attr, buf);
+
+	return ret;
+}
+
+static ssize_t attr_store(struct kobject *kobj, struct attribute *attr,
+				const char *buf, size_t count)
+{
+	struct reset_attribute *reset_attr = to_reset_attr(attr);
+	ssize_t ret = -EIO;
+
+	if (reset_attr->store)
+		ret = reset_attr->store(kobj, attr, buf, count);
+
+	return ret;
+}
+
+static const struct sysfs_ops reset_sysfs_ops = {
+	.show	= attr_show,
+	.store	= attr_store,
+};
+
+static struct kobj_type reset_ktype = {
+	.sysfs_ops	= &reset_sysfs_ops,
+};
+
+static ssize_t show_emmc_dload(struct kobject *kobj, struct attribute *attr,
+				char *buf)
+{
+	uint32_t read_val, show_val;
+
+	read_val = __raw_readl(dload_type_addr);
+	if (read_val == EMMC_DLOAD_TYPE)
+		show_val = 1;
+	else
+		show_val = 0;
+
+	return snprintf(buf, sizeof(show_val), "%u\n", show_val);
+}
+
+static size_t store_emmc_dload(struct kobject *kobj, struct attribute *attr,
+				const char *buf, size_t count)
+{
+	uint32_t enabled;
+	int ret;
+
+	ret = kstrtouint(buf, 0, &enabled);
+	if (ret < 0)
+		return ret;
+
+	if (!((enabled == 0) || (enabled == 1)))
+		return -EINVAL;
+
+	if (enabled == 1)
+		__raw_writel(EMMC_DLOAD_TYPE, dload_type_addr);
+	else
+		__raw_writel(0, dload_type_addr);
+
+	return count;
+}
+RESET_ATTR(emmc_dload, 0644, show_emmc_dload, store_emmc_dload);
+
+static struct attribute *reset_attrs[] = {
+	&reset_attr_emmc_dload.attr,
+	NULL
+};
+
+static struct attribute_group reset_attr_group = {
+	.attrs = reset_attrs,
+};
+#endif
 
 static int msm_restart_probe(struct platform_device *pdev)
 {
@@ -506,6 +600,33 @@ static int msm_restart_probe(struct platform_device *pdev)
 			pr_err("unable to map imem EDLOAD mode offset\n");
 	}
 
+	np = of_find_compatible_node(NULL, NULL,
+				"qcom,msm-imem-dload-type");
+	if (!np) {
+		pr_err("unable to find DT imem dload-type node\n");
+		goto skip_sysfs_create;
+	} else {
+		dload_type_addr = of_iomap(np, 0);
+		if (!dload_type_addr) {
+			pr_err("unable to map imem dload-type offset\n");
+			goto skip_sysfs_create;
+		}
+	}
+
+	ret = kobject_init_and_add(&dload_kobj, &reset_ktype,
+			kernel_kobj, "%s", "dload");
+	if (ret) {
+		pr_err("%s:Error in creation kobject_add\n", __func__);
+		kobject_put(&dload_kobj);
+		goto skip_sysfs_create;
+	}
+
+	ret = sysfs_create_group(&dload_kobj, &reset_attr_group);
+	if (ret) {
+		pr_err("%s:Error in creation sysfs_create_group\n", __func__);
+		kobject_del(&dload_kobj);
+	}
+skip_sysfs_create:
 #endif
 
 	mem = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pshold-base");
@@ -528,6 +649,8 @@ static int msm_restart_probe(struct platform_device *pdev)
 		scm_deassert_ps_hold_supported = true;
 
 	set_dload_mode(download_mode);
+	if (!download_mode)
+		scm_disable_sdi();
 
 	return 0;
 

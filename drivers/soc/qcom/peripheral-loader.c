@@ -56,14 +56,38 @@
 #define PIL_NUM_DESC		10
 static void __iomem *pil_info_base;
 
+/**
+ * proxy_timeout - Override for proxy vote timeouts
+ * -1: Use driver-specified timeout
+ *  0: Hold proxy votes until shutdown
+ * >0: Specify a custom timeout in ms
+ */
 static int proxy_timeout_ms = -1;
 module_param(proxy_timeout_ms, int, S_IRUGO | S_IWUSR);
 
+static bool disable_timeouts;
+/**
+ * struct pil_mdt - Representation of <name>.mdt file in memory
+ * @hdr: ELF32 header
+ * @phdr: ELF32 program headers
+ */
 struct pil_mdt {
 	struct elf32_hdr hdr;
 	struct elf32_phdr phdr[];
 };
 
+/**
+ * struct pil_seg - memory map representing one segment
+ * @next: points to next seg mentor NULL if last segment
+ * @paddr: physical start address of segment
+ * @sz: size of segment
+ * @filesz: size of segment on disk
+ * @num: segment number
+ * @relocated: true if segment is relocated, false otherwise
+ *
+ * Loosely based on an elf program header. Contains all necessary information
+ * to load and initialize a segment of the image in memory.
+ */
 struct pil_seg {
 	phys_addr_t paddr;
 	unsigned long sz;
@@ -73,6 +97,27 @@ struct pil_seg {
 	bool relocated;
 };
 
+/**
+ * struct pil_priv - Private state for a pil_desc
+ * @proxy: work item used to run the proxy unvoting routine
+ * @ws: wakeup source to prevent suspend during pil_boot
+ * @wname: name of @ws
+ * @desc: pointer to pil_desc this is private data for
+ * @seg: list of segments sorted by physical address
+ * @entry_addr: physical address where processor starts booting at
+ * @base_addr: smallest start address among all segments that are relocatable
+ * @region_start: address where relocatable region starts or lowest address
+ * for non-relocatable images
+ * @region_end: address where relocatable region ends or highest address for
+ * non-relocatable images
+ * @region: region allocated for relocatable images
+ * @unvoted_flag: flag to keep track if we have unvoted or not.
+ *
+ * This struct contains data for a pil_desc that should not be exposed outside
+ * of this file. This structure points to the descriptor and the descriptor
+ * points to this structure so that PIL drivers can't access the private
+ * data of a descriptor but this file can access both.
+ */
 struct pil_priv {
 	struct delayed_work proxy;
 	struct wakeup_source ws;
@@ -90,6 +135,14 @@ struct pil_priv {
 	size_t region_size;
 };
 
+/**
+ * pil_do_ramdump() - Ramdump an image
+ * @desc: descriptor from pil_desc_init()
+ * @ramdump_dev: ramdump device returned from create_ramdump_device()
+ *
+ * Calls the ramdump API with a list of segments generated from the addresses
+ * that the descriptor corresponds to.
+ */
 int pil_do_ramdump(struct pil_desc *desc, void *ramdump_dev)
 {
 	struct pil_priv *priv = desc->priv;
@@ -196,6 +249,12 @@ int pil_reclaim_mem(struct pil_desc *desc, phys_addr_t addr, size_t size,
 }
 EXPORT_SYMBOL(pil_reclaim_mem);
 
+/**
+ * pil_get_entry_addr() - Retrieve the entry address of a peripheral image
+ * @desc: descriptor from pil_desc_init()
+ *
+ * Returns the physical address where the image boots at or 0 if unknown.
+ */
 phys_addr_t pil_get_entry_addr(struct pil_desc *desc)
 {
 	return desc->priv ? desc->priv->entry_addr : 0;
@@ -341,6 +400,10 @@ static void pil_dump_segs(const struct pil_priv *priv)
 	}
 }
 
+/*
+ * Ensure the entry address lies within the image limits and if the image is
+ * relocatable ensure it lies within a relocatable segment.
+ */
 static int pil_init_entry_addr(struct pil_priv *priv, const struct pil_mdt *mdt)
 {
 	struct pil_seg *seg;
@@ -374,7 +437,7 @@ static int pil_alloc_region(struct pil_priv *priv, phys_addr_t min_addr,
 	size_t size = max_addr - min_addr;
 	size_t aligned_size;
 
-	
+	/* Don't reallocate due to fragmentation concerns, just sanity check */
 	if (priv->region) {
 		if (WARN(priv->region_end - priv->region_start < size,
 			"Can't reuse PIL memory, too small\n"))
@@ -420,7 +483,7 @@ static int pil_setup_region(struct pil_priv *priv, const struct pil_mdt *mdt)
 	min_addr_n = min_addr_r = (phys_addr_t)ULLONG_MAX;
 	max_addr_n = max_addr_r = 0;
 
-	
+	/* Find the image limits */
 	for (i = 0; i < mdt->hdr.e_phnum; i++) {
 		phdr = &mdt->phdr[i];
 		if (!segment_is_loadable(phdr))
@@ -432,6 +495,10 @@ static int pil_setup_region(struct pil_priv *priv, const struct pil_mdt *mdt)
 		if (segment_is_relocatable(phdr)) {
 			min_addr_r = min(min_addr_r, start);
 			max_addr_r = max(max_addr_r, end);
+			/*
+			 * Lowest relocatable segment dictates alignment of
+			 * relocatable region
+			 */
 			if (min_addr_r == start)
 				align = phdr->p_align;
 			relocatable = true;
@@ -442,6 +509,10 @@ static int pil_setup_region(struct pil_priv *priv, const struct pil_mdt *mdt)
 
 	}
 
+	/*
+	 * Align the max address to the next 4K boundary to satisfy iommus and
+	 * XPUs that operate on 4K chunks.
+	 */
 	max_addr_n = ALIGN(max_addr_n, SZ_4K);
 	max_addr_r = ALIGN(max_addr_r, SZ_4K);
 
@@ -584,7 +655,7 @@ static int pil_load_seg(struct pil_desc *desc, struct pil_seg *seg)
 		ret = 0;
 	}
 
-	
+	/* Zero out trailing memory */
 	paddr = seg->paddr + seg->filesz;
 	count = seg->sz - seg->filesz;
 	while (count > 0) {
@@ -652,8 +723,15 @@ static int pil_parse_devicetree(struct pil_desc *desc)
 	return 0;
 }
 
+/* Synchronize request_firmware() with suspend */
 static DECLARE_RWSEM(pil_pm_rwsem);
 
+/**
+ * pil_boot() - Load a peripheral image into memory and boot it
+ * @desc: descriptor from pil_desc_init()
+ *
+ * Returns 0 on success or -ERROR on failure.
+ */
 int pil_boot(struct pil_desc *desc)
 {
 	int ret;
@@ -669,7 +747,7 @@ int pil_boot(struct pil_desc *desc)
 	if (desc->shutdown_fail)
 		pil_err(desc, "Subsystem shutdown failed previously!\n");
 
-	
+	/* Reinitialize for new image */
 	pil_release_mmap(desc);
 
 	down_read(&pil_pm_rwsem);
@@ -734,12 +812,17 @@ int pil_boot(struct pil_desc *desc)
 	}
 
 	if (desc->subsys_vmid > 0) {
-		ret = pil_assign_mem_to_linux(desc, priv->region_start,
+		/* In case of modem ssr, we need to assign memory back to linux.
+		 * This is not true after cold boot since linux already owns it.
+		 * Also for secure boot devices, modem memory has to be released
+		 * after MBA is booted. */
+		if (desc->modem_ssr) {
+			ret = pil_assign_mem_to_linux(desc, priv->region_start,
 				(priv->region_end - priv->region_start));
-		if (ret)
-			pil_err(desc, "Failed to assign to linux, ret - %d\n",
+			if (ret)
+				pil_err(desc, "Failed to assign to linux, ret- %d\n",
 								ret);
-
+		}
 		ret = pil_assign_mem_to_subsys_and_linux(desc,
 				priv->region_start,
 				(priv->region_end - priv->region_start));
@@ -775,6 +858,7 @@ int pil_boot(struct pil_desc *desc)
 		goto err_auth_and_reset;
 	}
 	pil_info(desc, "Brought out of reset\n");
+	desc->modem_ssr = false;
 err_auth_and_reset:
 	if (ret && desc->subsys_vmid > 0) {
 		pil_assign_mem_to_linux(desc, priv->region_start,
@@ -812,6 +896,10 @@ out:
 }
 EXPORT_SYMBOL(pil_boot);
 
+/**
+ * pil_shutdown() - Shutdown a peripheral
+ * @desc: descriptor from pil_desc_init()
+ */
 void pil_shutdown(struct pil_desc *desc)
 {
 	struct pil_priv *priv = desc->priv;
@@ -831,9 +919,14 @@ void pil_shutdown(struct pil_desc *desc)
 		pil_proxy_unvote(desc, 1);
 	else
 		flush_delayed_work(&priv->proxy);
+	desc->modem_ssr = true;
 }
 EXPORT_SYMBOL(pil_shutdown);
 
+/**
+ * pil_free_memory() - Free memory resources associated with a peripheral
+ * @desc: descriptor from pil_desc_init()
+ */
 void pil_free_memory(struct pil_desc *desc)
 {
 	struct pil_priv *priv = desc->priv;
@@ -851,6 +944,19 @@ EXPORT_SYMBOL(pil_free_memory);
 
 static DEFINE_IDA(pil_ida);
 
+bool is_timeout_disabled(void)
+{
+	return disable_timeouts;
+}
+/**
+ * pil_desc_init() - Initialize a pil descriptor
+ * @desc: descriptor to intialize
+ *
+ * Initialize a pil descriptor for use by other pil functions. This function
+ * must be called before calling pil_boot() or pil_shutdown().
+ *
+ * Returns 0 for success and -ERROR on failure.
+ */
 int pil_desc_init(struct pil_desc *desc)
 {
 	struct pil_priv *priv;
@@ -884,7 +990,7 @@ int pil_desc_init(struct pil_desc *desc)
 	if (ret)
 		goto err_parse_dt;
 
-	
+	/* Ignore users who don't make any sense */
 	WARN(desc->ops->proxy_unvote && desc->proxy_unvote_irq == 0
 		 && !desc->proxy_timeout,
 		 "Invalid proxy unvote callback or a proxy timeout of 0"
@@ -910,7 +1016,7 @@ int pil_desc_init(struct pil_desc *desc)
 	INIT_DELAYED_WORK(&priv->proxy, pil_proxy_unvote_work);
 	INIT_LIST_HEAD(&priv->segs);
 
-	
+	/* Make sure mapping functions are set. */
 	if (!desc->map_fw_mem)
 		desc->map_fw_mem = map_fw_mem;
 
@@ -926,6 +1032,10 @@ err:
 }
 EXPORT_SYMBOL(pil_desc_init);
 
+/**
+ * pil_desc_release() - Release a pil descriptor
+ * @desc: descriptor to free
+ */
 void pil_desc_release(struct pil_desc *desc)
 {
 	struct pil_priv *priv = desc->priv;
@@ -976,6 +1086,10 @@ static int __init msm_pil_init(void)
 	if (!pil_info_base) {
 		pr_warn("pil: could not map imem region\n");
 		goto out;
+	}
+	if (__raw_readl(pil_info_base) == 0x53444247) {
+		pr_info("pil: pil-imem set to disable pil timeouts\n");
+		disable_timeouts = true;
 	}
 	for (i = 0; i < resource_size(&res)/sizeof(u32); i++)
 		writel_relaxed(0, pil_info_base + (i * sizeof(u32)));

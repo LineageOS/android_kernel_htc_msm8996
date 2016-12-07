@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,6 +20,7 @@
 #include <media/msm_cam_sensor.h>
 #include "msm_sd.h"
 #include "msm_camera_io_util.h"
+#include "cam_soc_api.h"
 
 #define MAX_CSIPHY 3
 #define CSIPHY_NUM_CLK_MAX  16
@@ -56,6 +57,7 @@ struct csiphy_reg_parms_t {
 	uint32_t mipi_csiphy_glbl_t_init_cfg0_addr;
 	uint32_t mipi_csiphy_t_wakeup_cfg0_addr;
 	uint32_t csiphy_version;
+	uint32_t combo_clk_mask;
 };
 
 struct csiphy_reg_3ph_parms_t {
@@ -140,11 +142,7 @@ struct csiphy_device {
 	struct platform_device *pdev;
 	struct msm_sd_subdev msm_sd;
 	struct v4l2_subdev subdev;
-	struct resource *mem;
-	struct resource *clk_mux_mem;
 	struct resource *irq;
-	struct resource *io;
-	struct resource *clk_mux_io;
 	void __iomem *base;
 	void __iomem *clk_mux_base;
 	struct mutex mutex;
@@ -152,11 +150,15 @@ struct csiphy_device {
 	uint32_t hw_dts_version;
 	enum msm_csiphy_state_t csiphy_state;
 	struct csiphy_ctrl_t *ctrl_reg;
+	size_t num_all_clk;
+	struct clk **csiphy_all_clk;
+	struct msm_cam_clk_info *csiphy_all_clk_info;
 	uint32_t num_clk;
 	struct clk *csiphy_clk[CSIPHY_NUM_CLK_MAX];
 	struct msm_cam_clk_info csiphy_clk_info[CSIPHY_NUM_CLK_MAX];
 	struct clk *csiphy_3p_clk[2];
 	struct msm_cam_clk_info csiphy_3p_clk_info[2];
+	unsigned char csi_3phase;
 	int32_t ref_count;
 	uint16_t lane_mask[MAX_CSIPHY];
 	uint32_t is_3_1_20nm_hw;
@@ -165,6 +167,7 @@ struct csiphy_device {
 	uint8_t csiphy_3phase;
 	uint8_t num_irq_registers;
 	uint32_t csiphy_sof_debug;
+	uint32_t csiphy_sof_debug_count;
 };
 
 #define VIDIOC_MSM_CSIPHY_RELEASE \

@@ -388,6 +388,7 @@ struct mmc_host {
 
 	int			rescan_disable;	
 	int			rescan_entered;	
+	int			retry_disable;	
 
 	bool			trigger_card_event; 
 
@@ -406,6 +407,10 @@ struct mmc_host {
 
 	const struct mmc_bus_ops *bus_ops;	
 	unsigned int		bus_refs;	
+
+	unsigned int		bus_resume_flags;
+#define MMC_BUSRESUME_MANUAL_RESUME	(1 << 0)
+#define MMC_BUSRESUME_NEEDS_RESUME	(1 << 1)
 
 	unsigned int		sdio_irqs;
 	struct task_struct	*sdio_irq_thread;
@@ -481,8 +486,15 @@ struct mmc_host {
 		ktime_t workload_time;
 
 		ktime_t start;
+
+		
+		unsigned long cmdq_read_map;
+		unsigned long cmdq_write_map;
+		ktime_t cmdq_read_start;
+		ktime_t cmdq_write_start;
 	} perf;
 	bool perf_enable;
+
 
 	enum dev_state dev_status;
 	bool			wakeup_on_idle;
@@ -525,6 +537,20 @@ static inline void *mmc_cmdq_private(struct mmc_host *host)
 #define mmc_dev(x)	((x)->parent)
 #define mmc_classdev(x)	(&(x)->class_dev)
 #define mmc_hostname(x)	(dev_name(&(x)->class_dev))
+#define mmc_bus_needs_resume(host) ((host)->bus_resume_flags & \
+				    MMC_BUSRESUME_NEEDS_RESUME)
+#define mmc_bus_manual_resume(host) ((host)->bus_resume_flags & \
+				MMC_BUSRESUME_MANUAL_RESUME)
+
+static inline void mmc_set_bus_resume_policy(struct mmc_host *host, int manual)
+{
+	if (manual)
+		host->bus_resume_flags |= MMC_BUSRESUME_MANUAL_RESUME;
+	else
+		host->bus_resume_flags &= ~MMC_BUSRESUME_MANUAL_RESUME;
+}
+
+extern int mmc_resume_bus(struct mmc_host *host);
 
 int mmc_power_save_host(struct mmc_host *host);
 int mmc_power_restore_host(struct mmc_host *host);

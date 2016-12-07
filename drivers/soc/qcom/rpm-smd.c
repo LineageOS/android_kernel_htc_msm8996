@@ -506,24 +506,28 @@ static int msm_rpm_read_sleep_ack(void)
 {
 	int ret;
 	char buf[MAX_ERR_BUFFER_SIZE] = {0};
-	uint32_t msg_id;
 
 	if (glink_enabled)
 		ret = msm_rpm_glink_rx_poll(glink_data->glink_handle);
 	else {
+		int timeout = 10;
+
+		while (timeout) {
+			if (smd_is_pkt_avail(msm_rpm_data.ch_info))
+				break;
+			udelay(50);
+			timeout--;
+		}
+
+
+		if (!timeout)
+			return -EAGAIN;
+
 		ret = msm_rpm_read_smd_data(buf);
 		if (!ret)
 			ret = smd_is_pkt_avail(msm_rpm_data.ch_info);
-		msg_id = msm_rpm_get_msg_id_from_ack(buf);
-		msm_rpm_process_ack(msg_id, 0);
 	}
 	return ret;
-}
-
-static void msm_rpm_flush_noack_messages(void)
-{
-	while (!list_empty(&msm_rpm_wait_list))
-		msm_rpm_read_sleep_ack();
 }
 
 static int msm_rpm_flush_requests(bool print)
@@ -531,8 +535,6 @@ static int msm_rpm_flush_requests(bool print)
 	struct rb_node *t;
 	int ret;
 	int count = 0;
-
-	msm_rpm_flush_noack_messages();
 
 	for (t = rb_first(&tr_root); t; t = rb_next(t)) {
 
@@ -564,10 +566,12 @@ static int msm_rpm_flush_requests(bool print)
 		if (count >= MAX_WAIT_ON_ACK) {
 			int ret = msm_rpm_read_sleep_ack();
 
-			if (ret > 0)
+			if (ret >= 0)
 				count--;
-			else
+			else {
+				pr_err("Timed out waiting for RPM ACK\n");
 				return ret;
+			}
 		}
 	}
 	return 0;
@@ -778,18 +782,14 @@ static void msm_rpm_notify(void *data, unsigned event)
 
 bool msm_rpm_waiting_for_ack(void)
 {
-	bool ret = false;
+	bool ret;
 	unsigned long flags;
-	struct msm_rpm_wait_data *elem = NULL;
 
 	spin_lock_irqsave(&msm_rpm_list_lock, flags);
-	elem = list_first_entry_or_null(&msm_rpm_wait_list,
-				struct msm_rpm_wait_data, list);
-	if (elem)
-		ret = !elem->delete_on_ack;
+	ret = list_empty(&msm_rpm_wait_list);
 	spin_unlock_irqrestore(&msm_rpm_list_lock, flags);
 
-	return ret;
+	return !ret;
 }
 
 static struct msm_rpm_wait_data *msm_rpm_get_entry_from_msg_id(uint32_t msg_id)
@@ -1116,7 +1116,7 @@ static int msm_rpm_glink_send_buffer(char *buf, uint32_t size, bool noirq)
 {
 	int ret;
 	unsigned long flags;
-	int timeout = 50;
+	int timeout = 5;
 
 	spin_lock_irqsave(&msm_rpm_data.smd_lock_write, flags);
 	do {
@@ -1130,7 +1130,7 @@ static int msm_rpm_glink_send_buffer(char *buf, uint32_t size, bool noirq)
 				spin_lock_irqsave(
 					&msm_rpm_data.smd_lock_write, flags);
 			} else {
-				udelay(5);
+				udelay(100);
 			}
 			timeout--;
 		} else {

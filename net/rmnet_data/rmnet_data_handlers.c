@@ -43,7 +43,8 @@ MODULE_PARM_DESC(dump_pkt_rx, "Dump packets entering ingress handler");
 unsigned int dump_pkt_tx;
 module_param(dump_pkt_tx, uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(dump_pkt_tx, "Dump packets exiting egress handler");
-#endif /* CONFIG_RMNET_DATA_DEBUG_PKT */
+#endif 
+
 long gro_flush_time __read_mostly = 10000L;
 module_param(gro_flush_time, long, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(gro_flush_time, "Flush GRO when spaced more than this");
@@ -54,17 +55,7 @@ MODULE_PARM_DESC(gro_flush_time, "Flush GRO when spaced more than this");
 #define RMNET_DATA_GRO_RCV_FAIL 0
 #define RMNET_DATA_GRO_RCV_PASS 1
 
-/* ***************** Helper Functions *************************************** */
 
-/**
- * __rmnet_data_set_skb_proto() - Set skb->protocol field
- * @skb:      packet being modified
- *
- * Peek at the first byte of the packet and set the protocol. There is not
- * good way to determine if a packet has a MAP header. As of writing this,
- * the reserved bit in the MAP frame will prevent it from overlapping with
- * IPv4/IPv6 frames. This could change in the future!
- */
 static inline void __rmnet_data_set_skb_proto(struct sk_buff *skb)
 {
 	switch (skb->data[0] & 0xF0) {
@@ -81,17 +72,6 @@ static inline void __rmnet_data_set_skb_proto(struct sk_buff *skb)
 }
 
 #ifdef CONFIG_RMNET_DATA_DEBUG_PKT
-/**
- * rmnet_print_packet() - Print packet / diagnostics
- * @skb:      Packet to print
- * @printlen: Number of bytes to print
- * @dev:      Name of interface
- * @dir:      Character representing direction (e.g.. 'r' for receive)
- *
- * This function prints out raw bytes in an SKB. Use of this will have major
- * performance impacts and may even trigger watchdog resets if too much is being
- * printed. Hence, this should always be compiled out unless absolutely needed.
- */
 void rmnet_print_packet(const struct sk_buff *skb, const char *dev, char dir)
 {
 	char buffer[200];
@@ -115,9 +95,10 @@ void rmnet_print_packet(const struct sk_buff *skb, const char *dev, char dir)
 	if (!printlen)
 		return;
 
-	pr_err("[%s][%c] - PKT skb->len=%d skb->head=%p skb->data=%p skb->tail=%p skb->end=%p\n",
-		dev, dir, skb->len, (void *)skb->head, (void *)skb->data,
-		skb_tail_pointer(skb), skb_end_pointer(skb));
+	pr_err("[%s][%c] - PKT skb->len=%d skb->head=%pK skb->data=%pK\n",
+	       dev, dir, skb->len, (void *)skb->head, (void *)skb->data);
+	pr_err("[%s][%c] - PKT skb->tail=%pK skb->end=%pK\n",
+	       dev, dir, skb_tail_pointer(skb), skb_end_pointer(skb));
 
 	if (skb->len > 0)
 		len = skb->len;
@@ -150,16 +131,9 @@ void rmnet_print_packet(const struct sk_buff *skb, const char *dev, char dir)
 {
 	return;
 }
-#endif /* CONFIG_RMNET_DATA_DEBUG_PKT */
+#endif 
 
-/* ***************** Generic handler **************************************** */
 
-/**
- * rmnet_bridge_handler() - Bridge related functionality
- *
- * Return:
- *      - RX_HANDLER_CONSUMED in all cases
- */
 static rx_handler_result_t rmnet_bridge_handler(struct sk_buff *skb,
 					struct rmnet_logical_ep_conf_s *ep)
 {
@@ -186,17 +160,8 @@ static void rmnet_reset_mac_header(struct sk_buff *skb)
 	skb->mac_header = skb->network_header;
 	skb->mac_len = 0;
 }
-#endif /*NET_SKBUFF_DATA_USES_OFFSET*/
+#endif 
 
-/**
- * rmnet_check_skb_can_gro() - Check is skb can be passed through GRO handler
- *
- * Determines whether to pass the skb to the GRO handler napi_gro_receive() or
- * handle normally by passing to netif_receive_skb().
- *
- * Tuning this parameter will trade TCP slow start performance for power.
- *
- */
 static int rmnet_check_skb_can_gro(struct sk_buff *skb)
 {
 	switch (skb->data[0] & 0xF0) {
@@ -207,54 +172,32 @@ static int rmnet_check_skb_can_gro(struct sk_buff *skb)
 	case RMNET_DATA_IP_VERSION_6:
 		if (ipv6_hdr(skb)->nexthdr == IPPROTO_TCP)
 			return RMNET_DATA_GRO_RCV_PASS;
-		/* Fall through */
+		
 	}
 
 	return RMNET_DATA_GRO_RCV_FAIL;
 }
 
-/**
- * rmnet_check_gro_can_flush() - Check if GRO handler needs to flush now
- *
- * Determines whether GRO handler needs to flush packets which it has
- * coalesced so far.
- *
- * Warning:
- * This assumes that only TCP packets can be coalesced by the GRO handler which
- * is not true in general. We lose the ability to use GRO for cases like UDP
- * encapsulation protocols.
- *
- * Return:
- * - RMNET_DATA_GRO_RCV_FAIL if packet is sent to netif_receive_skb()
- * - RMNET_DATA_GRO_RCV_PASS if packet is sent to napi_gro_receive()
- */
-static void rmnet_check_gro_can_flush(struct napi_struct *napi,
-					 struct rmnet_logical_ep_conf_s *ep)
+static void rmnet_optional_gro_flush(struct napi_struct *napi,
+				     struct rmnet_logical_ep_conf_s *ep)
 {
 	struct timespec curr_time, diff;
 
-	if (unlikely(ep->flush_time.tv_sec == 0))
-		getnstimeofday(&(ep->flush_time));
-	else {
+	if (!gro_flush_time)
+		return;
+
+	if (unlikely(ep->flush_time.tv_sec == 0)) {
+		getnstimeofday(&ep->flush_time);
+	} else {
 		getnstimeofday(&(curr_time));
 		diff = timespec_sub(curr_time, ep->flush_time);
 		if ((diff.tv_sec > 0) || (diff.tv_nsec > gro_flush_time)) {
 			napi_gro_flush(napi, false);
-			getnstimeofday(&(ep->flush_time));
+			getnstimeofday(&ep->flush_time);
 		}
 	}
 }
 
-/**
- * __rmnet_deliver_skb() - Deliver skb
- *
- * Determines where to deliver skb. Options are: consume by network stack,
- * pass to bridge handler, or pass to virtual network device
- *
- * Return:
- *      - RX_HANDLER_CONSUMED if packet forwarded or dropped
- *      - RX_HANDLER_PASS if packet is to be consumed by network stack as-is
- */
 static rx_handler_result_t __rmnet_deliver_skb(struct sk_buff *skb,
 					 struct rmnet_logical_ep_conf_s *ep)
 {
@@ -279,15 +222,15 @@ static rx_handler_result_t __rmnet_deliver_skb(struct sk_buff *skb,
 		case RX_HANDLER_PASS:
 			skb->pkt_type = PACKET_HOST;
 			rmnet_reset_mac_header(skb);
-
-			if (rmnet_check_skb_can_gro(skb)) {
-				if (skb->dev->features & NETIF_F_GRO) {
-					napi = rmnet_vnd_get_napi(skb->dev);
-					napi_schedule(napi);
+			if (rmnet_check_skb_can_gro(skb) &&
+			    (skb->dev->features & NETIF_F_GRO)) {
+				napi = get_current_napi_context();
+				if (napi != NULL) {
 					gro_res = napi_gro_receive(napi, skb);
 					trace_rmnet_gro_downlink(gro_res);
-					rmnet_check_gro_can_flush(napi, ep);
+					rmnet_optional_gro_flush(napi, ep);
 				} else {
+					WARN_ONCE(1, "current napi is NULL\n");
 					netif_receive_skb(skb);
 				}
 			} else {
@@ -304,16 +247,6 @@ static rx_handler_result_t __rmnet_deliver_skb(struct sk_buff *skb,
 	}
 }
 
-/**
- * rmnet_ingress_deliver_packet() - Ingress handler for raw IP and bridged
- *                                  MAP packets.
- * @skb:     Packet needing a destination.
- * @config:  Physical end point configuration that the packet arrived on.
- *
- * Return:
- *      - RX_HANDLER_CONSUMED if packet forwarded/dropped
- *      - RX_HANDLER_PASS if packet should be passed up the stack by caller
- */
 static rx_handler_result_t rmnet_ingress_deliver_packet(struct sk_buff *skb,
 					    struct rmnet_phys_ep_conf_s *config)
 {
@@ -335,20 +268,7 @@ static rx_handler_result_t rmnet_ingress_deliver_packet(struct sk_buff *skb,
 	return __rmnet_deliver_skb(skb, &(config->local_ep));
 }
 
-/* ***************** MAP handler ******************************************** */
 
-/**
- * _rmnet_map_ingress_handler() - Actual MAP ingress handler
- * @skb:        Packet being received
- * @config:     Physical endpoint configuration for the ingress device
- *
- * Most MAP ingress functions are processed here. Packets are processed
- * individually; aggregated packets should use rmnet_map_ingress_handler()
- *
- * Return:
- *      - RX_HANDLER_CONSUMED if packet is dropped
- *      - result of __rmnet_deliver_skb() for all other cases
- */
 static rx_handler_result_t _rmnet_map_ingress_handler(struct sk_buff *skb,
 					    struct rmnet_phys_ep_conf_s *config)
 {
@@ -412,27 +332,13 @@ static rx_handler_result_t _rmnet_map_ingress_handler(struct sk_buff *skb,
 		}
 	}
 
-	/* Subtract MAP header */
+	
 	skb_pull(skb, sizeof(struct rmnet_map_header_s));
 	skb_trim(skb, len);
 	__rmnet_data_set_skb_proto(skb);
 	return __rmnet_deliver_skb(skb, ep);
 }
 
-/**
- * rmnet_map_ingress_handler() - MAP ingress handler
- * @skb:        Packet being received
- * @config:     Physical endpoint configuration for the ingress device
- *
- * Called if and only if MAP is configured in the ingress device's ingress data
- * format. Deaggregation is done here, actual MAP processing is done in
- * _rmnet_map_ingress_handler().
- *
- * Return:
- *      - RX_HANDLER_CONSUMED for aggregated packets
- *      - RX_HANDLER_CONSUMED for dropped packets
- *      - result of _rmnet_map_ingress_handler() for all other cases
- */
 static rx_handler_result_t rmnet_map_ingress_handler(struct sk_buff *skb,
 					    struct rmnet_phys_ep_conf_s *config)
 {
@@ -457,22 +363,6 @@ static rx_handler_result_t rmnet_map_ingress_handler(struct sk_buff *skb,
 	return rc;
 }
 
-/**
- * rmnet_map_egress_handler() - MAP egress handler
- * @skb:        Packet being sent
- * @config:     Physical endpoint configuration for the egress device
- * @ep:         logical endpoint configuration of the packet originator
- *              (e.g.. RmNet virtual network device)
- * @orig_dev:   The originator vnd device
- *
- * Called if and only if MAP is configured in the egress device's egress data
- * format. Will expand skb if there is insufficient headroom for MAP protocol.
- * Note: headroomexpansion will incur a performance penalty.
- *
- * Return:
- *      - 0 on success
- *      - 1 on failure
- */
 static int rmnet_map_egress_handler(struct sk_buff *skb,
 				    struct rmnet_phys_ep_conf_s *config,
 				    struct rmnet_logical_ep_conf_s *ep,
@@ -510,8 +400,9 @@ static int rmnet_map_egress_handler(struct sk_buff *skb,
 		rmnet_stats_ul_checksum(ckresult);
 	}
 
-	if ((config->egress_data_format & RMNET_EGRESS_FORMAT_MAP_CKSUMV4) &&
-	    (!(config->egress_data_format & RMNET_EGRESS_FORMAT_AGGREGATION)))
+	if ((!(config->egress_data_format &
+	    RMNET_EGRESS_FORMAT_AGGREGATION)) ||
+	    ((orig_dev->features & NETIF_F_GSO) && skb_is_nonlinear(skb)))
 		map_header = rmnet_map_add_map_header
 		(skb, additional_header_length, RMNET_MAP_NO_PAD_BYTES);
 	else
@@ -539,21 +430,7 @@ static int rmnet_map_egress_handler(struct sk_buff *skb,
 
 	return RMNET_MAP_SUCCESS;
 }
-/* ***************** Ingress / Egress Entry Points ************************** */
 
-/**
- * rmnet_ingress_handler() - Ingress handler entry point
- * @skb: Packet being received
- *
- * Processes packet as per ingress data format for receiving device. Logical
- * endpoint is determined from packet inspection. Packet is then sent to the
- * egress device listed in the logical endpoint configuration.
- *
- * Return:
- *      - RX_HANDLER_PASS if packet is not processed by handler (caller must
- *        deal with the packet)
- *      - RX_HANDLER_CONSUMED if packet is forwarded or processed by MAP
- */
 rx_handler_result_t rmnet_ingress_handler(struct sk_buff *skb)
 {
 	struct rmnet_phys_ep_conf_s *config;
@@ -576,11 +453,6 @@ rx_handler_result_t rmnet_ingress_handler(struct sk_buff *skb)
 		return RX_HANDLER_CONSUMED;
 	}
 
-	/* Sometimes devices operate in ethernet mode even thouth there is no
-	 * ethernet header. This causes the skb->protocol to contain a bogus
-	 * value and the skb->data pointer to be off by 14 bytes. Fix it if
-	 * configured to do so
-	 */
 	if (config->ingress_data_format & RMNET_INGRESS_FIX_ETHERNET) {
 		skb_push(skb, RMNET_ETHERNET_HEADER_LENGTH);
 		__rmnet_data_set_skb_proto(skb);
@@ -619,31 +491,11 @@ rx_handler_result_t rmnet_ingress_handler(struct sk_buff *skb)
 	return rc;
 }
 
-/**
- * rmnet_rx_handler() - Rx handler callback registered with kernel
- * @pskb: Packet to be processed by rx handler
- *
- * Standard kernel-expected footprint for rx handlers. Calls
- * rmnet_ingress_handler with correctly formatted arguments
- *
- * Return:
- *      - Whatever rmnet_ingress_handler() returns
- */
 rx_handler_result_t rmnet_rx_handler(struct sk_buff **pskb)
 {
 	return rmnet_ingress_handler(*pskb);
 }
 
-/**
- * rmnet_egress_handler() - Egress handler entry point
- * @skb:        packet to transmit
- * @ep:         logical endpoint configuration of the packet originator
- *              (e.g.. RmNet virtual network device)
- *
- * Modifies packet as per logical endpoint configuration and egress data format
- * for egress device configured in logical endpoint. Packet is then transmitted
- * on the egress device.
- */
 void rmnet_egress_handler(struct sk_buff *skb,
 			  struct rmnet_logical_ep_conf_s *ep)
 {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -150,74 +150,6 @@
 			};
 		};
 
-		mpp@a000 { /* MPP 1 */
-			compatible = "qcom,rgb-qpnp";
-			reg = <0xa000 0x100>;
-			label = "mpp";
-			status = "okay";
-			qcom,led_mpp_1 {
-				label = "mpp";
-				linux,name = "button-backlight";
-				linux,default-trigger = "none";
-				pwms = <&pmi8994_pwm_4 0 0>;
-				qcom,default-state = "off";
-				qcom,max-current = <40>;
-				qcom,current-setting = <5>;
-				qcom,id = <6>;
-				qcom,mode = "lpg";
-				qcom,source-sel = <15>;
-				qcom,mode-ctrl = <0x10>;
-				qcom,pwm-us = <1000>;
-				qcom,duty-pcts = [00 00 00 00 64
-					64 00 00 00 00];
-				qcom,start-idx = <0>;
-				qcom,pause-hi = <1>;
-				qcom,pause-lo = <1>;
-				qcom,ramp-step-ms = <64>;
-				qcom,lut-flags = <0x18>;
-				vk,base-pwm = <50>;
-				vk-pwm-array = [00 03 0A 0A 84 84 FF FF FF FF FF];
-				};
-		};
-
-		mpp@a300 { /* MPP 4 */
-			compatible = "qcom,rgb-qpnp";
-			reg = <0xa300 0x100>;
-			label = "mpp";
-			status = "okay";
-			qcom,led_mpp_4 {
-				label = "mpp";
-				linux,name = "button-backlight";
-				linux,default-trigger = "none";
-				pwms = <&pmi8994_pwm_4 0 0>;
-				qcom,default-state = "off";
-				qcom,max-current = <40>;
-				qcom,current-setting = <40>;
-				qcom,id = <6>;
-				qcom,mode = "lpg";
-				qcom,source-sel = <14>;
-				qcom,mode-ctrl = <0x60>;
-				qcom,pwm-us = <1000>;
-				qcom,duty-pcts = [00 00 00 00 64
-					64 00 00 00 00];
-				qcom,start-idx = <0>;
-				qcom,pause-hi = <1>;
-				qcom,pause-lo = <1>;
-				qcom,ramp-step-ms = <64>;
-				qcom,lut-flags = <0x18>;
-				vk-pwm-array = [00 03 0A 0A 84 84 FF FF FF FF FF];
-				vk-black-cg-id-def = "DEF00", "GRY00", "LOB00", "BLK00";
-				vk-black-cg-id-sec = "LEB00";
-				vk-white-cg-id-def = "PNK00", "GOD00", "LOW00", "WHT00";
-				vk-white-cg-id-sec = "LEW00";
-				vk-black-pwm-array-def = [00 03 0A 0A 0A 30 30 FF FF FF FF FF];
-				vk-white-pwm-array-def = [00 03 0C 0C 0C 84 84 FF FF FF FF FF];
-				vk-current-array-def =   [14 14 28 28 28 28 28 28 28 28 28 28];
-				vk-black-pwm-array-sec = [00 03 0F 0F 0F 10 10 60 60 60 60 60];
-				vk-white-pwm-array-sec = [00 06 18 18 18 84 84 FF FF FF FF FF];
-				vk-current-array-sec =   [0A 0A 14 14 14 28 28 28 28 28 28 28];
-				};
-		};
 
 		bcl@4200 {
 			compatible = "qcom,msm-bcl";
@@ -278,8 +210,10 @@
 			qcom,iterm-ma = <50>;
             qcom,high-fastchg-current-ma = <3000>;
 			qcom,fastchg-current-ma = <3000>;
+            /* CONFIG_HTC_BATT_PCN0013++ */
 			qcom,float-voltage-mv = <4400>;
 			qcom,float-voltage-comp = <0x1E>;
+            /* CONFIG_HTC_BATT_PCN0013-- */
 			qcom,charging-timeout-mins = <768>;
 			qcom,precharging-timeout-mins = <24>;
 			qcom,resume-delta-mv = <100>;
@@ -394,22 +328,33 @@
 			#size-cells = <1>;
 			qcom,resume-soc = <98>;
 			status = "okay";
+            /* CONFIG_HTC_BATT_PCN0013++ */
 			qcom,warm-bat-decidegc = <470>;
 			qcom,cool-bat-decidegc = <100>;
 			qcom,hot-bat-decidegc = <550>;
 			qcom,cold-bat-decidegc = <0>;
+            /* CONFIG_HTC_BATT_PCN0013-- */
 			qcom,bcl-lm-threshold-ma = <127>;
 			qcom,bcl-mh-threshold-ma = <405>;
+            /* CONFIG_HTC_BATT_PCN0001++ */
 			qcom,fg-iterm-ma = <300>;
+            /* CONFIG_HTC_BATT_PCN0001-- */
 			qcom,fg-chg-iterm-ma = <50>;
 			qcom,cycle-counter-en;
 			qcom,capacity-learning-on;
+            /* CONFIG_HTC_BATT_WA_PCN0015++ */
 			qcom,fg-cc-cv-threshold-mv = <4390>;
+            /* CONFIG_HTC_BATT_WA_PCN0015-- */
 			qcom,pmic-revid = <&pmi8994_revid>;
+            /* CONFIG_HTC_BATT_PCN0013++ */
 			qcom,thermal-coefficients = [97 85 62 49 5A 35];
+            /* CONFIG_HTC_BATT_PCN0013-- */
 			qcom,ext-sense-type = <1>;
+            /* CONFIG_HTC_BATT_PCN0013++ */
 			qcom,cold-hot-jeita-hysteresis = <20 30>;
+            /* CONFIG_HTC_BATT_PCN0013-- */
 			qcom,fg-cutoff-voltage-mv = <3400>;
+			qcom,capacity-learning-feedback;
 
 			qcom,fg-soc@4000 {
 				status = "okay";
@@ -535,6 +480,7 @@
 			compatible = "qcom,qpnp-labibb-regulator";
 			#address-cells = <1>;
 			#size-cells = <1>;
+			qcom,pmic-revid = <&pmi8994_revid>;
 
 			ibb_regulator: qcom,ibb@dc00 {
 				reg = <0xdc00 0x100>;
@@ -596,7 +542,7 @@
 				qcom,qpnp-lab-ps-enable;
 				qcom,qpnp-lab-nfet-size = <100>;
 				qcom,qpnp-lab-pfet-size = <100>;
-				qcom,qpnp-lab-max-precharge-time = <300>;
+				qcom,qpnp-lab-max-precharge-time = <500>;
 			};
 		};
 
@@ -627,7 +573,6 @@
 			qcom,sync-dly-us = <800>;
 			qcom,fs-curr-ua = <25000>;
 			qcom,cons-sync-write-delay-us = <1000>;
-			qcom,en-phase-stag;
 			qcom,led-strings-list = [00 01 02 03];
 			qcom,en-ext-pfet-sc-pro;
 		};
@@ -665,12 +610,6 @@
 			reg = <0xd000 0x100>;
 			label = "rgb";
 			status = "okay";
-
-			qcom,rgb_indicator{
-				label = "rgb";
-				pwm_ratio = /bits/ 8 <255>;
-				linux,name = "indicator";
-			};
 
 			qcom,rgb_0 {
 				label = "rgb";

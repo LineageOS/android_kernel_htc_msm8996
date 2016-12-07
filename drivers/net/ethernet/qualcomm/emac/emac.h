@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,6 +18,7 @@
 #include <linux/netdevice.h>
 #include <linux/clk.h>
 #include <linux/platform_device.h>
+#include <linux/wakelock.h>
 #include "emac_phy.h"
 
 /* Device IDs */
@@ -47,6 +48,8 @@ enum emac_vreg_id {
 	EMAC_VREG1,
 	EMAC_VREG2,
 	EMAC_VREG3,
+	EMAC_VREG4,
+	EMAC_VREG5,
 	EMAC_VREG_CNT
 };
 
@@ -546,8 +549,8 @@ struct emac_clk {
 
 struct emac_regulator {
 	struct regulator *vreg;
-	bool			enabled;
-	bool			set_voltage;
+	int	voltage_uv;
+	bool	enabled;
 };
 
 /* emac_ring_header represents a single, contiguous block of DMA space
@@ -720,10 +723,16 @@ struct emac_adapter {
 	u16             msg_enable;
 	unsigned long   flags;
 	struct pinctrl	*pinctrl;
-	struct pinctrl_state	*pins_active;
-	struct pinctrl_state	*pins_sleep;
-	int	(*gpio_on)(struct emac_adapter *adpt);
-	int	(*gpio_off)(struct emac_adapter *adpt);
+	struct pinctrl_state	*mdio_pins_active;
+	struct pinctrl_state	*mdio_pins_sleep;
+	struct pinctrl_state	*ephy_pins_active;
+	struct pinctrl_state	*ephy_pins_sleep;
+	int	(*gpio_on)(struct emac_adapter *adpt, bool mdio, bool ephy);
+	int	(*gpio_off)(struct emac_adapter *adpt, bool mdio, bool ephy);
+	struct wakeup_source link_wlock;
+	bool		runtime_enable;
+	bool		is_wol_enabled;
+	spinlock_t	wol_irq_lock; /* lock for wol irq gpio enablement */
 };
 
 static inline struct emac_adapter *emac_hw_get_adap(struct emac_hw *hw)

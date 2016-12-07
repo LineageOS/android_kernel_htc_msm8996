@@ -747,6 +747,22 @@ int slimport_event_callback(enum slimport_event_type type, int value)
 	return ret;
 }
 
+int slimport_event_ctrl(int event, int value)
+{
+	int ret = 0;
+
+	switch(event) {
+	case AUDIO_STATE:
+		if (!value)
+			disable_sp_tx_audio_output();
+		break;
+	default:
+		pr_info("%s: unknown event (%d), value=%d\n", __func__, event, value);
+	}
+
+	return ret;
+}
+
 static void anx7816_free_gpio(struct anx7816_data *anx7816)
 {
 #ifdef USING_HPD_FOR_POWER_MANAGEMENT
@@ -1224,6 +1240,7 @@ static int anx7816_i2c_probe(struct i2c_client *client,
 	}
 
 	if (anx7816->pdata->hdmi_pdev) {
+		hdmi_sp_ops->event_control = &slimport_event_ctrl;
 		ret = msm_hdmi_register_sp(anx7816->pdata->hdmi_pdev,
 					  hdmi_sp_ops);
 		if (ret) {

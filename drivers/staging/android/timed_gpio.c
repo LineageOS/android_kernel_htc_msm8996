@@ -74,7 +74,7 @@ static void gpio_enable(struct timed_output_dev *dev, int value)
 
 	spin_lock_irqsave(&data->lock, flags);
 
-	
+	/* cancel previous timer and set GPIO according to value */
 	hrtimer_cancel(&data->timer);
 
 	gpio_direction_output(data->gpio, data->active_low ? !value : !!value);
@@ -87,7 +87,7 @@ static void gpio_enable(struct timed_output_dev *dev, int value)
 		hrtimer_start(&data->timer,
 			ktime_set(value / 1000, (value % 1000) * 1000000),
 			HRTIMER_MODE_REL);
-	} else	
+	} else	//value = 0
 		VIB_INFO_LOG("off, active_low(%d)\n", data->active_low);
 
 	spin_unlock_irqrestore(&data->lock, flags);

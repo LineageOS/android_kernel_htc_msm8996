@@ -1,4 +1,4 @@
-/* Copyright (c) 2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,6 +24,7 @@
 #define CEC_BUF_SIZE    (MAX_CEC_FRAME_SIZE + 1)
 #define MAX_SWITCH_NAME_SIZE        5
 #define MSM_DBA_MAX_PCLK 148500
+#define DEFAULT_VIDEO_RESOLUTION HDMI_VFRMT_640x480p60_4_3
 
 struct mdss_dba_utils_data {
 	struct msm_dba_ops ops;
@@ -44,6 +45,7 @@ struct mdss_dba_utils_data {
 	struct cec_cbs ccbs;
 	char disp_switch_name[MAX_SWITCH_NAME_SIZE];
 	u32 current_vic;
+	bool support_audio;
 };
 
 static struct mdss_dba_utils_data *mdss_dba_utils_get_data(
@@ -82,7 +84,7 @@ end:
 	return udata;
 }
 
-static void mdss_dba_utils_send_display_notification(
+static void mdss_dba_utils_notify_display(
 	struct mdss_dba_utils_data *udata, int val)
 {
 	int state = 0;
@@ -107,7 +109,7 @@ static void mdss_dba_utils_send_display_notification(
 		udata->sdev_display.state);
 }
 
-static void mdss_dba_utils_send_audio_notification(
+static void mdss_dba_utils_notify_audio(
 	struct mdss_dba_utils_data *udata, int val)
 {
 	int state = 0;
@@ -217,13 +219,37 @@ static ssize_t mdss_dba_utils_sysfs_wta_hpd(struct device *dev,
 	return count;
 }
 
+static ssize_t mdss_dba_utils_sysfs_rda_hpd(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	ssize_t ret;
+	struct mdss_dba_utils_data *udata = NULL;
+
+	if (!dev) {
+		pr_debug("invalid device\n");
+		return -EINVAL;
+	}
+
+	udata = mdss_dba_utils_get_data(dev);
+
+	if (!udata) {
+		pr_debug("invalid input\n");
+		return -EINVAL;
+	}
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", udata->hpd_state);
+	pr_debug("'%d'\n", udata->hpd_state);
+
+	return ret;
+}
+
 static DEVICE_ATTR(connected, S_IRUGO,
 		mdss_dba_utils_sysfs_rda_connected, NULL);
 
 static DEVICE_ATTR(video_mode, S_IRUGO,
 		mdss_dba_utils_sysfs_rda_video_mode, NULL);
 
-static DEVICE_ATTR(hpd, S_IRUGO | S_IWUSR, NULL,
+static DEVICE_ATTR(hpd, S_IRUGO | S_IWUSR, mdss_dba_utils_sysfs_rda_hpd,
 		mdss_dba_utils_sysfs_wta_hpd);
 
 static struct attribute *mdss_dba_utils_fs_attrs[] = {
@@ -265,6 +291,31 @@ static void mdss_dba_utils_sysfs_remove(struct kobject *kobj)
 	sysfs_remove_group(kobj, &mdss_dba_utils_fs_attrs_group);
 }
 
+static bool mdss_dba_check_audio_support(struct mdss_dba_utils_data *udata)
+{
+	bool dvi_mode = false;
+	int audio_blk_size = 0;
+	struct msm_hdmi_audio_edid_blk audio_blk;
+
+	if (!udata) {
+		pr_debug("%s: Invalid input\n", __func__);
+		return false;
+	}
+	memset(&audio_blk, 0, sizeof(audio_blk));
+
+	
+	dvi_mode = !hdmi_edid_get_sink_mode(udata->edid_data);
+
+	
+	hdmi_edid_get_audio_blk(udata->edid_data, &audio_blk);
+	audio_blk_size = audio_blk.audio_data_blk_size;
+
+	if (dvi_mode || !audio_blk_size)
+		return false;
+	else
+		return true;
+}
+
 static void mdss_dba_utils_dba_cb(void *data, enum msm_dba_callback_event event)
 {
 	int ret = -EINVAL;
@@ -274,6 +325,7 @@ static void mdss_dba_utils_dba_cb(void *data, enum msm_dba_callback_event event)
 	bool operands_present = false;
 	u32 no_of_operands, size, i;
 	u32 operands_offset = MAX_CEC_FRAME_SIZE - MAX_OPERAND_SIZE;
+	struct msm_hdmi_audio_edid_blk blk;
 
 	if (!udata) {
 		pr_err("Invalid data\n");
@@ -293,15 +345,28 @@ static void mdss_dba_utils_dba_cb(void *data, enum msm_dba_callback_event event)
 			ret = udata->ops.get_raw_edid(udata->dba_data,
 				udata->edid_buf_size, udata->edid_buf, 0);
 
-			if (!ret)
+			if (!ret) {
 				hdmi_edid_parser(udata->edid_data);
-			else
+				
+				udata->support_audio =
+					mdss_dba_check_audio_support(udata);
+				if (udata->support_audio) {
+					hdmi_edid_get_audio_blk(
+						udata->edid_data, &blk);
+					if (udata->ops.set_audio_block)
+						udata->ops.set_audio_block(
+							udata->dba_data,
+							sizeof(blk), &blk);
+				}
+			} else {
 				pr_err("failed to get edid%d\n", ret);
+			}
 		}
 
 		if (pluggable) {
-			mdss_dba_utils_send_display_notification(udata, 1);
-			mdss_dba_utils_send_audio_notification(udata, 1);
+			mdss_dba_utils_notify_display(udata, 1);
+			if (udata->support_audio)
+				mdss_dba_utils_notify_audio(udata, 1);
 		} else {
 			mdss_dba_utils_video_on(udata, udata->pinfo);
 		}
@@ -313,8 +378,9 @@ static void mdss_dba_utils_dba_cb(void *data, enum msm_dba_callback_event event)
 		if (!udata->hpd_state)
 			break;
 		if (pluggable) {
-			mdss_dba_utils_send_audio_notification(udata, 0);
-			mdss_dba_utils_send_display_notification(udata, 0);
+			if (udata->support_audio)
+				mdss_dba_utils_notify_audio(udata, 0);
+			mdss_dba_utils_notify_display(udata, 0);
 		} else {
 			mdss_dba_utils_video_off(udata);
 		}
@@ -611,13 +677,6 @@ void *mdss_dba_utils_init(struct mdss_dba_utils_init_data *uid)
 	udata->pinfo = uid->pinfo;
 
 	
-	ret = mdss_dba_utils_init_switch_dev(udata, uid->fb_node);
-	if (ret) {
-		pr_err("switch dev registration failed\n");
-		goto error;
-	}
-
-	
 	edid_init_data.kobj = uid->kobj;
 	edid_init_data.ds_data->ds_registered = true;
 	edid_init_data.ds_data->ds_max_clk = MSM_DBA_MAX_PCLK;
@@ -632,8 +691,12 @@ void *mdss_dba_utils_init(struct mdss_dba_utils_init_data *uid)
 	}
 
 	
-	if (uid->pinfo)
+	if (uid->pinfo) {
 		uid->pinfo->edid_data = udata->edid_data;
+		
+		hdmi_edid_set_video_resolution(uid->pinfo->edid_data,
+					DEFAULT_VIDEO_RESOLUTION, true);
+	}
 
 	
 	udata->edid_buf = edid_init_data.buf;
@@ -662,10 +725,18 @@ void *mdss_dba_utils_init(struct mdss_dba_utils_init_data *uid)
 		uid->pinfo->cec_data = udata->cec_abst_data;
 
 		if (!uid->pinfo->is_pluggable) {
-			if (udata->ops.power_on)
+			if (udata->ops.power_on && !(uid->cont_splash_enabled))
 				udata->ops.power_on(udata->dba_data, true, 0);
 			if (udata->ops.check_hpd)
 				udata->ops.check_hpd(udata->dba_data, 0);
+		} else {
+			
+			ret = mdss_dba_utils_init_switch_dev(udata,
+				uid->fb_node);
+			if (ret) {
+				pr_err("switch dev registration failed\n");
+				goto error;
+			}
 		}
 	}
 

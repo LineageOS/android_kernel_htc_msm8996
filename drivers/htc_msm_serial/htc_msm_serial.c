@@ -91,7 +91,7 @@ static int __init msm_serial_proc_init(void)
 
     init_from_device_tree();
 
-    
+    /* NOTE: kernel 3.10 use proc_create_data to create /proc file node */
     entry = proc_create_data(PROC_MSM_SERIAL, 0664, NULL, &htc_msm_serial_fops, NULL);
     if (entry == NULL) {
         SECERR("%s: unable to create /proc%s entry\n", __func__, PROC_MSM_SERIAL);

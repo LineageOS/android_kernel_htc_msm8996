@@ -56,8 +56,8 @@ MODULE_AUTHOR("Harald Welte <laforge@gnumonks.org>");
 MODULE_DESCRIPTION("Xtables: packet logging to netlink using ULOG");
 MODULE_ALIAS_NET_PF_PROTO(PF_NETLINK, NETLINK_NFLOG);
 
-#define ULOG_NL_EVENT		111		
-#define ULOG_MAXNLGROUPS	32		
+#define ULOG_NL_EVENT		111		/* Harald's favorite number */
+#define ULOG_MAXNLGROUPS	32		/* numer of nlgroups */
 
 static unsigned int nlbufsiz = NLMSG_GOODSIZE;
 module_param(nlbufsiz, uint, 0400);
@@ -71,12 +71,13 @@ static bool nflog = true;
 module_param(nflog, bool, 0400);
 MODULE_PARM_DESC(nflog, "register as internal netfilter logging module");
 
+/* global data structures */
 
 typedef struct {
-	unsigned int qlen;		
-	struct nlmsghdr *lastnlh;	
-	struct sk_buff *skb;		
-	struct timer_list timer;	
+	unsigned int qlen;		/* number of nlmsgs' in the skb */
+	struct nlmsghdr *lastnlh;	/* netlink header of last msg in skb */
+	struct sk_buff *skb;		/* the pre-allocated skb */
+	struct timer_list timer;	/* the timer function */
 } ulog_buff_t;
 
 static int ulog_net_id __read_mostly;
@@ -92,6 +93,7 @@ static struct ulog_net *ulog_pernet(struct net *net)
 	return net_generic(net, ulog_net_id);
 }
 
+/* send one ulog_buff_t to userspace */
 static void ulog_send(struct ulog_net *ulog, unsigned int nlgroupnum)
 {
 	ulog_buff_t *ub = &ulog->ulog_buffers[nlgroupnum];
@@ -104,7 +106,7 @@ static void ulog_send(struct ulog_net *ulog, unsigned int nlgroupnum)
 		return;
 	}
 
-	
+	/* last nlmsg needs NLMSG_DONE */
 	if (ub->qlen > 1)
 		ub->lastnlh->nlmsg_type = NLMSG_DONE;
 
@@ -120,6 +122,7 @@ static void ulog_send(struct ulog_net *ulog, unsigned int nlgroupnum)
 }
 
 
+/* timer function to flush queue in flushtimeout time */
 static void ulog_timer(unsigned long data)
 {
 	unsigned int groupnum = *((unsigned int *)data);
@@ -128,6 +131,8 @@ static void ulog_timer(unsigned long data)
 					     nlgroup[groupnum]);
 	pr_debug("timer function called, calling ulog_send\n");
 
+	/* lock to protect against somebody modifying our structure
+	 * from ipt_ulog_target at the same time */
 	spin_lock_bh(&ulog->lock);
 	ulog_send(ulog, groupnum);
 	spin_unlock_bh(&ulog->lock);
@@ -138,11 +143,16 @@ static struct sk_buff *ulog_alloc_skb(unsigned int size)
 	struct sk_buff *skb;
 	unsigned int n;
 
+	/* alloc skb which should be big enough for a whole
+	 * multipart message. WARNING: has to be <= 131000
+	 * due to slab allocator restrictions */
 
 	n = max(size, nlbufsiz);
 	skb = alloc_skb(n, GFP_ATOMIC | __GFP_NOWARN);
 	if (!skb) {
 		if (n > size) {
+			/* try to allocate only as much as we need for
+			 * current packet */
 
 			skb = alloc_skb(size, GFP_ATOMIC);
 			if (!skb)
@@ -168,9 +178,12 @@ static void ipt_ulog_packet(struct net *net,
 	struct timeval tv;
 	struct ulog_net *ulog = ulog_pernet(net);
 
+	/* ffs == find first bit set, necessary because userspace
+	 * is already shifting groupnumber, but we need unshifted.
+	 * ffs() returns [1..32], we need [0..31] */
 	unsigned int groupnum = ffs(loginfo->nl_group) - 1;
 
-	
+	/* calculate the size of the skb needed */
 	if (loginfo->copy_range == 0 || loginfo->copy_range > skb->len)
 		copy_len = skb->len;
 	else
@@ -187,6 +200,8 @@ static void ipt_ulog_packet(struct net *net,
 			goto alloc_failure;
 	} else if (ub->qlen >= loginfo->qthreshold ||
 		   size > skb_tailroom(ub->skb)) {
+		/* either the queue len is too high or we don't have
+		 * enough room in nlskb left. send it to userspace. */
 
 		ulog_send(ulog, groupnum);
 
@@ -207,11 +222,11 @@ static void ipt_ulog_packet(struct net *net,
 	pm = nlmsg_data(nlh);
 	memset(pm, 0, sizeof(*pm));
 
-	
+	/* We might not have a timestamp, get one */
 	if (skb->tstamp.tv64 == 0)
 		__net_timestamp((struct sk_buff *)skb);
 
-	
+	/* copy hook, prefix, timestamp, payload, etc. */
 	pm->data_len = copy_len;
 	tv = ktime_to_timeval(skb->tstamp);
 	put_unaligned(tv.tv_sec, &pm->timestamp_sec);
@@ -239,23 +254,23 @@ static void ipt_ulog_packet(struct net *net,
 	if (out)
 		strncpy(pm->outdev_name, out->name, sizeof(pm->outdev_name));
 
-	
+	/* copy_len <= skb->len, so can't fail. */
 	if (skb_copy_bits(skb, 0, pm->payload, copy_len) < 0)
 		BUG();
 
-	
+	/* check if we are building multi-part messages */
 	if (ub->qlen > 1)
 		ub->lastnlh->nlmsg_flags |= NLM_F_MULTI;
 
 	ub->lastnlh = nlh;
 
-	
+	/* if timer isn't already running, start it */
 	if (!timer_pending(&ub->timer)) {
 		ub->timer.expires = jiffies + flushtimeout * HZ / 100;
 		add_timer(&ub->timer);
 	}
 
-	
+	/* if threshold is reached, send message to userspace */
 	if (ub->qlen >= loginfo->qthreshold) {
 		if (loginfo->qthreshold > 1)
 			nlh->nlmsg_type = NLMSG_DONE;
@@ -362,7 +377,7 @@ static int ulog_tg_compat_to_user(void __user *dst, const void *src)
 	memcpy(cl.prefix, l->prefix, sizeof(cl.prefix));
 	return copy_to_user(dst, &cl, sizeof(cl)) ? -EFAULT : 0;
 }
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static struct xt_target ulog_tg_reg __read_mostly = {
 	.name		= "ULOG",
@@ -393,7 +408,7 @@ static int __net_init ulog_tg_net_init(struct net *net)
 	};
 
 	spin_lock_init(&ulog->lock);
-	
+	/* initialize ulog_buffers */
 	for (i = 0; i < ULOG_MAXNLGROUPS; i++) {
 		ulog->nlgroup[i] = i;
 		setup_timer(&ulog->ulog_buffers[i].timer, ulog_timer,
@@ -421,7 +436,7 @@ static void __net_exit ulog_tg_net_exit(struct net *net)
 
 	netlink_kernel_release(ulog->nflognl);
 
-	
+	/* remove pending timers and free allocated skb's */
 	for (i = 0; i < ULOG_MAXNLGROUPS; i++) {
 		ub = &ulog->ulog_buffers[i];
 		pr_debug("timer is deleting\n");

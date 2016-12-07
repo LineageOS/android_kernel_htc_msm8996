@@ -39,7 +39,7 @@ static struct notifier_block restart_notifier ={
 
 static int __init timer_notifier_add(void)
 {
-	register_reboot_notifier(&restart_notifier);
+	register_reboot_notifier(&restart_notifier);//add a notifier block in reboot notifier list
 
 	return 0;
 }

@@ -5,18 +5,18 @@
 // ================
 
 // msm-pm8994.dtsi has these settings, we replace this at here
-&pm8994_mpps {
-	mpp@a300 {
-		reg = <0xa300 0x100>;
-		qcom,pin-num = <4>;
-		qcom,mode = <4>;	//QPNP_PIN_MODE_AIN
-		qcom,src-sel = <0>;	//QPNP_PIN_SEL_FUNC_CONSTANT
-		qcom,ain-route = <3>;	//QPNP_PIN_AIN_AMUX_CH
-		qcom,master-en = <1>;	//ENABLE FEATURE
-		qcom,invert = <1>;
-		status = "ok";
-	};
-};
+//&pm8994_mpps {
+//	mpp@a300 {
+//		reg = <0xa300 0x100>;
+//		qcom,pin-num = <4>;
+//		qcom,mode = <4>;	//QPNP_PIN_MODE_AIN
+//		qcom,src-sel = <0>;	//QPNP_PIN_SEL_FUNC_CONSTANT
+//		qcom,ain-route = <3>;	//QPNP_PIN_AIN_AMUX_CH
+//		qcom,master-en = <1>;	//ENABLE FEATURE
+//		qcom,invert = <1>;
+//		status = "ok";
+//	};
+//};
 
 &pmi8994_gpios {
 	gpio@c200 {
@@ -100,8 +100,8 @@
 		qcom,msm-mbhc-gnd-swh = <1>; /* HTC_AUD: 1 for NO, 0 for NC */
 		qcom,audio-1v8-hph-en-gpio = <&pm8994_mpps 6 0>;
 //		qcom,rt5503-reset-gpio = <&tlmm 49 0>;
-		qcom,tfa9888-reset-gpio = <&pm8994_gpios 4 0>;
-		qcom,right-speaker-id-gpio = <&pmi8994_gpios 5 0>;
+//		qcom,tfa9888-reset-gpio = <&pm8994_gpios 4 0>;
+//		qcom,right-speaker-id-gpio = <&pmi8994_gpios 5 0>;
 
 		ftm-btpcm-clock	= <&tlmm 65 0>;
 		ftm-btpcm-sync	= <&tlmm 66 0>;

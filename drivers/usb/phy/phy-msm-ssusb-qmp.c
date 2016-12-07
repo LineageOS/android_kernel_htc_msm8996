@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -561,6 +561,7 @@ static int msm_ssphy_qmp_init(struct usb_phy *uphy)
 		misc = qmp_settings_rev0_misc;
 		break;
 	case 0x10000001:
+	case 0x10010000:
 		reg = qmp_settings_rev1;
 		misc = qmp_settings_rev1_misc;
 		break;
@@ -630,6 +631,8 @@ static int msm_ssphy_qmp_init(struct usb_phy *uphy)
 	writel_relaxed(0x03, phy->base + phy->phy_reg[USB3_PHY_START]);
 	writel_relaxed(0x00, phy->base + phy->phy_reg[USB3_PHY_SW_RESET]);
 
+	
+	mb();
 
 	
 	do {
@@ -773,6 +776,9 @@ static int msm_ssphy_qmp_set_suspend(struct usb_phy *uphy, int suspend)
 		else
 			msm_ssusb_qmp_enable_autonomous(phy, 1);
 
+		
+		wmb();
+
 		clk_disable_unprepare(phy->cfg_ahb_clk);
 		clk_disable_unprepare(phy->aux_clk);
 		clk_disable_unprepare(phy->pipe_clk);
@@ -802,6 +808,10 @@ static int msm_ssphy_qmp_set_suspend(struct usb_phy *uphy, int suspend)
 		} else  {
 			msm_ssusb_qmp_enable_autonomous(phy, 0);
 		}
+
+		
+		wmb();
+
 		phy->in_suspend = false;
 		dev_dbg(uphy->dev, "QMP PHY is resumed\n");
 	}

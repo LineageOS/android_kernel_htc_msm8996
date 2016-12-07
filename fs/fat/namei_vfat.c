@@ -23,14 +23,6 @@
 #include <linux/namei.h>
 #include "fat.h"
 
-/*
- * If new entry was created in the parent, it could create the 8.3
- * alias (the shortname of logname).  So, the parent may have the
- * negative-dentry which matches the created 8.3 alias.
- *
- * If it happened, the negative dentry isn't actually negative
- * anymore.  So, drop it.
- */
 static int vfat_revalidate_shortname(struct dentry *dentry)
 {
 	int ret = 1;
@@ -46,7 +38,7 @@ static int vfat_revalidate(struct dentry *dentry, unsigned int flags)
 	if (flags & LOOKUP_RCU)
 		return -ECHILD;
 
-	/* This is not negative dentry. Always valid. */
+	
 	if (dentry->d_inode)
 		return 1;
 	return vfat_revalidate_shortname(dentry);
@@ -57,38 +49,18 @@ static int vfat_revalidate_ci(struct dentry *dentry, unsigned int flags)
 	if (flags & LOOKUP_RCU)
 		return -ECHILD;
 
-	/*
-	 * This is not negative dentry. Always valid.
-	 *
-	 * Note, rename() to existing directory entry will have ->d_inode,
-	 * and will use existing name which isn't specified name by user.
-	 *
-	 * We may be able to drop this positive dentry here. But dropping
-	 * positive dentry isn't good idea. So it's unsupported like
-	 * rename("filename", "FILENAME") for now.
-	 */
 	if (dentry->d_inode)
 		return 1;
 
-	/*
-	 * This may be nfsd (or something), anyway, we can't see the
-	 * intent of this. So, since this can be for creation, drop it.
-	 */
 	if (!flags)
 		return 0;
 
-	/*
-	 * Drop the negative dentry, in order to make sure to use the
-	 * case sensitive name which is specified by user if this is
-	 * for creation.
-	 */
 	if (flags & (LOOKUP_CREATE | LOOKUP_RENAME_TARGET))
 		return 0;
 
 	return vfat_revalidate_shortname(dentry);
 }
 
-/* returns the length of a struct qstr, ignoring trailing dots */
 static unsigned int __vfat_striptail_len(unsigned int len, const char *name)
 {
 	while (len && name[len - 1] == '.')
@@ -101,24 +73,12 @@ static unsigned int vfat_striptail_len(const struct qstr *qstr)
 	return __vfat_striptail_len(qstr->len, qstr->name);
 }
 
-/*
- * Compute the hash for the vfat name corresponding to the dentry.
- * Note: if the name is invalid, we leave the hash code unchanged so
- * that the existing dentry can be used. The vfat fs routines will
- * return ENOENT or EINVAL as appropriate.
- */
 static int vfat_hash(const struct dentry *dentry, struct qstr *qstr)
 {
 	qstr->hash = full_name_hash(qstr->name, vfat_striptail_len(qstr));
 	return 0;
 }
 
-/*
- * Compute the hash for the vfat name corresponding to the dentry.
- * Note: if the name is invalid, we leave the hash code unchanged so
- * that the existing dentry can be used. The vfat fs routines will
- * return ENOENT or EINVAL as appropriate.
- */
 static int vfat_hashi(const struct dentry *dentry, struct qstr *qstr)
 {
 	struct nls_table *t = MSDOS_SB(dentry->d_sb)->nls_io;
@@ -137,16 +97,13 @@ static int vfat_hashi(const struct dentry *dentry, struct qstr *qstr)
 	return 0;
 }
 
-/*
- * Case insensitive compare of two vfat names.
- */
 static int vfat_cmpi(const struct dentry *parent, const struct dentry *dentry,
 		unsigned int len, const char *str, const struct qstr *name)
 {
 	struct nls_table *t = MSDOS_SB(parent->d_sb)->nls_io;
 	unsigned int alen, blen;
 
-	/* A filename cannot end in '.' or we treat it like it has none */
+	
 	alen = vfat_striptail_len(name);
 	blen = __vfat_striptail_len(len, str);
 	if (alen == blen) {
@@ -156,15 +113,12 @@ static int vfat_cmpi(const struct dentry *parent, const struct dentry *dentry,
 	return 1;
 }
 
-/*
- * Case sensitive compare of two vfat names.
- */
 static int vfat_cmp(const struct dentry *parent, const struct dentry *dentry,
 		unsigned int len, const char *str, const struct qstr *name)
 {
 	unsigned int alen, blen;
 
-	/* A filename cannot end in '.' or we treat it like it has none */
+	
 	alen = vfat_striptail_len(name);
 	blen = __vfat_striptail_len(len, str);
 	if (alen == blen) {
@@ -186,7 +140,6 @@ static const struct dentry_operations vfat_dentry_ops = {
 	.d_compare	= vfat_cmp,
 };
 
-/* Characters that are undesirable in an MS-DOS file name */
 
 static inline wchar_t vfat_bad_char(wchar_t w)
 {
@@ -215,7 +168,7 @@ static inline int vfat_is_used_badchars(const wchar_t *s, int len)
 		if (vfat_bad_char(s[i]))
 			return -EINVAL;
 
-	if (s[i - 1] == ' ') /* last character cannot be space */
+	if (s[i - 1] == ' ') 
 		return -EINVAL;
 
 	return 0;
@@ -231,26 +184,6 @@ static int vfat_find_form(struct inode *dir, unsigned char *name)
 	return 0;
 }
 
-/*
- * 1) Valid characters for the 8.3 format alias are any combination of
- * letters, uppercase alphabets, digits, any of the
- * following special characters:
- *     $ % ' ` - @ { } ~ ! # ( ) & _ ^
- * In this case Longfilename is not stored in disk.
- *
- * WinNT's Extension:
- * File name and extension name is contain uppercase/lowercase
- * only. And it is expressed by CASE_LOWER_BASE and CASE_LOWER_EXT.
- *
- * 2) File name is 8.3 format, but it contain the uppercase and
- * lowercase char, muliti bytes char, etc. In this case numtail is not
- * added, but Longfilename is stored.
- *
- * 3) When the one except for the above, or the following special
- * character are contained:
- *        .   [ ] ; , + =
- * numtail is added, and Longfilename must be stored in disk .
- */
 struct shortname_info {
 	unsigned char lower:1,
 		      upper:1,
@@ -306,12 +239,6 @@ static inline int to_shortname_char(struct nls_table *nls,
 	return len;
 }
 
-/*
- * Given a valid longname, create a unique shortname.  Make sure the
- * shortname does not exist
- * Returns negative number on error, 0 for a normal
- * return, and 1 for valid shortname
- */
 static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 				 wchar_t *uname, int ulen,
 				 unsigned char *name_res, unsigned char *lcase)
@@ -329,10 +256,10 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 	INIT_SHORTNAME_INFO(&base_info);
 	INIT_SHORTNAME_INFO(&ext_info);
 
-	/* Now, we need to create a shortname from the long name */
+	
 	ext_start = end = &uname[ulen];
 	while (--ext_start >= uname) {
-		if (*ext_start == 0x002E) {	/* is `.' */
+		if (*ext_start == 0x002E) {	
 			if (ext_start == end - 1) {
 				sz = ulen;
 				ext_start = NULL;
@@ -345,11 +272,6 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 		sz = ulen;
 		ext_start = NULL;
 	} else if (ext_start) {
-		/*
-		 * Names which start with a dot could be just
-		 * an extension eg. "...test".  In this case Win95
-		 * uses the extension as the name and sets no extension.
-		 */
 		name_start = &uname[0];
 		while (name_start < ext_start) {
 			if (!vfat_skip_char(*name_start))
@@ -419,14 +341,10 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 	ext[extlen] = '\0';
 	base[baselen] = '\0';
 
-	/* Yes, it can happen. ".\xe5" would do it. */
+	
 	if (base[0] == DELETED_FLAG)
 		base[0] = 0x05;
 
-	/* OK, at this point we know that base is not longer than 8 symbols,
-	 * ext is not longer than 3, base is nonempty, both don't contain
-	 * any bad symbols (lowercase transformed to uppercase).
-	 */
 
 	memset(name_res, ' ', MSDOS_NAME);
 	memcpy(name_res, base, baselen);
@@ -457,13 +375,6 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 		if (vfat_find_form(dir, name_res) < 0)
 			return 0;
 
-	/*
-	 * Try to find a unique extension.  This used to
-	 * iterate through all possibilities sequentially,
-	 * but that gave extremely bad performance.  Windows
-	 * only tries a few cases before using random
-	 * values for part of the base.
-	 */
 
 	if (baselen > 6) {
 		baselen = numtail_baselen;
@@ -494,7 +405,6 @@ static int vfat_create_shortname(struct inode *dir, struct nls_table *nls,
 	return 0;
 }
 
-/* Translate a string, including coded sequences into Unicode */
 static int
 xlate_to_uni(const unsigned char *name, int len, unsigned char *outname,
 	     int *longlen, int *outlen, int escape, int utf8,
@@ -619,7 +529,7 @@ static int vfat_build_slots(struct inode *dir, const unsigned char *name,
 		goto shortname;
 	}
 
-	/* build the entry of long file name */
+	
 	cksum = fat_checksum(msdos_name);
 
 	*nr_slots = usize / 13;
@@ -638,7 +548,7 @@ static int vfat_build_slots(struct inode *dir, const unsigned char *name,
 	de = (struct msdos_dir_entry *)ps;
 
 shortname:
-	/* build the entry of 8.3 alias name */
+	
 	(*nr_slots)++;
 	memcpy(de->name, msdos_name, MSDOS_NAME);
 	de->attr = is_dir ? ATTR_DIR : ATTR_ARCH;
@@ -679,7 +589,7 @@ static int vfat_add_entry(struct inode *dir, struct qstr *qname, int is_dir,
 	if (err)
 		goto cleanup;
 
-	/* update timestamp */
+	
 	dir->i_ctime = dir->i_mtime = dir->i_atime = *ts;
 	if (IS_DIRSYNC(dir))
 		(void)fat_sync_inode(dir);
@@ -699,10 +609,6 @@ static int vfat_find(struct inode *dir, struct qstr *qname,
 	return fat_search_long(dir, qname->name, len, sinfo);
 }
 
-/*
- * (nfsd's) anonymous disconnected dentry?
- * NOTE: !IS_ROOT() is not anonymous (I.e. d_splice_alias() did the job).
- */
 static int vfat_d_anon_disconn(struct dentry *dentry)
 {
 	return IS_ROOT(dentry) && (dentry->d_flags & DCACHE_DISCONNECTED);
@@ -736,19 +642,8 @@ static struct dentry *vfat_lookup(struct inode *dir, struct dentry *dentry,
 	}
 
 	alias = d_find_alias(inode);
-	/*
-	 * Checking "alias->d_parent == dentry->d_parent" to make sure
-	 * FS is not corrupted (especially double linked dir).
-	 */
 	if (alias && alias->d_parent == dentry->d_parent &&
 	    !vfat_d_anon_disconn(alias)) {
-		/*
-		 * This inode has non anonymous-DCACHE_DISCONNECTED
-		 * dentry. This means, the user did ->lookup() by an
-		 * another name (longname vs 8.3 alias of it) in past.
-		 *
-		 * Switch to new one for reason of locality if possible.
-		 */
 		BUG_ON(d_unhashed(alias));
 		if (!S_ISDIR(inode->i_mode))
 			d_move(alias, dentry);
@@ -817,7 +712,7 @@ static int vfat_rmdir(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto out;
 
-	err = fat_remove_entries(dir, &sinfo);	/* and releases bh */
+	err = fat_remove_entries(dir, &sinfo);	
 	if (err)
 		goto out;
 	drop_nlink(dir);
@@ -845,7 +740,7 @@ static int vfat_unlink(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto out;
 
-	err = fat_remove_entries(dir, &sinfo);	/* and releases bh */
+	err = fat_remove_entries(dir, &sinfo);	
 	if (err)
 		goto out;
 	clear_nlink(inode);
@@ -884,7 +779,7 @@ static int vfat_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	brelse(sinfo.bh);
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
-		/* the directory was completed, just return a error */
+		
 		goto out;
 	}
 	inode->i_version++;
@@ -973,7 +868,7 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
  			inc_nlink(new_dir);
 	}
 
-	err = fat_remove_entries(old_dir, &old_sinfo);	/* and releases bh */
+	err = fat_remove_entries(old_dir, &old_sinfo);	
 	old_sinfo.bh = NULL;
 	if (err)
 		goto error_dotdot;
@@ -999,7 +894,7 @@ out:
 	return err;
 
 error_dotdot:
-	/* data cluster is shared, serious corruption */
+	
 	corrupt = 1;
 
 	if (update_dotdot) {
@@ -1015,10 +910,6 @@ error_inode:
 		if (corrupt)
 			corrupt |= fat_sync_inode(new_inode);
 	} else {
-		/*
-		 * If new entry was not sharing the data cluster, it
-		 * shouldn't be serious corruption.
-		 */
 		int err2 = fat_remove_entries(new_dir, &sinfo);
 		if (corrupt)
 			corrupt |= err2;
@@ -1071,15 +962,25 @@ static struct file_system_type vfat_fs_type = {
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
 };
+
+static struct file_system_type vfatsd_fs_type = {
+        .owner          = THIS_MODULE,
+        .name           = "vfat_sd",
+        .mount          = vfat_mount,
+        .kill_sb        = kill_block_super,
+        .fs_flags       = FS_REQUIRES_DEV,
+};
 MODULE_ALIAS_FS("vfat");
 
 static int __init init_vfat_fs(void)
 {
-	return register_filesystem(&vfat_fs_type);
+	register_filesystem(&vfat_fs_type);
+	return register_filesystem(&vfatsd_fs_type);
 }
 
 static void __exit exit_vfat_fs(void)
 {
+	unregister_filesystem(&vfatsd_fs_type);
 	unregister_filesystem(&vfat_fs_type);
 }
 

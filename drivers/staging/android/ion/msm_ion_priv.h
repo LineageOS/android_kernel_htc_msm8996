@@ -32,15 +32,6 @@ enum ion_heap_mem_usage {
 	ION_USAGE_MAX,
 };
 
-/**
- * struct mem_map_data - represents information about the memory map for a heap
- * @node:		list node used to store in the list of mem_map_data
- * @addr:		start address of memory region.
- * @addr:		end address of memory region.
- * @size:		size of memory region
- * @client_name:		name of the client who owns this buffer.
- *
- */
 struct mem_map_data {
 	struct list_head node;
 	ion_phys_addr_t addr;
@@ -95,21 +86,6 @@ void ion_removed_heap_destroy(struct ion_heap *);
 #define ION_CP_ALLOCATE_FAIL -1
 #define ION_RESERVED_ALLOCATE_FAIL -1
 
-/**
- * ion_do_cache_op - do cache operations.
- *
- * @client - pointer to ION client.
- * @handle - pointer to buffer handle.
- * @uaddr -  virtual address to operate on.
- * @offset - offset from physical address.
- * @len - Length of data to do cache operation on.
- * @cmd - Cache operation to perform:
- *		ION_IOC_CLEAN_CACHES
- *		ION_IOC_INV_CACHES
- *		ION_IOC_CLEAN_INV_CACHES
- *
- * Returns 0 on success
- */
 int ion_do_cache_op(struct ion_client *client, struct ion_handle *handle,
 			void *uaddr, unsigned long offset, unsigned long len,
 			unsigned int cmd);
@@ -131,12 +107,10 @@ int get_secure_vmid(unsigned long);
 
 bool is_secure_vmid_valid(int vmid);
 
-/**
- * Functions to help assign/unassign sg_table for System Secure Heap
- */
 
 int ion_system_secure_heap_unassign_sg(struct sg_table *sgt, int source_vmid);
 int ion_system_secure_heap_assign_sg(struct sg_table *sgt, int dest_vmid);
+
 
 void ion_alloc_inc_usage(const enum ion_heap_mem_usage usage,
 			 const size_t size);
@@ -144,17 +118,8 @@ void ion_alloc_inc_usage(const enum ion_heap_mem_usage usage,
 void ion_alloc_dec_usage(const enum ion_heap_mem_usage usage,
 			 const size_t size);
 
-/**
- * ion_create_chunked_sg_table - helper function to create sg table
- * with specified chunk size
- * @buffer_base:	The starting address used for the sg dma address
- * @chunk_size:		The size of each entry in the sg table
- * @total_size:		The total size of the sg table (i.e. the sum of the
- *			entries). This will be rounded up to the nearest
- *			multiple of `chunk_size'
- */
 struct sg_table *ion_create_chunked_sg_table(phys_addr_t buffer_base,
 					size_t chunk_size, size_t total_size);
 
 void show_ion_usage(struct ion_device *dev);
-#endif /* _MSM_ION_PRIV_H */
+#endif 

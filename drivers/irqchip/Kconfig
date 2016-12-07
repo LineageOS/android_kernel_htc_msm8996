@@ -5,8 +5,15 @@ config IRQCHIP
 config ARM_GIC
 	bool
 	select IRQ_DOMAIN
+	select IRQ_DOMAIN_HIERARCHY
 	select MULTI_IRQ_HANDLER
 	select MSM_SHOW_RESUME_IRQ
+
+config ARM_GIC_V2M
+	bool
+	depends on ARM_GIC
+	depends on PCI && PCI_MSI
+	select PCI_MSI_IRQ_DOMAIN
 
 config GIC_NON_BANKED
 	bool
@@ -37,6 +44,18 @@ config ARM_GIC_V3_ACL
 	help
 	  Access to GIC ITS address space is controlled by EL2.
 	  Kernel has no permission to access ITS
+
+config ARM_GIC_V3_NO_ACCESS_CONTROL
+	bool "GICv3 No Access Control Configuration"
+	depends on ARM_GIC_V3
+	help
+	  On some SOCs with the access control configurations it is
+	  not allowed to access certain set of the GIC registers
+	  from non-secure world. Provide a common flag to protect
+	  those functionalities and compile them out for such
+	  configurations, so that specific registers are not touched.
+
+	  For production kernels, you should say 'N' here.
 
 config ARM_NVIC
 	bool

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2016	, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -289,7 +289,8 @@ static ssize_t sps_set_bam_addr(struct file *file, const char __user *buf,
 	} else {
 		vir_addr = &bam->base;
 		num_pipes = bam->props.num_pipes;
-		bam->ipc_loglevel = log_level_sel;
+		if (log_level_sel <= SPS_IPC_MAX_LOGLEVEL)
+			bam->ipc_loglevel = log_level_sel;
 	}
 
 	switch (reg_dump_option) {
@@ -500,7 +501,7 @@ static void sps_debugfs_init(void)
 	debugfs_buf_size = 0;
 	debugfs_buf_used = 0;
 	wraparound = false;
-	log_level_sel = 0;
+	log_level_sel = SPS_IPC_MAX_LOGLEVEL + 1;
 
 	dent = debugfs_create_dir("sps", 0);
 	if (IS_ERR(dent)) {
@@ -1825,8 +1826,10 @@ int sps_get_config(struct sps_pipe *h, struct sps_connect *config)
 	if (pipe->bam == NULL)
 		SPS_DBG(sps, "sps:%s.\n", __func__);
 	else
-	SPS_DBG(pipe->bam, "sps:%s; BAM: %pa; pipe index:%d.\n",
-		__func__, BAM_ID(pipe->bam), pipe->pipe_index);
+		SPS_DBG(pipe->bam,
+			"sps:%s; BAM: %pa; pipe index:%d; options:0x%x.\n",
+			__func__, BAM_ID(pipe->bam), pipe->pipe_index,
+			pipe->connect.options);
 
 	/* Copy current client connection state */
 	*config = pipe->connect;
@@ -1854,11 +1857,13 @@ int sps_set_config(struct sps_pipe *h, struct sps_connect *config)
 	}
 
 	bam = sps_bam_lock(pipe);
-	if (bam == NULL)
+	if (bam == NULL) {
+		SPS_ERR(sps, "sps:%s:BAM is NULL.\n", __func__);
 		return SPS_ERROR;
+	}
 
-	SPS_DBG(bam, "sps:%s; BAM: %pa; pipe index:%d.\n",
-		__func__, BAM_ID(bam), pipe->pipe_index);
+	SPS_DBG(bam, "sps:%s; BAM: %pa; pipe index:%d, config-options:0x%x.\n",
+		__func__, BAM_ID(bam), pipe->pipe_index, config->options);
 
 	result = sps_bam_pipe_set_params(bam, pipe->pipe_index,
 					 config->options);
@@ -2203,6 +2208,8 @@ int sps_register_bam_device(const struct sps_bam_props *bam_props,
 
 	if (bam_props->ipc_loglevel)
 		bam->ipc_loglevel = bam_props->ipc_loglevel;
+	else
+		bam->ipc_loglevel = SPS_IPC_DEFAULT_LOGLEVEL;
 
 	ok = sps_bam_device_init(bam);
 	mutex_unlock(&bam->lock);

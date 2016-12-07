@@ -187,6 +187,7 @@ enum ohio_data_member {
 	OHIO_VCONN,
 	OHIO_START_HOST_FLAG,
 	OHIO_EMARKER,
+	OHIO_NON_STANDARD,
 };
 
 #define MAX_INTERFACE_COUNT 32
@@ -203,7 +204,6 @@ extern u8 configure_DP_caps[];
 extern u8 src_dp_caps[];
 extern atomic_t ohio_power_status;
 extern unsigned char downstream_pd_cap;
-
 #define is_soft_reset_intr() \
 	(OhioReadReg(IRQ_EXT_SOURCE_2) & IRQ_EXT_SOFT_RESET_BIT)
 
@@ -294,7 +294,6 @@ void enable_oc_work_func(void);
 u8 interface_send_msg_timeout(u8 type, u8 *pbuf, u8 len, int timeout_ms);
 pd_callback_t get_pd_callback_fnc(PD_MSG_TYPE type);
 void set_pd_callback_fnc(PD_MSG_TYPE type, pd_callback_t fnc);
-
 
 u8 send_src_cap(const u8 *src_caps, u8 src_caps_size);
 

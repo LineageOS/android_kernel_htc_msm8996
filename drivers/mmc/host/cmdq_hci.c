@@ -1,4 +1,4 @@
-/* Copyright (c) 2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2016 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,6 +26,8 @@
 #include <linux/pm_runtime.h>
 #include <linux/mmc/sdhci.h>
 #include <linux/workqueue.h>
+
+#include <trace/events/mmcio.h>
 
 #include "cmdq_hci.h"
 #include "sdhci.h"
@@ -377,6 +379,9 @@ static int cmdq_enable(struct mmc_host *mmc)
 	cq_host->enabled = true;
 	mmc_host_clr_cq_disable(mmc);
 
+	if (cq_host->ops->set_transfer_params)
+		cq_host->ops->set_transfer_params(mmc);
+
 	if (cq_host->ops->set_block_size)
 		cq_host->ops->set_block_size(cq_host->mmc);
 
@@ -698,8 +703,34 @@ static int cmdq_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	}
 
 	cq_host->mrq_slot[tag] = mrq;
-	if (cq_host->ops->set_tranfer_params)
-		cq_host->ops->set_tranfer_params(mmc);
+
+	if (mmc->perf_enable && mrq->data) {
+		if (mmc->card)
+			
+			trace_mmc_req_start(&mmc->class_dev,
+				(mrq->data->flags == MMC_DATA_READ) ? 46 : 47,
+				mrq->cmdq_req->blk_addr, mrq->data->blocks, tag);
+
+		if (mrq->data->flags == MMC_DATA_READ) {
+			if (mmc->perf.cmdq_read_map == 0)
+				mmc->perf.cmdq_read_start = ktime_get();
+			mmc->perf.cmdq_read_map |= 1 << tag;
+		} else {
+			if (mmc->perf.cmdq_write_map == 0)
+				mmc->perf.cmdq_write_start = ktime_get();
+			mmc->perf.cmdq_write_map |= 1 << tag;
+		}
+
+		if (mmc->perf.cmdq_read_map & mmc->perf.cmdq_write_map) {
+			pr_warn_ratelimited("%s: %s: statistic R/W map error, R: 0x%04lx, W:0x%04lx\n",
+				mmc_hostname(mmc), __func__,
+				mmc->perf.cmdq_read_map, mmc->perf.cmdq_write_map);
+			if (mrq->data->flags == MMC_DATA_READ)
+				mmc->perf.cmdq_write_map &= ~(1 << tag);
+			else
+				mmc->perf.cmdq_read_map &= ~(1 << tag);
+		}
+	}
 
 	
 	sdhci_msm_pm_qos_irq_vote(host);
@@ -806,13 +837,16 @@ irqreturn_t cmdq_irq(struct mmc_host *mmc, int err)
 		}
 
 skip_cqterri:
-		if (ret)
+		if (ret) {
 			cmdq_disable_nosync(mmc, true);
+			if (cq_host->ops->clear_set_irqs)
+				cq_host->ops->clear_set_irqs(mmc, false);
+		}
 
 		if (status & CQIS_RED) {
 			BUG_ON(!mmc->card);
-			if (mmc_card_configured_manual_bkops(mmc->card) &&
-			    !mmc_card_configured_auto_bkops(mmc->card))
+			if (mmc_card_configured_manual_bkops(mmc->card) ||
+			    mmc_card_configured_auto_bkops(mmc->card))
 				mmc->card->bkops.needs_check = true;
 
 			mrq->cmdq_req->resp_err = true;
@@ -915,6 +949,10 @@ static int cmdq_halt(struct mmc_host *mmc, bool halt)
 		}
 		ret = retries ? 0 : -ETIMEDOUT;
 	} else {
+		if (cq_host->ops->set_transfer_params)
+			cq_host->ops->set_transfer_params(mmc);
+		if (cq_host->ops->set_block_size)
+			cq_host->ops->set_block_size(mmc);
 		if (cq_host->ops->set_data_timeout)
 			cq_host->ops->set_data_timeout(mmc, 0xf);
 		if (cq_host->ops->clear_set_irqs)

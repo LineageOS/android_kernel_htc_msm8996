@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,10 +25,14 @@
 
 static u32 dsc_rc_buf_thresh[] = {0x0e, 0x1c, 0x2a, 0x38, 0x46, 0x54,
 		0x62, 0x69, 0x70, 0x77, 0x79, 0x7b, 0x7d, 0x7e};
-static char dsc_rc_range_min_qp[] = {0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5,
+static char dsc_rc_range_min_qp_1_1[] = {0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5,
 				5, 5, 7, 13};
-static char dsc_rc_range_max_qp[] = {4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 11,
+static char dsc_rc_range_min_qp_1_1_scr1[] = {0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5,
+				5, 5, 9, 12};
+static char dsc_rc_range_max_qp_1_1[] = {4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 11,
 			 12, 13, 13, 15};
+static char dsc_rc_range_max_qp_1_1_scr1[] = {4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 10,
+			 11, 11, 12, 13};
 static char dsc_rc_range_bpg_offset[] = {2, 0, 0, -2, -4, -6, -8, -8,
 			-8, -10, -10, -12, -12, -12, -12};
 
@@ -407,8 +411,8 @@ int mdss_panel_debugfs_panel_setup(struct mdss_panel_debugfs_info *debugfs_info,
 		(u32 *)&debugfs_info->panel_info.min_fps);
 	debugfs_create_u32("max_refresh_rate", 0644, debugfs_info->root,
 		(u32 *)&debugfs_info->panel_info.max_fps);
-	debugfs_create_u32("clk_rate", 0644, debugfs_info->root,
-		(u32 *)&debugfs_info->panel_info.clk_rate);
+	debugfs_create_u64("clk_rate", 0644, debugfs_info->root,
+		(u64 *)&debugfs_info->panel_info.clk_rate);
 	debugfs_create_u32("bl_min", 0644, debugfs_info->root,
 		(u32 *)&debugfs_info->panel_info.bl_min);
 	debugfs_create_u32("bl_max", 0644, debugfs_info->root,
@@ -436,10 +440,12 @@ int mdss_panel_debugfs_setup(struct mdss_panel_info *panel_info, struct dentry
 		return -ENOMEM;
 	}
 
+	debugfs_info->parent = parent;
 	debugfs_info->root = debugfs_create_dir(intf_str, parent);
 	if (IS_ERR_OR_NULL(debugfs_info->root)) {
 		pr_err("Debugfs create dir failed with error: %ld\n",
 					PTR_ERR(debugfs_info->root));
+		kfree(debugfs_info);
 		return -ENODEV;
 	}
 
@@ -484,6 +490,7 @@ int mdss_panel_debugfs_init(struct mdss_panel_info *panel_info,
 				intf_str);
 		if (rc) {
 			pr_err("error in initilizing panel debugfs\n");
+			mdss_panel_debugfs_cleanup(&pdata->panel_info);
 			return rc;
 		}
 		pdata = pdata->next;
@@ -497,22 +504,25 @@ void mdss_panel_debugfs_cleanup(struct mdss_panel_info *panel_info)
 {
 	struct mdss_panel_data *pdata;
 	struct mdss_panel_debugfs_info *debugfs_info;
+	struct dentry *parent = NULL;
 	pdata = container_of(panel_info, struct mdss_panel_data, panel_info);
 	do {
 		debugfs_info = pdata->panel_info.debugfs_info;
-		if (debugfs_info && debugfs_info->root)
-			debugfs_remove_recursive(debugfs_info->root);
+		if (debugfs_info && !parent)
+			parent = debugfs_info->parent;
+		kfree(debugfs_info);
 		pdata = pdata->next;
 	} while (pdata);
+	debugfs_remove_recursive(parent);
 	pr_debug("Cleaned up mdss_panel_debugfs_info\n");
 }
 
 void mdss_panel_override_te_params(struct mdss_panel_info *pinfo)
 {
 	pinfo->te.sync_cfg_height = mdss_panel_get_vtotal(pinfo);
-	pinfo->te.vsync_init_val = 0;
-	pinfo->te.start_pos = 5;
-	pinfo->te.rd_ptr_irq = 1;
+	pinfo->te.vsync_init_val = pinfo->yres;
+	pinfo->te.start_pos = pinfo->yres;
+	pinfo->te.rd_ptr_irq = pinfo->yres + 1;
 	pr_debug("SW TE override: read_ptr:%d,start_pos:%d,height:%d,init_val:%d\n",
 		pinfo->te.rd_ptr_irq, pinfo->te.start_pos,
 		pinfo->te.sync_cfg_height,
@@ -626,6 +636,7 @@ void mdss_panel_info_from_timing(struct mdss_panel_timing *pt,
 	pinfo->fbc = pt->fbc;
 	pinfo->compression_mode = pt->compression_mode;
 
+	pinfo->roi_alignment = pt->roi_alignment;
 	pinfo->te = pt->te;
 
 	
@@ -647,7 +658,10 @@ void mdss_panel_dsc_parameters_calc(struct dsc_desc *dsc)
 	int final_value, final_scale;
 
 	dsc->rc_model_size = 8192;	
-	dsc->first_line_bpg_offset = 12;
+	if (dsc->version == 0x11 && dsc->scr_rev == 0x1)
+		dsc->first_line_bpg_offset = 15;
+	else
+		dsc->first_line_bpg_offset = 12;
 	dsc->min_qp_flatness = 3;
 	dsc->max_qp_flatness = 12;
 	dsc->line_buf_depth = 9;
@@ -659,8 +673,13 @@ void mdss_panel_dsc_parameters_calc(struct dsc_desc *dsc)
 	dsc->tgt_offset_lo = 3;
 
 	dsc->buf_thresh = dsc_rc_buf_thresh;
-	dsc->range_min_qp = dsc_rc_range_min_qp;
-	dsc->range_max_qp = dsc_rc_range_max_qp;
+	if (dsc->version == 0x11 && dsc->scr_rev == 0x1) {
+		dsc->range_min_qp = dsc_rc_range_min_qp_1_1_scr1;
+		dsc->range_max_qp = dsc_rc_range_max_qp_1_1_scr1;
+	} else {
+		dsc->range_min_qp = dsc_rc_range_min_qp_1_1;
+		dsc->range_max_qp = dsc_rc_range_max_qp_1_1;
+	}
 	dsc->range_bpg_offset = dsc_rc_range_bpg_offset;
 
 	bpp = dsc->bpp;
@@ -833,86 +852,80 @@ void mdss_panel_dsc_pclk_param_calc(struct dsc_desc *dsc, int intf_width)
 }
 
 int mdss_panel_dsc_prepare_pps_buf(struct dsc_desc *dsc, char *buf,
-	int pps_id, int major, int minor)
+	int pps_id)
 {
 	char *bp;
 	char data;
 	int i, bpp;
 
 	bp = buf;
-	*bp++ = ((major << 4) | minor);		
-	*bp++ = pps_id;				
+	*bp++ = (dsc->version & 0xff);	
+	*bp++ = (pps_id & 0xff);		
 	bp++;					
 
 	data = dsc->line_buf_depth & 0x0f;
-	data |= (dsc->bpc << 4);
+	data |= ((dsc->bpc & 0xf) << 4);
 	*bp++ = data;				 
 
 	bpp = dsc->bpp;
 	bpp <<= 4;	
 	data = (bpp >> 8);
 	data &= 0x03;		
-	data |= (dsc->block_pred_enable << 5);
-	data |= (dsc->convert_rgb << 4);
-	data |= (dsc->enable_422 << 3);
-	data |= (dsc->vbr_enable << 2);
+	data |= ((dsc->block_pred_enable & 0x1) << 5);
+	data |= ((dsc->convert_rgb & 0x1) << 4);
+	data |= ((dsc->enable_422 & 0x1) << 3);
+	data |= ((dsc->vbr_enable & 0x1) << 2);
 	*bp++ = data;				
-	*bp++ = bpp;				
+	*bp++ = (bpp & 0xff);			
 
-	*bp++ = (dsc->pic_height >> 8);		
+	*bp++ = ((dsc->pic_height >> 8) & 0xff); 
 	*bp++ = (dsc->pic_height & 0x0ff);	
-	*bp++ = (dsc->pic_width >> 8);		
+	*bp++ = ((dsc->pic_width >> 8) & 0xff);	
 	*bp++ = (dsc->pic_width & 0x0ff);	
 
-	*bp++ = (dsc->slice_height >> 8);	
+	*bp++ = ((dsc->slice_height >> 8) & 0xff);
 	*bp++ = (dsc->slice_height & 0x0ff);	
-	*bp++ = (dsc->slice_width >> 8);	
+	*bp++ = ((dsc->slice_width >> 8) & 0xff); 
 	*bp++ = (dsc->slice_width & 0x0ff);	
 
-	*bp++ = (dsc->chunk_size >> 8);		
+	*bp++ = ((dsc->chunk_size >> 8) & 0xff);
 	*bp++ = (dsc->chunk_size & 0x0ff);	
 
-	data = dsc->initial_xmit_delay >> 8;
-	data &= 0x03;
-	*bp++ = data;				
-	*bp++ = dsc->initial_xmit_delay;	
+	*bp++ = (dsc->initial_xmit_delay >> 8) & 0x3; 
+	*bp++ = (dsc->initial_xmit_delay & 0xff);
 
-	*bp++ = (dsc->initial_dec_delay >> 8);	
-	*bp++ = dsc->initial_dec_delay;		
+	*bp++ = ((dsc->initial_dec_delay >> 8) & 0xff);	
+	*bp++ = (dsc->initial_dec_delay & 0xff);
 
 	bp++;					
 
 	*bp++ = (dsc->initial_scale_value & 0x3f); 
 
-	data = (dsc->scale_increment_interval >> 8);
-	data &= 0x0f;
-	*bp++ =  data;				
-	*bp++ = dsc->scale_increment_interval;	
+	*bp++ = ((dsc->scale_increment_interval >> 8) & 0xff); 
+	*bp++ = (dsc->scale_increment_interval & 0xff);	
 
-	data = (dsc->scale_decrement_interval >> 8);
-	data &= 0x0f;
-	*bp++ = data;				
+	*bp++ = ((dsc->scale_decrement_interval >> 8) & 0xf); 
 	*bp++ = (dsc->scale_decrement_interval & 0x0ff);
 
 	bp++;			
 
 	*bp++ = (dsc->first_line_bpg_offset & 0x1f);
 
-	*bp++ = (dsc->nfl_bpg_offset >> 8);	
+	*bp++ = ((dsc->nfl_bpg_offset >> 8) & 0xff);
 	*bp++ = (dsc->nfl_bpg_offset & 0x0ff);	
-	*bp++ = (dsc->slice_bpg_offset >> 8);	
+	*bp++ = ((dsc->slice_bpg_offset >> 8) & 0xff);
 	*bp++ = (dsc->slice_bpg_offset & 0x0ff);
 
-	*bp++ = (dsc->initial_offset >> 8);	
+	*bp++ = ((dsc->initial_offset >> 8) & 0xff);
 	*bp++ = (dsc->initial_offset & 0x0ff);	
 
-	*bp++ = (dsc->final_offset >> 8);	
+	*bp++ = ((dsc->final_offset >> 8) & 0xff);
 	*bp++ = (dsc->final_offset & 0x0ff);	
 
 	*bp++ = (dsc->min_qp_flatness & 0x1f);	
 	*bp++ = (dsc->max_qp_flatness & 0x1f);	
 
-	*bp++ = (dsc->rc_model_size >> 8);	
+	*bp++ = ((dsc->rc_model_size >> 8) & 0xff);
 	*bp++ = (dsc->rc_model_size & 0x0ff);	
 
 	*bp++ = (dsc->edge_factor & 0x0f);	
@@ -920,12 +933,12 @@ int mdss_panel_dsc_prepare_pps_buf(struct dsc_desc *dsc, char *buf,
 	*bp++ = (dsc->quant_incr_limit0 & 0x1f);	
 	*bp++ = (dsc->quant_incr_limit1 & 0x1f);	
 
-	data = (dsc->tgt_offset_hi << 4);
+	data = ((dsc->tgt_offset_hi & 0xf) << 4);
 	data |= (dsc->tgt_offset_lo & 0x0f);
 	*bp++ = data;				
 
 	for (i = 0; i < 14; i++)
-		*bp++ = dsc->buf_thresh[i];	
+		*bp++ = (dsc->buf_thresh[i] & 0xff);
 
 	for (i = 0; i < 15; i++) {		
 		data = (dsc->range_min_qp[i] & 0x1f); 

@@ -68,4 +68,5 @@ enum slimport_event_type {
 };
 
 int slimport_event_callback(enum slimport_event_type type, int value);
+void disable_sp_tx_audio_output(void);
 #endif

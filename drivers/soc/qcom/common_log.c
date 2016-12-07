@@ -24,6 +24,10 @@
 #define VSENSE_DUMP_DATA_LEN		4096
 #define RPM_DUMP_DATA_LEN		(160 * 1024)
 
+/* Using QCT backup design for RPM CodeRam or RPM CodeRam  /
+/  will be blurred after PBL load XBL SBL1_RPM_ROM section /
+/  QCT will backup the RPM CodeRam to this address in SDI  /
+/  --> HTC no needs to backup it in XBL                   */
 #define HTC_RAMDUMP_BACKUP_CODERAM	0x83C20000
 
 void register_misc_dump(void)
@@ -149,6 +153,10 @@ void register_rpm_dump(void)
 			return;
 		}
 
+/* Using QCT backup design for RPM CodeRam or RPM CodeRam  /
+/  will be blurred after PBL load XBL SBL1_RPM_ROM section /
+/  QCT will backup the RPM CodeRam to this address in SDI  /
+/  --> HTC no needs to backup it in XBL                   */
 #if 0
 		dump_addr = kzalloc(RPM_DUMP_DATA_LEN, GFP_KERNEL);
 		if (!dump_addr) {

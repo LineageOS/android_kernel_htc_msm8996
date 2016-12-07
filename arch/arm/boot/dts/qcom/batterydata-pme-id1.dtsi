@@ -1,8 +1,10 @@
-
+/* CONFIG_HTC_BATT_PCN0003++ */
 qcom,pme-id1-batterydata {
 	/* #2166231_HTC_B2PS6100_3000mAh_averaged_MasterSlave_Oct5th2015*/
 	qcom,max-voltage-uv = <4400000>;
+    /* CONFIG_HTC_BATT_PCN0001++ */
 	qcom,v-cutoff-uv = <3250000>;
+    /* CONFIG_HTC_BATT_PCN0001-- */
 	qcom,nom-batt-capacity-mah = <3000>;
 	qcom,batt-id-kohm = <10>;
 	qcom,battery-beta = <4360>;
@@ -51,3 +53,4 @@ qcom,pme-id1-batterydata {
 		 00 00 00 0C 
 	];
 };
+/* CONFIG_HTC_BATT_PCN0003-- */

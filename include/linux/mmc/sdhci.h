@@ -92,6 +92,8 @@ struct sdhci_host {
 #define SDHCI_QUIRK2_CAPS_BIT63_FOR_HS400		(1<<19)
 #define SDHCI_QUIRK2_USE_RESET_WORKAROUND		(1<<20)
 #define SDHCI_QUIRK2_BROKEN_LED_CONTROL			(1<<21)
+#define SDHCI_QUIRK2_NON_STANDARD_TUNING (1 << 22)
+#define SDHCI_QUIRK2_USE_PIO_FOR_EMMC_TUNING (1 << 23)
 
 	int irq;		
 	void __iomem *ioaddr;	
@@ -203,8 +205,6 @@ struct sdhci_host {
 	int reset_wa_applied; 
 	ktime_t reset_wa_t; 
 	int reset_wa_cnt; 
-
-	int slot_no;
 
 	unsigned long private[0] ____cacheline_aligned;
 };

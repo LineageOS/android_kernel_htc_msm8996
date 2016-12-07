@@ -2037,7 +2037,7 @@ void msm_hs_request_clock_off_brcmbt(struct uart_port *uport)
 	if (msm_uport->obs)
 		atomic_set(&msm_uport->client_req_state, 1);
 	msm_hs_resource_unvote(msm_uport);
-	pr_warn("%s: clk_count %d", __func__, atomic_read(&msm_uport->clk_count));
+	pr_warn("%s: clk_count %d\n", __func__, atomic_read(&msm_uport->clk_count));
 }
 EXPORT_SYMBOL(msm_hs_request_clock_off_brcmbt);
 

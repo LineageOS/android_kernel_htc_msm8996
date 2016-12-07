@@ -2429,7 +2429,14 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 		err = wldev_iovar_setbuf(ndev, "escan", params, params_size,
 			cfg->escan_ioctl_buf, WLC_IOCTL_MEDLEN, NULL);
+		
+		
+#if 0
 		WL_ERR(("LEGACY_SCAN sync ID: %d, bssidx: %d\n", params->sync_id, bssidx));
+#else
+		WL_ERR_HW_ONE(("LEGACY_SCAN sync ID: %d, bssidx: %d\n", params->sync_id, bssidx));
+#endif
+		
 		if (unlikely(err)) {
 			if (err == BCME_EPERM)
 				
@@ -4504,7 +4511,7 @@ wl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 		wl_clr_drv_status(cfg, CONNECTING, dev);
 		goto exit;
 	}
-	ext_join_params->ssid.SSID_len = min(sizeof(ext_join_params->ssid.SSID), sme->ssid_len);
+	ext_join_params->ssid.SSID_len = MIN(sizeof(ext_join_params->ssid.SSID), sme->ssid_len);
 	memcpy(&ext_join_params->ssid.SSID, sme->ssid, ext_join_params->ssid.SSID_len);
 	wl_update_prof(cfg, dev, NULL, &ext_join_params->ssid, WL_PROF_SSID);
 	ext_join_params->ssid.SSID_len = htod32(ext_join_params->ssid.SSID_len);
@@ -4579,7 +4586,7 @@ set_ssid:
 	memset(&join_params, 0, sizeof(join_params));
 	join_params_size = sizeof(join_params.ssid);
 
-	join_params.ssid.SSID_len = min(sizeof(join_params.ssid.SSID), sme->ssid_len);
+	join_params.ssid.SSID_len = MIN(sizeof(join_params.ssid.SSID), sme->ssid_len);
 	memcpy(&join_params.ssid.SSID, sme->ssid, join_params.ssid.SSID_len);
 	join_params.ssid.SSID_len = htod32(join_params.ssid.SSID_len);
 	wl_update_prof(cfg, dev, NULL, &join_params.ssid, WL_PROF_SSID);
@@ -4682,7 +4689,7 @@ wl_cfg80211_extra_disc()
 		wl_clr_drv_status(cfg, CONNECTED, ndev);
 		wl_set_drv_status(cfg, DISCONNECTING, ndev);
 		cfg80211_disconnected(ndev, WLAN_REASON_DEAUTH_LEAVING,
-			NULL, 0, GFP_KERNEL);
+			NULL, 0, false, GFP_KERNEL);
 		wl_link_down(cfg);
 		wl_init_prof(cfg, ndev);
 		wl_clr_drv_status(cfg, DISCONNECTING, ndev);
@@ -5389,7 +5396,7 @@ get_station_err:
 			
 			WL_ERR(("force cfg80211_disconnected: %d\n", err));
 			wl_clr_drv_status(cfg, CONNECTED, dev);
-			cfg80211_disconnected(dev, 0, NULL, 0, GFP_KERNEL);
+			cfg80211_disconnected(dev, 0, NULL, 0, false, GFP_KERNEL);
 			wl_link_down(cfg);
 		}
 #ifdef CUSTOMER_HW_ONE
@@ -7958,8 +7965,8 @@ wl_cfg80211_bcn_bringup_ap(
 		memset(&join_params, 0, sizeof(join_params));
 		
 		join_params_size = sizeof(join_params.ssid);
-		join_params.ssid.SSID_len = min(cfg->hostapd_ssid.SSID_len,
-			(uint32)DOT11_MAX_SSID_LEN);
+		join_params.ssid.SSID_len = MIN(cfg->hostapd_ssid.SSID_len,
+			DOT11_MAX_SSID_LEN);
 		memcpy(join_params.ssid.SSID, cfg->hostapd_ssid.SSID,
 			join_params.ssid.SSID_len);
 		join_params.ssid.SSID_len = htod32(join_params.ssid.SSID_len);
@@ -8913,8 +8920,8 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 		ssid = &request->match_sets[i].ssid;
 		
 		if (ssid->ssid_len) {
-			ssids_local[ssid_cnt].SSID_len = min(ssid->ssid_len,
-				(u8)DOT11_MAX_SSID_LEN);
+			ssids_local[ssid_cnt].SSID_len = MIN(ssid->ssid_len,
+				DOT11_MAX_SSID_LEN);
 			memcpy(ssids_local[ssid_cnt].SSID, ssid->ssid,
 				ssids_local[ssid_cnt].SSID_len);
 			if (is_ssid_in_list(ssid, hidden_ssid_list, request->n_ssids)) {
@@ -10011,7 +10018,7 @@ wl_notify_connect_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 		WL_DBG(("wl_notify_connect_status : event %d status : %d ndev %p\n",
 			ntoh32(e->event_type), ntoh32(e->status), ndev));
 #else
-		WL_ERR(("wl_notify_connect_status : event %d status : %d ndev %p\n",
+		WL_ERR_HW_ONE(("wl_notify_connect_status : event %d status : %d ndev %p\n",
 			ntoh32(e->event_type), ntoh32(e->status), ndev));
 #endif
 		
@@ -10130,6 +10137,12 @@ wl_notify_connect_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 					}
 				}
 				wl_clr_drv_status(cfg, CONNECTED, ndev);
+				
+				
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
+				cfg80211_disconnected(ndev, reason, NULL, 0, false, GFP_KERNEL);
+#endif 
+				
 				if (! wl_get_drv_status(cfg, DISCONNECTING, ndev)) {
 					scbval.val = WLAN_REASON_DEAUTH_LEAVING;
 
@@ -10141,7 +10154,7 @@ wl_notify_connect_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 						WL_ERR(("WLC_DISASSOC error %d\n", err));
 						err = 0;
 					}
-					cfg80211_disconnected(ndev, reason, NULL, 0, GFP_KERNEL);
+					cfg80211_disconnected(ndev, reason, NULL, 0, false, GFP_KERNEL);
 					wl_link_down(cfg);
 					wl_init_prof(cfg, ndev);
 					memset(&cfg->last_roamed_addr, 0, ETHER_ADDR_LEN);
@@ -10867,7 +10880,7 @@ wl_notify_pfn_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 #ifndef WL_SCHED_SCAN
 	mutex_lock(&cfg->usr_sync);
 	
-	cfg80211_disconnected(ndev, 0, NULL, 0, GFP_KERNEL);
+	cfg80211_disconnected(ndev, 0, NULL, 0, false, GFP_KERNEL);
 	mutex_unlock(&cfg->usr_sync);
 #else
 	wl_notify_sched_scan_results(cfg, ndev, e, data);
@@ -12388,7 +12401,14 @@ static s32 wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 			if (cfg->afx_hdl->peer_chan == WL_INVALID)
 				complete(&cfg->act_frm_scan);
 		} else if ((likely(cfg->scan_request)) || (cfg->sched_scan_running)) {
+			
+			
+#if 0
 			WL_ERR(("ESCAN COMPLETED\n"));
+#else
+			WL_ERR_HW_ONE(("ESCAN COMPLETED\n"));
+#endif
+			
 			cfg->bss_list = wl_escan_get_buf(cfg, FALSE);
 			if (!scan_req_match(cfg)) {
 				WL_ERR(("SCAN COMPLETED: scanned AP count=%d\n",
@@ -13175,7 +13195,14 @@ static s32 wl_event_handler(void *data)
 
 	cfg = (struct bcm_cfg80211 *)tsk->parent;
 
+	
+	
+#if 0
 	WL_ERR(("tsk Enter, tsk = 0x%p\n", tsk));
+#else
+	WL_ERR_HW_ONE(("tsk Enter, tsk = 0x%p\n", tsk));
+#endif
+	
 
 	while (down_interruptible (&tsk->sema) == 0) {
 		SMP_RD_BARRIER_DEPENDS();
@@ -14270,7 +14297,7 @@ int wl_cfg80211_hang(struct net_device *dev, u16 reason)
 	} else
 #endif 
 	{
-		cfg80211_disconnected(dev, reason, NULL, 0, GFP_KERNEL);
+		cfg80211_disconnected(dev, reason, NULL, 0, false, GFP_KERNEL);
 	}
 	if (cfg != NULL) {
 		wl_link_down(cfg);
@@ -16298,7 +16325,13 @@ wl_cfg80211_add_iw_ie(struct bcm_cfg80211 *cfg, struct net_device *ndev, s32 bss
 	}
 
 	if (cfg->iw_ie_len == data_len && !memcmp(cfg->iw_ie, data, data_len)) {
+		
+		
+#if 0
 		WL_ERR(("Previous IW IE is equals to current IE\n"));
+#else
+		WL_ERR_HW_ONE(("Previous IW IE is equals to current IE\n"));
+#endif
 		err = BCME_OK;
 		goto exit;
 	}
@@ -16397,7 +16430,7 @@ wl_set_band_disconnect(struct net_device *ndev)
 				return;
 			}
 			cfg80211_disconnected(ndev, WLAN_REASON_DEAUTH_LEAVING,
-				NULL, 0, GFP_KERNEL);
+				NULL, 0, false, GFP_KERNEL);
 			wl_link_down(cfg);
 			wl_init_prof(cfg, ndev);
 		}

@@ -29,8 +29,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef VL53L0_TYPES_H_
 #define VL53L0_TYPES_H_
 
-#include <linux/types.h>
 
+#include <linux/types.h>
 
 #ifndef NULL
 #error "Error NULL definition should be done. Please add required include "

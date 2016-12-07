@@ -73,7 +73,7 @@ struct pnp_cluster_info {
 static ssize_t _name##_show						\
 (struct kobject *kobj, struct kobj_attribute *attr, char *buf)		\
 {									\
-	return scnprintf(buf, sizeof(str_buf), "%s", str_buf);	\
+	return scnprintf(buf, sizeof(str_buf), "%s\n", str_buf);	\
 }
 
 #define define_string_store(_name, str_buf, store_cb)		\
@@ -92,7 +92,7 @@ static ssize_t _name##_store					\
 static ssize_t _name##_show					\
 (struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
 {								\
-	return sprintf(buf, "%d", int_val);			\
+	return sprintf(buf, "%d\n", int_val);			\
 }
 
 #define define_int_store(_name, int_val, store_cb)		\
@@ -115,6 +115,7 @@ extern void set_bcl_freq_limit(uint32_t freq_limit);
 
 static char activity_buf[MAX_BUF];
 static char non_activity_buf[MAX_BUF];
+static char profile_buf[MAX_BUF];
 static char media_mode_buf[MAX_BUF];
 static char virtual_display_buf[MAX_BUF];
 static char call_sync_buf[MAX_BUF];
@@ -137,6 +138,10 @@ power_attr(activity_trigger);
 define_string_show(non_activity_trigger, non_activity_buf);
 define_string_store(non_activity_trigger, non_activity_buf, null_cb);
 power_attr(non_activity_trigger);
+
+define_string_show(profile, profile_buf);
+define_string_store(profile, profile_buf, null_cb);
+power_attr(profile);
 
 define_string_show(media_mode, media_mode_buf);
 define_string_store(media_mode, media_mode_buf, null_cb);
@@ -1034,7 +1039,7 @@ thermal_freq_store(struct kobject *kobj, struct kobj_attribute *attr,
 	
 	if (sscanf(buf, "%d", &val) > 0) {
 		sscanf(kobj->name, "cpu%d", &cpu);
-		if (thermal_min_freq_limit_value  > 0 && val < thermal_min_freq_limit_value ){
+		if (thermal_min_freq_limit_value  > 0 && val < thermal_min_freq_limit_value ) {
 			pr_info("%s: set freq %d lower than min require. Set to %d\n", __func__, val, thermal_min_freq_limit_value);
 			val = thermal_min_freq_limit_value;
 		}
@@ -1147,6 +1152,7 @@ static struct attribute *thermal_g[] = {
 static struct attribute *apps_g[] = {
 	&activity_trigger_attr.attr,
 	&non_activity_trigger_attr.attr,
+	&profile_attr.attr,
 	&media_mode_attr.attr,
 	&app_timeout_attr.attr,
 	&call_sync_attr.attr,

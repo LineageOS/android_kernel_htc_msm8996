@@ -1,4 +1,6 @@
 &i2c_8 {
+	qcom,nack-as-normal = <0x28>;
+
 	nxp_pn544_nfc@28 {
 		compatible = "nxp,pn544-nfc";
 		reg = <0x28>;

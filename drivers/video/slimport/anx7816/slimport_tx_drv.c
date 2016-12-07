@@ -40,6 +40,7 @@ static unsigned char g_hdmi_dvi_status;
 static unsigned char g_need_clean_status;
 
 extern int external_block_en;
+static DEFINE_MUTEX(sp_state_lock);
 
 #ifdef ENABLE_READ_EDID
 unsigned char g_edid_break;
@@ -2485,6 +2486,16 @@ void hdcp_external_ctrl_flag_monitor(void)
 	}
 }
 
+void disable_sp_tx_audio_output(void)
+{
+	mutex_lock(&sp_state_lock);
+	if (sp_tx_system_state == STATE_PLAY_BACK) {
+		sp_tx_enable_audio_output(0);
+		sp_tx_system_state = STATE_AUDIO_OUTPUT;
+	}
+	mutex_unlock(&sp_state_lock);
+}
+
 void slimport_state_process(void)
 {
 
@@ -3019,11 +3030,13 @@ static void hdmi_rx_clk_det_int(void)
 	pr_info("%s %s : *HDMI_RX Interrupt: Pixel Clock Change.\n", LOG_TAG,
 		__func__);
 
+	mutex_lock(&sp_state_lock);
 	if (sp_tx_system_state > STATE_VIDEO_OUTPUT) {
 		sp_tx_video_mute(1);
 		sp_tx_enable_audio_output(0);
 		sp_tx_set_sys_state(STATE_VIDEO_OUTPUT);
 	}
+	mutex_unlock(&sp_state_lock);
 }
 
 static void hdmi_rx_sync_det_int(void)
@@ -3036,6 +3049,7 @@ static void hdmi_rx_hdmi_dvi_int(void)
 {
 	unchar c;
 	pr_info("%s %s : hdmi_rx_hdmi_dvi_int.\n", LOG_TAG, __func__);
+	mutex_lock(&sp_state_lock);
 	sp_read_reg(RX_P0, HDMI_STATUS, &c);
 	g_hdmi_dvi_status = read_dvi_hdmi_mode();
 
@@ -3046,6 +3060,7 @@ static void hdmi_rx_hdmi_dvi_int(void)
 		hdmi_rx_mute_audio(1);
 		system_state_change_with_case(STATE_LINK_TRAINING);
 	}
+	mutex_unlock(&sp_state_lock);
 }
 
 static void hdmi_rx_new_avi_int(void)

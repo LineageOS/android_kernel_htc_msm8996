@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -45,7 +45,7 @@ static int get_device_address(struct smem_client *smem_client,
 	struct context_bank_info *cb = NULL;
 
 	if (!iova || !buffer_size || !hndl || !smem_client || !mapping_info) {
-		dprintk(VIDC_ERR, "Invalid params: %p, %p, %p, %p\n",
+		dprintk(VIDC_ERR, "Invalid params: %pK, %pK, %pK, %pK\n",
 				smem_client, hndl, iova, buffer_size);
 		return -EINVAL;
 	}
@@ -67,7 +67,7 @@ static int get_device_address(struct smem_client *smem_client,
 			goto mem_map_failed;
 		}
 
-		/* Convert an Ion handle to a dma buf */
+		
 		buf = ion_share_dma_buf(clnt, hndl);
 		if (IS_ERR_OR_NULL(buf)) {
 			rc = PTR_ERR(buf) ?: -ENOMEM;
@@ -75,7 +75,7 @@ static int get_device_address(struct smem_client *smem_client,
 			goto mem_map_failed;
 		}
 
-		/* Prepare a dma buf for dma on the given device */
+		
 		attach = dma_buf_attach(buf, cb->dev);
 		if (IS_ERR_OR_NULL(attach)) {
 			rc = PTR_ERR(attach) ?: -ENOMEM;
@@ -83,7 +83,7 @@ static int get_device_address(struct smem_client *smem_client,
 			goto mem_buf_attach_failed;
 		}
 
-		/* Get the scatterlist for the given attachment */
+		
 		table = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
 		if (IS_ERR_OR_NULL(table)) {
 			rc = PTR_ERR(table) ?: -ENOMEM;
@@ -91,11 +91,11 @@ static int get_device_address(struct smem_client *smem_client,
 			goto mem_map_table_failed;
 		}
 
-		/* debug trace's need to be updated later */
+		
 		trace_msm_smem_buffer_iommu_op_start("MAP", 0, 0,
 			align, *iova, *buffer_size);
 
-		/* Map a scatterlist into an SMMU */
+		
 		rc = msm_dma_map_sg_lazy(cb->dev, table->sgl, table->nents,
 				DMA_BIDIRECTIONAL, buf);
 		if (rc != table->nents) {
@@ -107,7 +107,7 @@ static int get_device_address(struct smem_client *smem_client,
 		}
 		if (table->sgl) {
 			dprintk(VIDC_DBG,
-				"%s: CB : %s, DMA buf: %p, device: %p, attach: %p, table: %p, table sgl: %p, rc: %d, dma_address: %pa\n",
+				"%s: CB : %s, DMA buf: %pK, device: %pK, attach: %pK, table: %pK, table sgl: %pK, rc: %d, dma_address: %pa\n",
 				__func__, cb->name, buf, cb->dev, attach,
 				table, table->sgl, rc,
 				&table->sgl->dma_address);
@@ -137,7 +137,7 @@ static int get_device_address(struct smem_client *smem_client,
 		}
 	}
 
-	dprintk(VIDC_DBG, "mapped ion handle %p to %pa\n", hndl, iova);
+	dprintk(VIDC_DBG, "mapped ion handle %pK to %pa\n", hndl, iova);
 	return 0;
 mem_map_sg_failed:
 	dma_buf_unmap_attachment(attach, table, DMA_BIDIRECTIONAL);
@@ -157,7 +157,7 @@ static void put_device_address(struct smem_client *smem_client,
 	struct ion_client *clnt = NULL;
 
 	if (!hndl || !smem_client || !mapping_info) {
-		dprintk(VIDC_WARN, "Invalid params: %p, %p\n",
+		dprintk(VIDC_WARN, "Invalid params: %pK, %pK\n",
 				smem_client, hndl);
 		return;
 	}
@@ -175,7 +175,7 @@ static void put_device_address(struct smem_client *smem_client,
 	}
 	if (is_iommu_present(smem_client->res)) {
 		dprintk(VIDC_DBG,
-			"Calling dma_unmap_sg - device: %p, address: %pa, buf: %p, table: %p, attach: %p\n",
+			"Calling dma_unmap_sg - device: %pK, address: %pa, buf: %pK, table: %pK, attach: %pK\n",
 			mapping_info->dev,
 			&mapping_info->table->sgl->dma_address,
 			mapping_info->buf, mapping_info->table,
@@ -204,9 +204,9 @@ static int ion_user_to_kernel(struct smem_client *client, int fd, u32 offset,
 	unsigned long ion_flags = 0;
 
 	hndl = ion_import_dma_buf(client->clnt, fd);
-	dprintk(VIDC_DBG, "%s ion handle: %p\n", __func__, hndl);
+	dprintk(VIDC_DBG, "%s ion handle: %pK\n", __func__, hndl);
 	if (IS_ERR_OR_NULL(hndl)) {
-		dprintk(VIDC_ERR, "Failed to get handle: %p, %d, %d, %p\n",
+		dprintk(VIDC_ERR, "Failed to get handle: %pK, %d, %d, %pK\n",
 				client, fd, offset, hndl);
 		rc = -ENOMEM;
 		goto fail_import_fd;
@@ -242,7 +242,7 @@ static int ion_user_to_kernel(struct smem_client *client, int fd, u32 offset,
 		goto fail_device_address;
 	}
 	dprintk(VIDC_DBG,
-		"%s: ion_handle = %p, fd = %d, device_addr = %pa, size = %zx, kvaddr = %p, buffer_type = %d, flags = %#lx\n",
+		"%s: ion_handle = %pK, fd = %d, device_addr = %pa, size = %zx, kvaddr = %pK, buffer_type = %d, flags = %#lx\n",
 		__func__, mem->smem_priv, fd, &mem->device_addr, mem->size,
 		mem->kvaddr, mem->buffer_type, mem->flags);
 	return rc;
@@ -339,7 +339,7 @@ static int alloc_ion_mem(struct smem_client *client, size_t size, u32 align,
 	hndl = ion_alloc(client->clnt, size, align, heap_mask, ion_flags);
 	if (IS_ERR_OR_NULL(hndl)) {
 		dprintk(VIDC_ERR,
-		"Failed to allocate shared memory = %p, %zx, %d, %#x\n",
+		"Failed to allocate shared memory = %pK, %zx, %d, %#x\n",
 		client, size, align, flags);
 		rc = -ENOMEM;
 		goto fail_shared_mem_alloc;
@@ -377,7 +377,7 @@ static int alloc_ion_mem(struct smem_client *client, size_t size, u32 align,
 	}
 	mem->size = size;
 	dprintk(VIDC_DBG,
-		"%s: ion_handle = %p, device_addr = %pa, size = %#zx, kvaddr = %p, buffer_type = %#x, flags = %#lx\n",
+		"%s: ion_handle = %pK, device_addr = %pa, size = %#zx, kvaddr = %pK, buffer_type = %#x, flags = %#lx\n",
 		__func__, mem->smem_priv, &mem->device_addr,
 		mem->size, mem->kvaddr, mem->buffer_type, mem->flags);
 	return rc;
@@ -393,7 +393,7 @@ fail_shared_mem_alloc:
 static void free_ion_mem(struct smem_client *client, struct msm_smem *mem)
 {
 	dprintk(VIDC_DBG,
-		"%s: ion_handle = %p, device_addr = %pa, size = %#zx, kvaddr = %p, buffer_type = %#x\n",
+		"%s: ion_handle = %pK, device_addr = %pa, size = %#zx, kvaddr = %pK, buffer_type = %#x\n",
 		__func__, mem->smem_priv, &mem->device_addr,
 		mem->size, mem->kvaddr, mem->buffer_type);
 
@@ -408,7 +408,7 @@ static void free_ion_mem(struct smem_client *client, struct msm_smem *mem)
 				(u32)mem->buffer_type, -1, mem->size, -1,
 				mem->flags, -1);
 		dprintk(VIDC_DBG,
-			"%s: Freeing handle %p, client: %p\n",
+			"%s: Freeing handle %pK, client: %pK\n",
 			__func__, mem->smem_priv, client->clnt);
 		ion_free(client->clnt, mem->smem_priv);
 		trace_msm_smem_buffer_ion_op_end("FREE", (u32)mem->buffer_type,
@@ -462,6 +462,28 @@ struct msm_smem *msm_smem_user_to_kernel(void *clt, int fd, u32 offset,
 	return mem;
 }
 
+int8_t msm_smem_compare_buffers(void *clt, int fd, void *priv)
+{
+	struct smem_client *client = clt;
+	struct ion_handle *handle = NULL;
+	int8_t ret = 0;
+
+	if (!clt || !priv) {
+		dprintk(VIDC_ERR, "Invalid params: %pK, %pK\n",
+			clt, priv);
+		return false;
+	}
+	handle = ion_import_dma_buf(client->clnt, fd);
+	if (IS_ERR_OR_NULL(handle)) {
+                dprintk(VIDC_ERR, "Failed to get ion handle: %p for fd: %d clnt: %p\n",
+                                handle, fd, priv);
+                return -EBADF;
+        }
+	ret = handle == priv;
+	handle ? ion_free(client->clnt, handle) : 0;
+	return ret;
+}
+
 static int ion_cache_operations(struct smem_client *client,
 	struct msm_smem *mem, enum smem_cache_ops cache_op)
 {
@@ -469,7 +491,7 @@ static int ion_cache_operations(struct smem_client *client,
 	int rc = 0;
 	int msm_cache_ops = 0;
 	if (!mem || !client) {
-		dprintk(VIDC_ERR, "Invalid params: %p, %p\n",
+		dprintk(VIDC_ERR, "Invalid params: %pK, %pK\n",
 			mem, client);
 		return -EINVAL;
 	}
@@ -516,7 +538,7 @@ int msm_smem_cache_operations(void *clt, struct msm_smem *mem,
 	struct smem_client *client = clt;
 	int rc = 0;
 	if (!client) {
-		dprintk(VIDC_ERR, "Invalid params: %p\n",
+		dprintk(VIDC_ERR, "Invalid params: %pK\n",
 			client);
 		return -EINVAL;
 	}
@@ -649,12 +671,6 @@ struct context_bank_info *msm_smem_get_context_bank(void *clt,
 		return NULL;
 	}
 
-	/*
-	 * HAL_BUFFER_INPUT is directly mapped to bitstream CB in DT
-	 * as the buffer type structure was initially designed
-	 * just for decoder. For Encoder, input should be mapped to
-	 * pixel CB. So swap the buffer types just in this local scope.
-	 */
 	if (is_secure && client->session_type == MSM_VIDC_ENCODER) {
 		if (buffer_type == HAL_BUFFER_INPUT)
 			buffer_type = HAL_BUFFER_OUTPUT;
@@ -667,7 +683,7 @@ struct context_bank_info *msm_smem_get_context_bank(void *clt,
 				cb->buffer_type & buffer_type) {
 			match = cb;
 			dprintk(VIDC_DBG,
-				"context bank found for CB : %s, device: %p mapping: %p\n",
+				"context bank found for CB : %s, device: %pK mapping: %pK\n",
 				match->name, match->dev, match->mapping);
 			break;
 		}

@@ -10,4 +10,12 @@
 # * I/O expander drivers go to drivers/gpio
 #
 
-obj-$(CONFIG_LASER_STMVL53L0_SUPPORT)   += stmvl53l0.o vl53l0_api.o vl53l0_platform.o vl53l0_i2c.o
+obj-$(CONFIG_LASER_STMVL53L0_SUPPORT)   += stmvl53l0.o \
+					   vl53l0_api.o \
+					   vl53l0_api_calibration.o \
+					   vl53l0_api_core.o \
+					   vl53l0_api_histogram.o \
+					   vl53l0_api_ranging.o \
+					   vl53l0_api_strings.o \
+					   vl53l0_i2c.o \
+					   vl53l0_platform.o \

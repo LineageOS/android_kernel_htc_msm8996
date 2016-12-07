@@ -22,7 +22,7 @@
 struct keyled_platform_data {
 	uint32_t key_down_delay;
 	uint32_t *keys_up;
-	uint32_t *keys_down; 
+	uint32_t *keys_down; /* 0 terminated */
 };
 
-#endif 
+#endif /* _LINUX_KEYLED_H */

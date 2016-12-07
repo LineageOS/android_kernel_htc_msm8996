@@ -73,5 +73,5 @@ obj-$(CONFIG_RT_REGMAP) += rt-regmap.o
 #HTC_AUD_END
 obj-$(CONFIG_USB_EXT_TYPE_C_PERICOM)	+= type-c-pericom.o
 obj-$(CONFIG_USB_EXT_TYPE_C_TI)		+= type-c-ti.o
-
 obj-$(CONFIG_HTC_FLASHLIGHT) += htc_flashlight.o
+obj-$(CONFIG_QPNP_MISC) 	+= qpnp-misc.o

@@ -2641,7 +2641,10 @@ alloc_pkt_id:
 
 	
 	if (alloced > 0) {
+		unsigned long flags1;
+		DHD_GENERAL_LOCK(dhd, flags1);
 		dhd_prot_ring_write_complete(dhd, ring, msg_start, alloced);
+		DHD_GENERAL_UNLOCK(dhd, flags1);
 	}
 
 	return alloced;
@@ -3333,7 +3336,7 @@ dhd_prot_txstatus_process(dhd_pub_t *dhd, void *msg)
 	}
 
 	
-#if defined(TX_STUCK_DETECTION) && defined(CUSTOMER_HW_ONE)
+#if CUSTOMER_HW_ONE
 	dhd->new_tx_completed_count++;
 #endif 
 	
@@ -4181,7 +4184,7 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
-	if (dhd->dongle_reset) {
+	if (dhd_query_bus_erros(dhd)) {
 		ret = -EIO;
 		goto out;
 	}
@@ -4196,7 +4199,8 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 	if (timeleft == 0) {
 		dhd->rxcnt_timeout++;
 		dhd->rx_ctlerrs++;
-
+		DHD_ERROR(("%s: iovar_timeout_occured Set TRUE\n", __func__));
+		dhd->iovar_timeout_occured = TRUE;
 #if defined(DHD_FW_COREDUMP)
 		
 		
@@ -4407,6 +4411,10 @@ dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx
 	unsigned long flags;
 	uint16 alloced = 0;
 	msgbuf_ring_t *ring = &prot->h2dring_ctrl_subn;
+
+	if (dhd_query_bus_erros(dhd)) {
+		return -EIO;
+	}
 
 	rqstlen = len;
 	resplen = len;

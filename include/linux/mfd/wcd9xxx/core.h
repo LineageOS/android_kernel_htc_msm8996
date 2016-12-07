@@ -68,6 +68,8 @@ enum codec_variant {
 	WCD9330,
 	WCD9335,
 	WCD9326,
+	WCD9302,
+	WCD9306,
 };
 
 enum {
@@ -243,6 +245,7 @@ struct wcd9xxx {
 	u8 version;
 
 	int reset_gpio;
+	struct device_node *wcd_rst_np;
 
 	int (*read_dev)(struct wcd9xxx *wcd9xxx, unsigned short reg,
 			int bytes, void *dest, bool interface_reg);

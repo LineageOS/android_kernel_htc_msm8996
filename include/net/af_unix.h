@@ -28,12 +28,12 @@ struct unix_address {
 };
 
 struct unix_skb_parms {
-	struct pid		*pid;		
+	struct pid		*pid;		/* Skb credentials	*/
 	kuid_t			uid;
 	kgid_t			gid;
-	struct scm_fp_list	*fp;		
+	struct scm_fp_list	*fp;		/* Passed files		*/
 #ifdef CONFIG_SECURITY_NETWORK
-	u32			secid;		
+	u32			secid;		/* Security ID		*/
 #endif
 	u32			consumed;
 };
@@ -47,8 +47,9 @@ struct unix_skb_parms {
 				spin_lock_nested(&unix_sk(s)->lock, \
 				SINGLE_DEPTH_NESTING)
 
+/* The AF_UNIX socket */
 struct unix_sock {
-	
+	/* WARNING: sk has to be the first member */
 	struct sock		sk;
 	struct unix_address     *addr;
 	struct path		path;
@@ -64,7 +65,11 @@ struct unix_sock {
 	struct socket_wq	peer_wq;
 	wait_queue_t		peer_wake;
 };
-#define unix_sk(__sk) ((struct unix_sock *)__sk)
+
+static inline struct unix_sock *unix_sk(struct sock *sk)
+{
+	return (struct unix_sock *)sk;
+}
 
 #define peer_wait peer_wq.wait
 

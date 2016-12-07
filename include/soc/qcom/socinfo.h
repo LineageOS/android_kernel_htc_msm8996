@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,6 +22,12 @@
 #include <linux/of.h>
 
 #include <asm/cputype.h>
+/*
+ * SOC version type with major number in the upper 16 bits and minor
+ * number in the lower 16 bits.  For example:
+ *   1.0 -> 0x00010000
+ *   2.3 -> 0x00020003
+ */
 #define SOCINFO_VERSION_MAJOR(ver) (((ver) & 0xffff0000) >> 16)
 #define SOCINFO_VERSION_MINOR(ver) ((ver) & 0x0000ffff)
 #define SOCINFO_VERSION(maj, min)  ((((maj) & 0xffff) << 16)|((min) & 0xffff))
@@ -55,8 +61,12 @@
 	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8909")
 #define early_machine_is_msm8916()	\
 	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8916")
-#define early_machine_is_msmgold()	\
-	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msmgold")
+#define early_machine_is_msm8917()	\
+	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8917")
+#define early_machine_is_msm8920()	\
+	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8920")
+#define early_machine_is_msm8940()	\
+	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8940")
 #define early_machine_is_msm8936()	\
 	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8936")
 #define early_machine_is_msm8939()	\
@@ -81,8 +91,8 @@
 	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8976")
 #define early_machine_is_msm8952()	\
 	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8952")
-#define early_machine_is_msmtitanium()	\
-	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msmtitanium")
+#define early_machine_is_msm8953()	\
+	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8953")
 #define early_machine_is_msm8937()	\
 	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msm8937")
 #define early_machine_is_msm8996()	\
@@ -116,7 +126,9 @@
 #define early_machine_is_msm8610()	0
 #define early_machine_is_msm8909()	0
 #define early_machine_is_msm8916()	0
-#define early_machine_is_msmgold()	0
+#define early_machine_is_msm8917()	0
+#define early_machine_is_msm8920()	0
+#define early_machine_is_msm8940()	0
 #define early_machine_is_msm8936()	0
 #define early_machine_is_msm8939()	0
 #define early_machine_is_apq8084()	0
@@ -124,7 +136,7 @@
 #define early_machine_is_fsm9900()	0
 #define early_machine_is_fsm9010()	0
 #define early_machine_is_msm8952()	0
-#define early_machine_is_msmtitanium()	0
+#define early_machine_is_msm8953()	0
 #define early_machine_is_msm8937()	0
 #define early_machine_is_msm8996()	0
 #define early_machine_is_msm8976() 0
@@ -172,7 +184,9 @@ enum msm_cpu {
 	MSM_CPU_9625,
 	MSM_CPU_8909,
 	MSM_CPU_8916,
-	MSM_CPU_GOLD,
+	MSM_CPU_8917,
+	MSM_CPU_8920,
+	MSM_CPU_8940,
 	MSM_CPU_8936,
 	MSM_CPU_8939,
 	MSM_CPU_8226,
@@ -186,7 +200,7 @@ enum msm_cpu {
 	MSM_CPU_8992,
 	FSM_CPU_9010,
 	MSM_CPU_8952,
-	MSM_CPU_TITANIUM,
+	MSM_CPU_8953,
 	MSM_CPU_8937,
 	MSM_CPU_8996,
 	MSM_CPU_8976,
@@ -226,6 +240,7 @@ char *socinfo_get_build_id(void);
 uint32_t socinfo_get_platform_type(void);
 uint32_t socinfo_get_platform_subtype(void);
 uint32_t socinfo_get_platform_version(void);
+uint32_t socinfo_get_serial_number(void);
 enum pmic_model socinfo_get_pmic_model(void);
 uint32_t socinfo_get_pmic_die_revision(void);
 int __init socinfo_init(void) __must_check;

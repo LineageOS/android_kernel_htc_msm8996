@@ -103,6 +103,8 @@ typedef void (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 #define FMODE_CAN_READ          ((__force fmode_t)0x20000)
 #define FMODE_CAN_WRITE         ((__force fmode_t)0x40000)
 
+#define FMODE_NONMAPPABLE       ((__force fmode_t)0x400000)
+
 #define FMODE_NONOTIFY		((__force fmode_t)0x1000000)
 
 #define CHECK_IOVEC_ONLY -1
@@ -586,6 +588,10 @@ struct file {
 	struct list_head	f_tfile_llink;
 #endif 
 	struct address_space	*f_mapping;
+
+#ifdef CONFIG_FILE_TABLE_DEBUG
+	struct hlist_node f_hash;
+#endif 
 } __attribute__((aligned(4)));	
 
 struct file_handle {
@@ -1121,6 +1127,8 @@ struct file_operations {
 	long (*fallocate)(struct file *file, int mode, loff_t offset,
 			  loff_t len);
 	int (*show_fdinfo)(struct seq_file *m, struct file *f);
+	
+	struct file* (*get_lower_file)(struct file *f);
 };
 
 struct inode_operations {
@@ -1159,7 +1167,6 @@ struct inode_operations {
 	int (*set_acl)(struct inode *, struct posix_acl *, int);
 
 	
-	int (*dentry_open)(struct dentry *, struct file *, const struct cred *);
 } ____cacheline_aligned;
 
 ssize_t rw_copy_check_uvector(int type, const struct iovec __user * uvector,
@@ -1625,8 +1632,7 @@ extern long do_sys_open(int dfd, const char __user *filename, int flags,
 extern struct file *file_open_name(struct filename *, int, umode_t);
 extern struct file *filp_open(const char *, int, umode_t);
 extern struct file *file_open_root(struct dentry *, struct vfsmount *,
-				   const char *, int);
-extern int vfs_open(const struct path *, struct file *, const struct cred *);
+				   const char *, int, umode_t);
 extern struct file * dentry_open(const struct path *, int, const struct cred *);
 extern int filp_close(struct file *, fl_owner_t id);
 

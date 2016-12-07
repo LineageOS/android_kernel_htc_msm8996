@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License version 2 and
@@ -63,6 +63,8 @@ struct adm_cmd_matrix_map_routings_v5 {
 
 #define ADM_CMD_DEVICE_OPEN_V5                          0x00010326
 
+#define ADM_CMD_DEVICE_OPEN_V6                      0x00010356
+
 #define ADM_LOW_LATENCY_DEVICE_SESSION			0x2000
 
 #define ADM_ULTRA_LOW_LATENCY_DEVICE_SESSION		0x4000
@@ -125,6 +127,35 @@ struct adm_cmd_device_open_v5 {
 	u32                  sample_rate;
 
 	u8                   dev_channel_mapping[8];
+} __packed;
+
+struct adm_cmd_device_open_v6 {
+	struct apr_hdr		hdr;
+	u16                  flags;
+
+	u16                  mode_of_operation;
+
+	u16                  endpoint_id_1;
+
+	u16                  endpoint_id_2;
+
+	u32                  topology_id;
+
+	u16                  dev_num_channel;
+
+	u16                  bit_width;
+
+	u32                  sample_rate;
+
+	u8                   dev_channel_mapping[8];
+
+	u16                  dev_num_channel_eid2;
+
+	u16                  bit_width_eid2;
+
+	u32                  sample_rate_eid2;
+
+	u8                   dev_channel_mapping_eid2[8];
 } __packed;
 
 #define ADM_CMD_DEVICE_CLOSE_V5                         0x00010327
@@ -203,6 +234,9 @@ struct adm_cmd_rsp_device_open_v5 {
 	u16                  reserved;
 	
 } __packed;
+
+#define ADM_CMDRSP_DEVICE_OPEN_V6                      0x00010357
+
 
 #define ADM_CMD_GET_PP_PARAMS_V5                                0x0001032A
 
@@ -1744,6 +1778,8 @@ struct asm_softvolume_params {
 
 #define ASM_MEDIA_FMT_MULTI_CHANNEL_PCM_V2 0x00010DA5
 
+#define ASM_MEDIA_FMT_MULTI_CHANNEL_PCM_V3 0x00010DDC
+
 #define ASM_MEDIA_FMT_EVRCB_FS 0x00010BEF
 
 #define ASM_MEDIA_FMT_EVRCWB_FS 0x00010BF0
@@ -1777,6 +1813,26 @@ struct asm_multi_channel_pcm_fmt_blk_v2 {
 	u8   channel_mapping[8];
 } __packed;
 
+struct asm_multi_channel_pcm_fmt_blk_v3 {
+	uint16_t                num_channels;
+
+	uint16_t                bits_per_sample;
+
+	uint32_t                sample_rate;
+
+	uint16_t                is_signed;
+
+	uint16_t                sample_word_size;
+
+	uint8_t                 channel_mapping[8];
+} __packed;
+
+struct asm_multi_channel_pcm_fmt_blk_param_v3 {
+	struct apr_hdr hdr;
+	struct asm_data_cmd_media_fmt_update_v2 fmt_blk;
+	struct asm_multi_channel_pcm_fmt_blk_v3 param;
+} __packed;
+
 struct asm_stream_cmd_set_encdec_param {
 	u32                  param_id;
 	
@@ -1797,6 +1853,20 @@ struct asm_dec_ddp_endp_param_v2 {
 	struct asm_stream_cmd_set_encdec_param  encdec;
 	int endp_param_value;
 } __packed;
+
+
+
+struct asm_multi_channel_pcm_enc_cfg_v3 {
+	struct apr_hdr hdr;
+	struct asm_stream_cmd_set_encdec_param encdec;
+	struct asm_enc_cfg_blk_param_v2 encblk;
+	uint16_t num_channels;
+	uint16_t  bits_per_sample;
+	uint32_t  sample_rate;
+	uint16_t  is_signed;
+	uint16_t    sample_word_size;
+	uint8_t   channel_mapping[8];
+};
 
 
 struct asm_multi_channel_pcm_enc_cfg_v2 {
@@ -1862,6 +1932,18 @@ struct asm_aac_enc_cfg_v2 {
 	u32          enc_mode;
 	u16          aac_fmt_flag;
 	u16          channel_cfg;
+
+	u32          sample_rate;
+
+} __packed;
+
+#define ASM_MEDIA_FMT_G711_ALAW_FS 0x00010BF7
+#define ASM_MEDIA_FMT_G711_MLAW_FS 0x00010C2E
+
+struct asm_g711_enc_cfg_v2 {
+	struct apr_hdr hdr;
+	struct asm_stream_cmd_set_encdec_param encdec;
+	struct asm_enc_cfg_blk_param_v2 encblk;
 
 	u32          sample_rate;
 
@@ -2447,6 +2529,59 @@ struct asm_stream_cmd_open_write_v3 {
 	uint32_t                    dec_fmt_id;
 } __packed;
 
+#define ASM_STREAM_CMD_OPEN_PULL_MODE_WRITE    0x00010DD9
+
+#define ASM_BIT_MASK_STREAM_PERF_FLAG_PULL_MODE_WRITE 0xE0000000UL
+
+#define ASM_SHIFT_STREAM_PERF_FLAG_PULL_MODE_WRITE 29
+
+#define ASM_STREAM_CMD_OPEN_PUSH_MODE_READ  0x00010DDA
+
+#define ASM_BIT_MASK_STREAM_PERF_FLAG_PUSH_MODE_READ 0xE0000000UL
+
+#define ASM_SHIFT_STREAM_PERF_FLAG_PUSH_MODE_READ 29
+
+#define ASM_DATA_EVENT_WATERMARK 0x00010DDB
+
+struct asm_shared_position_buffer {
+	volatile uint32_t               frame_counter;
+
+	volatile uint32_t               index;
+
+	volatile uint32_t               wall_clock_us_lsw;
+
+	volatile uint32_t               wall_clock_us_msw;
+} __packed;
+
+struct asm_shared_watermark_level {
+	uint32_t                watermark_level_bytes;
+} __packed;
+
+struct asm_stream_cmd_open_shared_io {
+	struct apr_hdr          hdr;
+	uint32_t                mode_flags;
+	uint16_t                endpoint_type;
+	uint16_t                topo_bits_per_sample;
+	uint32_t                topo_id;
+	uint32_t                fmt_id;
+	uint32_t                shared_pos_buf_phy_addr_lsw;
+	uint32_t                shared_pos_buf_phy_addr_msw;
+	uint16_t                shared_pos_buf_mem_pool_id;
+	uint16_t                shared_pos_buf_num_regions;
+	uint32_t                shared_pos_buf_property_flag;
+	uint32_t                shared_circ_buf_start_phy_addr_lsw;
+	uint32_t                shared_circ_buf_start_phy_addr_msw;
+	uint32_t                shared_circ_buf_size;
+	uint16_t                shared_circ_buf_mem_pool_id;
+	uint16_t                shared_circ_buf_num_regions;
+	uint32_t                shared_circ_buf_property_flag;
+	uint32_t                num_watermark_levels;
+	struct asm_multi_channel_pcm_fmt_blk_v3         fmt;
+	struct avs_shared_map_region_payload            map_region_pos_buf;
+	struct avs_shared_map_region_payload            map_region_circ_buf;
+	struct asm_shared_watermark_level watermark[0];
+} __packed;
+
 #define ASM_STREAM_CMD_OPEN_READ_V3                 0x00010DB4
 
 #define ASM_BIT_MASKIMESTAMPYPE_FLAG        (0x00000020UL)
@@ -2512,6 +2647,44 @@ struct asm_stream_cmd_open_loopback_v2 {
 	u16                    bits_per_sample;
 	u16                    reserved;
 } __packed;
+
+
+#define ASM_STREAM_CMD_OPEN_TRANSCODE_LOOPBACK    0x00010DBA
+
+#define ASM_BIT_MASK_STREAM_PERF_MODE_FLAG_IN_OPEN_TRANSCODE_LOOPBACK \
+	(0x70000000UL)
+
+#define ASM_SHIFT_STREAM_PERF_MODE_FLAG_IN_OPEN_TRANSCODE_LOOPBACK    28
+
+#define ASM_BIT_MASK_DECODER_CONVERTER_FLAG    (0x00000078UL)
+
+#define ASM_SHIFT_DECODER_CONVERTER_FLAG                              3
+
+#define ASM_CONVERTER_MODE_NONE                                       0
+
+#define ASM_DDP_DD_CONVERTER_MODE                                     1
+
+#define ASM_POST_PROCESS_CONVERTER_MODE                               2
+
+
+struct asm_stream_cmd_open_transcode_loopback_t {
+	struct apr_hdr         hdr;
+	u32                    mode_flags;
+
+	u32                    src_format_id;
+	u32                    sink_format_id;
+
+	u32                    audproc_topo_id;
+
+	u16                    src_endpoint_type;
+
+	u16                    sink_endpoint_type;
+
+	u16                    bits_per_sample;
+
+	u16                    reserved;
+} __packed;
+
 
 #define ASM_STREAM_CMD_CLOSE             0x00010BCD
 #define ASM_STREAM_CMD_FLUSH             0x00010BCE
@@ -2915,6 +3088,12 @@ struct admx_mic_gain {
 
 	uint16_t                  reserved;
 	
+} __packed;
+
+struct adm_set_mic_gain_params {
+	struct adm_cmd_set_pp_params_v5 params;
+	struct adm_param_data_v5 data;
+	struct admx_mic_gain mic_gain_data;
 } __packed;
 
 
@@ -3542,11 +3721,93 @@ struct asm_mode_vi_proc_cfg {
 	uint32_t cal_mode;
 } __packed;
 
+#define AFE_MODULE_SPEAKER_PROTECTION_V2_TH_VI	0x0001026A
+#define AFE_PARAM_ID_SP_V2_TH_VI_MODE_CFG	0x0001026B
+#define AFE_PARAM_ID_SP_V2_TH_VI_FTM_CFG	0x0001029F
+#define AFE_PARAM_ID_SP_V2_TH_VI_FTM_PARAMS	0x000102A0
+
+struct afe_sp_th_vi_mode_cfg {
+	uint32_t minor_version;
+	uint32_t operation_mode;
+	uint32_t r0t0_selection_flag[SP_V2_NUM_MAX_SPKR];
+	int32_t r0_cali_q24[SP_V2_NUM_MAX_SPKR];
+	int16_t t0_cali_q6[SP_V2_NUM_MAX_SPKR];
+	uint32_t quick_calib_flag;
+} __packed;
+
+struct afe_sp_th_vi_ftm_cfg {
+	uint32_t minor_version;
+	uint32_t wait_time_ms[SP_V2_NUM_MAX_SPKR];
+	uint32_t ftm_time_ms[SP_V2_NUM_MAX_SPKR];
+} __packed;
+
+struct afe_sp_th_vi_ftm_params {
+	uint32_t minor_version;
+	int32_t dc_res_q24[SP_V2_NUM_MAX_SPKR];
+	int32_t temp_q22[SP_V2_NUM_MAX_SPKR];
+	uint32_t status[SP_V2_NUM_MAX_SPKR];
+} __packed;
+
+struct afe_sp_th_vi_get_param {
+	struct apr_hdr hdr;
+	struct afe_port_cmd_get_param_v2 get_param;
+	struct afe_port_param_data_v2 pdata;
+	struct afe_sp_th_vi_ftm_params param;
+} __packed;
+
+struct afe_sp_th_vi_get_param_resp {
+	uint32_t status;
+	struct afe_port_param_data_v2 pdata;
+	struct afe_sp_th_vi_ftm_params param;
+} __packed;
+
+
+#define AFE_MODULE_SPEAKER_PROTECTION_V2_EX_VI	0x0001026F
+#define AFE_PARAM_ID_SP_V2_EX_VI_MODE_CFG	0x000102A1
+#define AFE_PARAM_ID_SP_V2_EX_VI_FTM_CFG	0x000102A2
+#define AFE_PARAM_ID_SP_V2_EX_VI_FTM_PARAMS	0x000102A3
+
+struct afe_sp_ex_vi_mode_cfg {
+	uint32_t minor_version;
+	uint32_t operation_mode;
+} __packed;
+
+struct afe_sp_ex_vi_ftm_cfg {
+	uint32_t minor_version;
+	uint32_t wait_time_ms[SP_V2_NUM_MAX_SPKR];
+	uint32_t ftm_time_ms[SP_V2_NUM_MAX_SPKR];
+} __packed;
+
+struct afe_sp_ex_vi_ftm_params {
+	uint32_t minor_version;
+	int32_t freq_q20[SP_V2_NUM_MAX_SPKR];
+	int32_t resis_q24[SP_V2_NUM_MAX_SPKR];
+	int32_t qmct_q24[SP_V2_NUM_MAX_SPKR];
+	uint32_t status[SP_V2_NUM_MAX_SPKR];
+} __packed;
+
+struct afe_sp_ex_vi_get_param {
+	struct apr_hdr hdr;
+	struct afe_port_cmd_get_param_v2 get_param;
+	struct afe_port_param_data_v2 pdata;
+	struct afe_sp_ex_vi_ftm_params param;
+} __packed;
+
+struct afe_sp_ex_vi_get_param_resp {
+	uint32_t status;
+	struct afe_port_param_data_v2 pdata;
+	struct afe_sp_ex_vi_ftm_params param;
+} __packed;
+
 union afe_spkr_prot_config {
 	struct asm_fbsp_mode_rx_cfg mode_rx_cfg;
 	struct asm_spkr_calib_vi_proc_cfg vi_proc_cfg;
 	struct asm_feedback_path_cfg feedback_path_cfg;
 	struct asm_mode_vi_proc_cfg mode_vi_proc_cfg;
+	struct afe_sp_th_vi_mode_cfg th_vi_mode_cfg;
+	struct afe_sp_th_vi_ftm_cfg th_vi_ftm_cfg;
+	struct afe_sp_ex_vi_mode_cfg ex_vi_mode_cfg;
+	struct afe_sp_ex_vi_ftm_cfg ex_vi_ftm_cfg;
 } __packed;
 
 struct afe_spkr_prot_config_command {
@@ -3852,8 +4113,10 @@ struct afe_param_id_clip_bank_sel {
 #define Q6AFE_LPASS_IBIT_CLK_6_P144_MHZ		0x5DC000
 #define Q6AFE_LPASS_IBIT_CLK_4_P096_MHZ		0x3E8000
 #define Q6AFE_LPASS_IBIT_CLK_3_P072_MHZ		0x2EE000
+#define Q6AFE_LPASS_IBIT_CLK_2_P8224_MHZ		0x2b1100
 #define Q6AFE_LPASS_IBIT_CLK_2_P048_MHZ		0x1F4000
 #define Q6AFE_LPASS_IBIT_CLK_1_P536_MHZ		0x177000
+#define Q6AFE_LPASS_IBIT_CLK_1_P4112_MHZ		0x158880
 #define Q6AFE_LPASS_IBIT_CLK_1_P024_MHZ		 0xFA000
 #define Q6AFE_LPASS_IBIT_CLK_768_KHZ		 0xBB800
 #define Q6AFE_LPASS_IBIT_CLK_512_KHZ		 0x7D000

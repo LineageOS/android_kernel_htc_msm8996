@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,6 +38,7 @@
 #define WCD9335_DMIC_CLK_DIV_6  0x3
 #define WCD9335_DMIC_CLK_DIV_8  0x4
 #define WCD9335_DMIC_CLK_DIV_16  0x5
+#define WCD9335_DMIC_CLK_DRIVE_DEFAULT 0x02
 
 #define WCD9335_ANC_DMIC_X2_FULL_RATE 1
 #define WCD9335_ANC_DMIC_X2_HALF_RATE 0
@@ -83,6 +84,16 @@ enum wcd9335_codec_event {
 	WCD9335_CODEC_EVENT_CODEC_UP = 0,
 };
 
+enum tasha_on_demand_supply {
+	ON_DEMAND_MICBIAS = 0,
+	ON_DEMAND_SUPPLIES_MAX,
+};
+
+struct on_demand_supply {
+	struct regulator *supply;
+	int ondemand_supply_count;
+};
+
 struct tasha_codec_dai_data {
 	u32 rate;
 	u32 *ch_num;
@@ -110,6 +121,8 @@ extern void *tasha_get_afe_config(struct snd_soc_codec *codec,
 				  enum afe_config_type config_type);
 extern int tasha_cdc_mclk_enable(struct snd_soc_codec *codec, int enable,
 				 bool dapm);
+extern int tasha_cdc_mclk_tx_enable(struct snd_soc_codec *codec, int enable,
+				    bool dapm);
 extern int tasha_enable_efuse_sensing(struct snd_soc_codec *codec);
 extern int tasha_mbhc_hs_detect(struct snd_soc_codec *codec,
 				struct wcd_mbhc_config *mbhc_cfg);

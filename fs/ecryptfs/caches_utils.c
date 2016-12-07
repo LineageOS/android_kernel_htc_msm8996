@@ -61,10 +61,6 @@ void clean_inode_pages(struct address_space *mapping,
 		for (i = 0; i < pagevec_count(&pvec); i++) {
 			struct page *page = pvec.pages[i];
 
-			/**
-			 * We rely upon deletion
-			 * not changing page->index
-			 */
 			index = page->index;
 			if (index > end)
 				break;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,12 +21,18 @@
 #include <linux/slab.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/mmc/sdio_ids.h>
+#include <linux/mmc/card.h>
+#include <linux/mmc/host.h>
 #include <linux/io.h>
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/subsystem_notif.h>
 #include <soc/qcom/ramdump.h>
 #include <soc/qcom/memory_dump.h>
 #include <net/cnss.h>
+#include "cnss_common.h"
+#include <linux/pm_qos.h>
+#include <linux/msm-bus.h>
+#include <linux/msm-bus-board.h>
 
 #define WLAN_VREG_NAME		"vdd-wlan"
 #define WLAN_VREG_DSRC_NAME	"vdd-wlan-dsrc"
@@ -39,15 +45,12 @@
 #define WLAN_VREG_XTAL_MIN	1800000
 #define POWER_ON_DELAY		4
 
-struct cnss_unsafe_channel_list {
-	u16 unsafe_ch_count;
-	u16 unsafe_ch_list[CNSS_MAX_CH_NUM];
-};
-
-struct cnss_dfs_nol_info {
-	void *dfs_nol_info;
-	u16 dfs_nol_info_len;
-};
+/* Values for Dynamic Ramdump Collection*/
+#define CNSS_DUMP_FORMAT_VER	0x11
+#define CNSS_DUMP_MAGIC_VER_V2	0x42445953
+#define CNSS_DUMP_NAME		"CNSS_WLAN_SDIO"
+#define CNSS_PINCTRL_SLEEP_STATE	"sleep"
+#define CNSS_PINCTRL_ACTIVE_STATE	"active"
 
 struct cnss_sdio_regulator {
 	struct regulator *wlan_io;
@@ -59,7 +62,11 @@ struct cnss_sdio_regulator {
 struct cnss_sdio_info {
 	struct cnss_sdio_wlan_driver *wdrv;
 	struct sdio_func *func;
+	struct mmc_card *card;
+	struct mmc_host *host;
+	struct device *dev;
 	const struct sdio_device_id *id;
+	bool skip_wlan_en_toggle;
 };
 
 struct cnss_ssr_info {
@@ -70,16 +77,32 @@ struct cnss_ssr_info {
 	unsigned long ramdump_size;
 	void *ramdump_addr;
 	phys_addr_t ramdump_phys;
+	struct msm_dump_data dump_data;
+	bool ramdump_dynamic;
 	char subsys_name[10];
+};
+
+struct cnss_wlan_pinctrl_info {
+	bool is_antenna_shared;
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *sleep;
+	struct pinctrl_state *active;
+};
+
+struct cnss_sdio_bus_bandwidth {
+	struct msm_bus_scale_pdata *bus_scale_table;
+	uint32_t bus_client;
+	int current_bandwidth_vote;
 };
 
 static struct cnss_sdio_data {
 	struct cnss_sdio_regulator regulator;
 	struct platform_device *pdev;
-	struct cnss_dfs_nol_info dfs_info;
-	struct cnss_unsafe_channel_list unsafe_list;
 	struct cnss_sdio_info cnss_sdio_info;
 	struct cnss_ssr_info ssr_info;
+	struct pm_qos_request qos_request;
+	struct cnss_wlan_pinctrl_info pinctrl_info;
+	struct cnss_sdio_bus_bandwidth bus_bandwidth;
 } *cnss_pdata;
 
 #define WLAN_RECOVERY_DELAY 1
@@ -128,115 +151,176 @@ static const struct sdio_device_id ar6k_id_table[] = {
 };
 MODULE_DEVICE_TABLE(sdio, ar6k_id_table);
 
-int cnss_set_wlan_unsafe_channel(u16 *unsafe_ch_list, u16 ch_count)
+void cnss_sdio_request_pm_qos_type(int latency_type, u32 qos_val)
 {
-	struct cnss_unsafe_channel_list *unsafe_list;
+	if (!cnss_pdata)
+		return;
+
+	pr_debug("%s: PM QoS value: %d\n", __func__, qos_val);
+	pm_qos_add_request(&cnss_pdata->qos_request, latency_type, qos_val);
+}
+EXPORT_SYMBOL(cnss_sdio_request_pm_qos_type);
+
+int cnss_sdio_request_bus_bandwidth(int bandwidth)
+{
+	int ret;
+	struct cnss_sdio_bus_bandwidth *bus_bandwidth;
 
 	if (!cnss_pdata)
 		return -ENODEV;
 
-	if ((!unsafe_ch_list) || (!ch_count) || (ch_count > CNSS_MAX_CH_NUM))
-		return -EINVAL;
+	bus_bandwidth = &cnss_pdata->bus_bandwidth;
+	if (!bus_bandwidth->bus_client)
+		return -ENOSYS;
 
-	unsafe_list = &cnss_pdata->unsafe_list;
-	unsafe_list->unsafe_ch_count = ch_count;
+	switch (bandwidth) {
+	case CNSS_BUS_WIDTH_NONE:
+	case CNSS_BUS_WIDTH_LOW:
+	case CNSS_BUS_WIDTH_MEDIUM:
+	case CNSS_BUS_WIDTH_HIGH:
+		ret = msm_bus_scale_client_update_request(
+			bus_bandwidth->bus_client, bandwidth);
+		if (!ret) {
+			bus_bandwidth->current_bandwidth_vote = bandwidth;
+		} else {
+			pr_debug(
+			"%s: could not set bus bandwidth %d, ret = %d\n",
+			__func__, bandwidth, ret);
+		}
+		break;
+	default:
+		pr_debug("%s: Invalid request %d", __func__, bandwidth);
+		ret = -EINVAL;
+	}
 
-	memcpy(
-		(char *)unsafe_list->unsafe_ch_list,
-		(char *)unsafe_ch_list, ch_count * sizeof(u16));
-
-	return 0;
+	return ret;
 }
-EXPORT_SYMBOL(cnss_set_wlan_unsafe_channel);
 
-int cnss_get_wlan_unsafe_channel(
-	u16 *unsafe_ch_list, u16 *ch_count, u16 buf_len)
+void cnss_sdio_request_pm_qos(u32 qos_val)
 {
-	struct cnss_unsafe_channel_list *unsafe_list;
+	if (!cnss_pdata)
+		return;
+
+	pr_debug("%s: PM QoS value: %d\n", __func__, qos_val);
+	pm_qos_add_request(
+		&cnss_pdata->qos_request,
+		PM_QOS_CPU_DMA_LATENCY, qos_val);
+}
+EXPORT_SYMBOL(cnss_sdio_request_pm_qos);
+
+void cnss_sdio_remove_pm_qos(void)
+{
+	if (!cnss_pdata)
+		return;
+
+	pm_qos_remove_request(&cnss_pdata->qos_request);
+	pr_debug("%s: PM QoS removed\n", __func__);
+}
+EXPORT_SYMBOL(cnss_sdio_remove_pm_qos);
+
+static int cnss_put_hw_resources(struct device *dev)
+{
+	int ret = -EINVAL;
+	struct cnss_sdio_info *info;
+	struct mmc_host *host;
 
 	if (!cnss_pdata)
-		return -ENODEV;
+		return ret;
 
-	if (!unsafe_ch_list || !ch_count)
-		return -EINVAL;
+	info = &cnss_pdata->cnss_sdio_info;
 
-	unsafe_list = &cnss_pdata->unsafe_list;
+	if (info->skip_wlan_en_toggle) {
+		pr_debug("%s: HW doesn't support wlan toggling\n", __func__);
+		return 0;
+	}
 
-	if (buf_len < (unsafe_list->unsafe_ch_count * sizeof(u16)))
-		return -ENOMEM;
+	host = info->host;
 
-	*ch_count = unsafe_list->unsafe_ch_count;
-	memcpy(
-		(char *)unsafe_ch_list, (char *)unsafe_list->unsafe_ch_list,
-		unsafe_list->unsafe_ch_count * sizeof(u16));
+	if (!host) {
+		pr_err("%s: MMC host is invalid\n", __func__);
+		return ret;
+	}
 
-	return 0;
+	ret = mmc_power_save_host(host);
+	if (ret) {
+		pr_err("%s: Failed to Power Save Host err:%d\n", __func__,
+		       ret);
+		return ret;
+	}
+
+	if (!cnss_pdata->regulator.wlan_vreg) {
+		pr_debug("%s: wlan_vreg regulator is invalid\n", __func__);
+		return ret;
+	}
+
+	regulator_disable(cnss_pdata->regulator.wlan_vreg);
+
+	return ret;
 }
-EXPORT_SYMBOL(cnss_get_wlan_unsafe_channel);
 
-int cnss_wlan_set_dfs_nol(const void *info, u16 info_len)
+static int cnss_get_hw_resources(struct device *dev)
 {
-	void *temp;
-	struct cnss_dfs_nol_info *dfs_info;
+	int ret = -EINVAL;
+	struct mmc_host *host;
+	struct cnss_sdio_info *info;
 
 	if (!cnss_pdata)
-		return -ENODEV;
+		return ret;
 
-	if (!info || !info_len)
-		return -EINVAL;
+	info = &cnss_pdata->cnss_sdio_info;
 
-	temp = kmalloc(info_len, GFP_KERNEL);
-	if (!temp)
-		return -ENOMEM;
+	if (info->skip_wlan_en_toggle) {
+		pr_debug("%s: HW doesn't support wlan toggling\n", __func__);
+		return 0;
+	}
 
-	memcpy(temp, info, info_len);
-	dfs_info = &cnss_pdata->dfs_info;
-	kfree(dfs_info->dfs_nol_info);
+	host = info->host;
 
-	dfs_info->dfs_nol_info = temp;
-	dfs_info->dfs_nol_info_len = info_len;
+	if (!host) {
+		pr_err("%s: MMC Host is Invalid; Enumeration Failed\n",
+		       __func__);
+		return ret;
+	}
 
-	return 0;
+	ret = regulator_enable(cnss_pdata->regulator.wlan_vreg);
+	if (ret) {
+		pr_err("%s: Failed to enable wlan vreg\n", __func__);
+		return ret;
+	}
+
+	ret = mmc_power_restore_host(host);
+	if (ret) {
+		pr_err("%s: Failed to restore host power ret:%d\n", __func__,
+		       ret);
+		regulator_disable(cnss_pdata->regulator.wlan_vreg);
+	}
+
+	return ret;
 }
-EXPORT_SYMBOL(cnss_wlan_set_dfs_nol);
-
-int cnss_wlan_get_dfs_nol(void *info, u16 info_len)
-{
-	int len;
-	struct cnss_dfs_nol_info *dfs_info;
-
-	if (!cnss_pdata)
-		return -ENODEV;
-
-	if (!info || !info_len)
-		return -EINVAL;
-
-	dfs_info = &cnss_pdata->dfs_info;
-
-	if (dfs_info->dfs_nol_info == NULL || dfs_info->dfs_nol_info_len == 0)
-		return -ENOENT;
-
-	len = min(info_len, dfs_info->dfs_nol_info_len);
-
-	memcpy(info, dfs_info->dfs_nol_info, len);
-
-	return len;
-}
-EXPORT_SYMBOL(cnss_wlan_get_dfs_nol);
 
 static int cnss_sdio_shutdown(const struct subsys_desc *subsys, bool force_stop)
 {
 	struct cnss_sdio_info *cnss_info;
 	struct cnss_sdio_wlan_driver *wdrv;
+	int ret = 0;
 
 	if (!cnss_pdata)
 		return -ENODEV;
 
 	cnss_info = &cnss_pdata->cnss_sdio_info;
 	wdrv = cnss_info->wdrv;
-	if (wdrv && wdrv->shutdown)
-		wdrv->shutdown(cnss_info->func);
-	return 0;
+	if (!wdrv)
+		return 0;
+	if (!wdrv->shutdown)
+		return 0;
+
+	wdrv->shutdown(cnss_info->func);
+	ret = cnss_put_hw_resources(cnss_info->dev);
+
+	if (ret)
+		pr_err("%s: Failed to put hw resources\n", __func__);
+
+	return ret;
 }
 
 static int cnss_sdio_powerup(const struct subsys_desc *subsys)
@@ -250,11 +334,23 @@ static int cnss_sdio_powerup(const struct subsys_desc *subsys)
 
 	cnss_info = &cnss_pdata->cnss_sdio_info;
 	wdrv = cnss_info->wdrv;
-	if (wdrv && wdrv->reinit) {
-		ret = wdrv->reinit(cnss_info->func, cnss_info->id);
-		if (ret)
-			pr_err("%s: wlan reinit error=%d\n", __func__, ret);
+
+	if (!wdrv)
+		return 0;
+
+	if (!wdrv->reinit)
+		return 0;
+
+	ret = cnss_get_hw_resources(cnss_info->dev);
+	if (ret) {
+		pr_err("%s: Failed to power up HW\n", __func__);
+		return ret;
 	}
+
+	ret = wdrv->reinit(cnss_info->func, cnss_info->id);
+	if (ret)
+		pr_err("%s: wlan reinit error=%d\n", __func__, ret);
+
 	return ret;
 }
 
@@ -354,19 +450,45 @@ static void cnss_subsys_exit(void)
 	ssr_info->subsys = NULL;
 }
 
+static int cnss_configure_dump_table(struct cnss_ssr_info *ssr_info)
+{
+	struct msm_dump_entry dump_entry;
+	int ret;
+
+	ssr_info->dump_data.addr = ssr_info->ramdump_phys;
+	ssr_info->dump_data.len = ssr_info->ramdump_size;
+	ssr_info->dump_data.version = CNSS_DUMP_FORMAT_VER;
+	ssr_info->dump_data.magic = CNSS_DUMP_MAGIC_VER_V2;
+	strlcpy(ssr_info->dump_data.name, CNSS_DUMP_NAME,
+		sizeof(ssr_info->dump_data.name));
+
+	dump_entry.id = MSM_DUMP_DATA_CNSS_WLAN;
+	dump_entry.addr = virt_to_phys(&ssr_info->dump_data);
+
+	ret = msm_dump_data_register(MSM_DUMP_TABLE_APPS, &dump_entry);
+	if (ret)
+		pr_err("%s: Dump table setup failed: %d\n", __func__, ret);
+
+	return ret;
+}
+
 static int cnss_configure_ramdump(void)
 {
 	struct cnss_ssr_info *ssr_info;
 	int ret = 0;
 	struct resource *res;
 	const char *name;
+	u32 ramdump_size = 0;
+	struct device *dev;
 
 	if (!cnss_pdata)
 		return -ENODEV;
+
+	dev = &cnss_pdata->pdev->dev;
+
 	ssr_info = &cnss_pdata->ssr_info;
 
-	ret = of_property_read_string(cnss_pdata->pdev->dev.of_node,
-				      CNSS_SUBSYS_NAME_KEY,
+	ret = of_property_read_string(dev->of_node, CNSS_SUBSYS_NAME_KEY,
 				      &name);
 	if (ret) {
 		pr_err("%s: cnss missing DT key '%s'\n", __func__,
@@ -374,44 +496,65 @@ static int cnss_configure_ramdump(void)
 		ret = -ENODEV;
 		goto err_subsys_name_query;
 	}
+
 	strlcpy(ssr_info->subsys_name, name, sizeof(ssr_info->subsys_name));
 
-	res = platform_get_resource_byname(cnss_pdata->pdev,
-					   IORESOURCE_MEM, "ramdump");
-	if (res) {
-		ssr_info->ramdump_phys = res->start;
-		ssr_info->ramdump_size = resource_size(res);
+	if (of_property_read_u32(dev->of_node, "qcom,wlan-ramdump-dynamic",
+				 &ramdump_size) == 0) {
+		ssr_info->ramdump_addr = dma_alloc_coherent(dev, ramdump_size,
+							&ssr_info->ramdump_phys,
+							GFP_KERNEL);
+		if (ssr_info->ramdump_addr)
+			ssr_info->ramdump_size = ramdump_size;
+		ssr_info->ramdump_dynamic = true;
 	} else {
-		pr_err("%s: CNSS ramdump mem not available\n", __func__);
-		return 0;
-	}
-
-	ssr_info->ramdump_addr = ioremap(ssr_info->ramdump_phys,
-		ssr_info->ramdump_size);
-
-	if (!ssr_info->ramdump_addr || ssr_info->ramdump_size == 0) {
-		ssr_info->ramdump_size = 0;
-		ssr_info->ramdump_addr = NULL;
-		pr_err("%s: CNSS ramdump will not be collected\n", __func__);
-		return 0;
+		res = platform_get_resource_byname(cnss_pdata->pdev,
+						   IORESOURCE_MEM, "ramdump");
+		if (res) {
+			ssr_info->ramdump_phys = res->start;
+			ramdump_size = resource_size(res);
+			ssr_info->ramdump_addr = ioremap(ssr_info->ramdump_phys,
+								ramdump_size);
+			if (ssr_info->ramdump_addr)
+				ssr_info->ramdump_size = ramdump_size;
+			ssr_info->ramdump_dynamic = false;
+		}
 	}
 
 	pr_info("%s: ramdump addr: %p, phys: %pa subsys:'%s'\n", __func__,
-		ssr_info->ramdump_addr,
-		&ssr_info->ramdump_phys,
+		ssr_info->ramdump_addr, &ssr_info->ramdump_phys,
 		ssr_info->subsys_name);
 
+	if (ssr_info->ramdump_size == 0) {
+		pr_info("%s: CNSS ramdump will not be collected", __func__);
+		return 0;
+	}
+
+	if (ssr_info->ramdump_dynamic) {
+		ret = cnss_configure_dump_table(ssr_info);
+		if (ret)
+			goto err_configure_dump_table;
+	}
+
 	ssr_info->ramdump_dev = create_ramdump_device(ssr_info->subsys_name,
-		&cnss_pdata->pdev->dev);
+									dev);
 	if (!ssr_info->ramdump_dev) {
 		ret = -ENOMEM;
 		pr_err("%s: ramdump dev create failed: error=%d\n",
 		       __func__, ret);
-		goto err_create_ramdump;
+		goto err_configure_dump_table;
 	}
+
 	return 0;
-err_create_ramdump:
-	iounmap(ssr_info->ramdump_addr);
+
+err_configure_dump_table:
+	if (ssr_info->ramdump_dynamic)
+		dma_free_coherent(dev, ssr_info->ramdump_size,
+				  ssr_info->ramdump_addr,
+				  ssr_info->ramdump_phys);
+	else
+		iounmap(ssr_info->ramdump_addr);
+
 	ssr_info->ramdump_addr = NULL;
 	ssr_info->ramdump_size = 0;
 err_subsys_name_query:
@@ -421,35 +564,29 @@ err_subsys_name_query:
 static void cnss_ramdump_cleanup(void)
 {
 	struct cnss_ssr_info *ssr_info;
+	struct device *dev;
 
 	if (!cnss_pdata)
 		return;
 
+	dev = &cnss_pdata->pdev->dev;
 	ssr_info = &cnss_pdata->ssr_info;
-	if (ssr_info->ramdump_addr)
-		iounmap(ssr_info->ramdump_addr);
+	if (ssr_info->ramdump_addr) {
+		if (ssr_info->ramdump_dynamic)
+			dma_free_coherent(dev, ssr_info->ramdump_size,
+					  ssr_info->ramdump_addr,
+					  ssr_info->ramdump_phys);
+		else
+			iounmap(ssr_info->ramdump_addr);
+	}
+
 	ssr_info->ramdump_addr = NULL;
 	if (ssr_info->ramdump_dev)
 		destroy_ramdump_device(ssr_info->ramdump_dev);
 	ssr_info->ramdump_dev = NULL;
 }
 
-int cnss_get_ramdump_mem(unsigned long *address, unsigned long *size)
-{
-	struct cnss_ssr_info *ssr_info;
-
-	if (!cnss_pdata || !cnss_pdata->pdev)
-		return -ENODEV;
-
-	ssr_info = &cnss_pdata->ssr_info;
-	*address = ssr_info->ramdump_phys;
-	*size = ssr_info->ramdump_size;
-
-	return 0;
-}
-EXPORT_SYMBOL(cnss_get_ramdump_mem);
-
-void *cnss_get_virt_ramdump_mem(unsigned long *size)
+void *cnss_sdio_get_virt_ramdump_mem(unsigned long *size)
 {
 	if (!cnss_pdata || !cnss_pdata->pdev)
 		return NULL;
@@ -458,30 +595,15 @@ void *cnss_get_virt_ramdump_mem(unsigned long *size)
 
 	return cnss_pdata->ssr_info.ramdump_addr;
 }
-EXPORT_SYMBOL(cnss_get_virt_ramdump_mem);
 
-void cnss_device_self_recovery(void)
+void cnss_sdio_device_self_recovery(void)
 {
 	cnss_sdio_shutdown(NULL, false);
 	msleep(WLAN_RECOVERY_DELAY);
 	cnss_sdio_powerup(NULL);
 }
-EXPORT_SYMBOL(cnss_device_self_recovery);
 
-static void recovery_work_handler(struct work_struct *recovery)
-{
-	cnss_device_self_recovery();
-}
-
-DECLARE_WORK(recovery_work, recovery_work_handler);
-
-void cnss_schedule_recovery_work(void)
-{
-	schedule_work(&recovery_work);
-}
-EXPORT_SYMBOL(cnss_schedule_recovery_work);
-
-void cnss_device_crashed(void)
+void cnss_sdio_device_crashed(void)
 {
 	struct cnss_ssr_info *ssr_info;
 
@@ -493,43 +615,112 @@ void cnss_device_crashed(void)
 		subsystem_restart_dev(ssr_info->subsys);
 	}
 }
-EXPORT_SYMBOL(cnss_device_crashed);
 
-static int cnss_sdio_wlan_inserted(
-				struct sdio_func *func,
-				const struct sdio_device_id *id)
+static void cnss_sdio_recovery_work_handler(struct work_struct *recovery)
 {
+	cnss_sdio_device_self_recovery();
+}
+
+DECLARE_WORK(cnss_sdio_recovery_work, cnss_sdio_recovery_work_handler);
+
+void cnss_sdio_schedule_recovery_work(void)
+{
+	schedule_work(&cnss_sdio_recovery_work);
+}
+
+/**
+ * cnss_get_restart_level() - cnss get restart level API
+ *
+ * Wlan sdio function driver uses this API to get the current
+ * subsystem restart level.
+ *
+ * Return: CNSS_RESET_SOC - "SYSTEM", restart system
+ *         CNSS_RESET_SUBSYS_COUPLED - "RELATED",restart subsystem
+ */
+int cnss_get_restart_level(void)
+{
+	struct cnss_ssr_info *ssr_info;
+	int level;
+
+	if (!cnss_pdata)
+		return CNSS_RESET_SOC;
+	ssr_info = &cnss_pdata->ssr_info;
+	if (!ssr_info->subsys)
+		return CNSS_RESET_SOC;
+	level = subsys_get_restart_level(ssr_info->subsys);
+	switch (level) {
+	case RESET_SOC:
+		return CNSS_RESET_SOC;
+	case RESET_SUBSYS_COUPLED:
+		return CNSS_RESET_SUBSYS_COUPLED;
+	default:
+		return CNSS_RESET_SOC;
+	}
+}
+EXPORT_SYMBOL(cnss_get_restart_level);
+
+static int cnss_sdio_wlan_inserted(struct sdio_func *func,
+				   const struct sdio_device_id *id)
+{
+	struct cnss_sdio_info *info;
+
 	if (!cnss_pdata)
 		return -ENODEV;
 
-	cnss_pdata->cnss_sdio_info.func = func;
-	cnss_pdata->cnss_sdio_info.id = id;
+	info = &cnss_pdata->cnss_sdio_info;
+
+	info->func = func;
+	info->card = func->card;
+	info->host = func->card->host;
+	info->id = id;
+	info->dev = &func->dev;
+
+	cnss_put_hw_resources(cnss_pdata->cnss_sdio_info.dev);
+
+	pr_info("%s: SDIO Device is Probed\n", __func__);
 	return 0;
 }
 
 static void cnss_sdio_wlan_removed(struct sdio_func *func)
 {
+	struct cnss_sdio_info *info;
+
 	if (!cnss_pdata)
 		return;
 
-	cnss_pdata->cnss_sdio_info.func = NULL;
-	cnss_pdata->cnss_sdio_info.id = NULL;
+	info = &cnss_pdata->cnss_sdio_info;
+
+	info->host = NULL;
+	info->card = NULL;
+	info->func = NULL;
+	info->id = NULL;
 }
 
 #if defined(CONFIG_PM)
 static int cnss_sdio_wlan_suspend(struct device *dev)
 {
 	struct cnss_sdio_wlan_driver *wdrv;
+	struct cnss_sdio_bus_bandwidth *bus_bandwidth;
+	struct sdio_func *func;
+
 	int error = 0;
 
 	if (!cnss_pdata)
 		return -ENODEV;
 
+	bus_bandwidth = &cnss_pdata->bus_bandwidth;
+	if (bus_bandwidth->bus_client) {
+		msm_bus_scale_client_update_request(
+			bus_bandwidth->bus_client, CNSS_BUS_WIDTH_NONE);
+	}
+
+	func = cnss_pdata->cnss_sdio_info.func;
 	wdrv = cnss_pdata->cnss_sdio_info.wdrv;
 	if (!wdrv) {
 		/* This can happen when no wlan driver loaded (no register to
 		 * platform driver).
 		 */
+		sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
 		pr_debug("wlan driver not registered\n");
 		return 0;
 	}
@@ -545,10 +736,18 @@ static int cnss_sdio_wlan_suspend(struct device *dev)
 static int cnss_sdio_wlan_resume(struct device *dev)
 {
 	struct cnss_sdio_wlan_driver *wdrv;
+	struct cnss_sdio_bus_bandwidth *bus_bandwidth;
 	int error = 0;
 
 	if (!cnss_pdata)
 		return -ENODEV;
+
+	bus_bandwidth = &cnss_pdata->bus_bandwidth;
+	if (bus_bandwidth->bus_client) {
+		msm_bus_scale_client_update_request(
+			bus_bandwidth->bus_client,
+			bus_bandwidth->current_bandwidth_vote);
+	}
 
 	wdrv = cnss_pdata->cnss_sdio_info.wdrv;
 	if (!wdrv) {
@@ -586,6 +785,29 @@ static struct sdio_driver cnss_ar6k_driver = {
 #endif
 };
 
+static int cnss_set_pinctrl_state(struct cnss_sdio_data *pdata, bool state)
+{
+	struct cnss_wlan_pinctrl_info *info = &pdata->pinctrl_info;
+
+	if (!info->is_antenna_shared)
+		return 0;
+
+	if (!info->pinctrl)
+		return -EIO;
+
+	return state ? pinctrl_select_state(info->pinctrl, info->active) :
+		pinctrl_select_state(info->pinctrl, info->sleep);
+}
+
+int cnss_sdio_configure_spdt(bool state)
+{
+	if (!cnss_pdata)
+		return -ENODEV;
+
+	return cnss_set_pinctrl_state(cnss_pdata, state);
+}
+EXPORT_SYMBOL(cnss_sdio_configure_spdt);
+
 /**
  * cnss_sdio_wlan_register_driver() - cnss wlan register API
  * @driver: sdio wlan driver interface from wlan driver.
@@ -598,23 +820,49 @@ static struct sdio_driver cnss_ar6k_driver = {
 int cnss_sdio_wlan_register_driver(struct cnss_sdio_wlan_driver *driver)
 {
 	struct cnss_sdio_info *cnss_info;
-	int error = 0;
+	struct device *dev;
+	int error = -EINVAL;
 
 	if (!cnss_pdata)
 		return -ENODEV;
 
 	cnss_info = &cnss_pdata->cnss_sdio_info;
+	dev = cnss_info->dev;
+
 	if (cnss_info->wdrv)
 		pr_debug("%s:wdrv already exists wdrv(%p)\n", __func__,
 			 cnss_info->wdrv);
 
 	cnss_info->wdrv = driver;
-	if (driver->probe) {
-		error = driver->probe(cnss_info->func, cnss_info->id);
-		if (error)
-			pr_err("%s: wlan probe failed error=%d\n", __func__,
-			       error);
+
+	if (!driver)
+		return error;
+
+	error = cnss_get_hw_resources(dev);
+	if (error) {
+		pr_err("%s: Failed to restore power err:%d\n", __func__, error);
+		return error;
 	}
+
+	error = cnss_set_pinctrl_state(cnss_pdata, PINCTRL_ACTIVE);
+	if (error) {
+		pr_err("%s: Fail to set pinctrl to active state\n", __func__);
+		goto put_hw;
+	}
+
+	error = driver->probe ? driver->probe(cnss_info->func,
+					      cnss_info->id) : error;
+	if (error) {
+		pr_err("%s: wlan probe failed error=%d\n", __func__, error);
+		goto pinctrl_sleep;
+	}
+
+	return error;
+
+pinctrl_sleep:
+	cnss_set_pinctrl_state(cnss_pdata, PINCTRL_SLEEP);
+put_hw:
+	cnss_put_hw_resources(dev);
 	return error;
 }
 EXPORT_SYMBOL(cnss_sdio_wlan_register_driver);
@@ -630,20 +878,80 @@ void
 cnss_sdio_wlan_unregister_driver(struct cnss_sdio_wlan_driver *driver)
 {
 	struct cnss_sdio_info *cnss_info;
+	struct cnss_sdio_bus_bandwidth *bus_bandwidth;
 
 	if (!cnss_pdata)
 		return;
+
+	bus_bandwidth = &cnss_pdata->bus_bandwidth;
+	if (bus_bandwidth->bus_client) {
+		msm_bus_scale_client_update_request(
+			bus_bandwidth->bus_client, CNSS_BUS_WIDTH_NONE);
+	}
 
 	cnss_info = &cnss_pdata->cnss_sdio_info;
 	if (!cnss_info->wdrv) {
 		pr_err("%s: driver not registered\n", __func__);
 		return;
 	}
-	if (cnss_info->wdrv->remove)
-		cnss_info->wdrv->remove(cnss_info->func);
+
+	if (!driver)
+		return;
+
+	if (!driver->remove)
+		return;
+
+	driver->remove(cnss_info->func);
 	cnss_info->wdrv = NULL;
+	cnss_set_pinctrl_state(cnss_pdata, PINCTRL_SLEEP);
+	cnss_put_hw_resources(cnss_info->dev);
 }
 EXPORT_SYMBOL(cnss_sdio_wlan_unregister_driver);
+
+/**
+ * cnss_wlan_query_oob_status() - cnss wlan query oob status API
+ *
+ * Wlan sdio function driver uses this API to check whether oob is
+ * supported in platform driver.
+ *
+ * Return: 0 means oob is supported, others means unsupported.
+ */
+int cnss_wlan_query_oob_status(void)
+{
+	return -ENOSYS;
+}
+EXPORT_SYMBOL(cnss_wlan_query_oob_status);
+
+/**
+ * cnss_wlan_register_oob_irq_handler() - cnss wlan register oob callback API
+ * @handler: oob callback function pointer which registered to platform driver.
+ * @pm_oob : parameter which registered to platform driver.
+ *
+ * Wlan sdio function driver uses this API to register oob callback
+ * function to platform driver.
+ *
+ * Return: 0 means register successfully, others means failure.
+ */
+int cnss_wlan_register_oob_irq_handler(oob_irq_handler_t handler, void *pm_oob)
+{
+	return -ENOSYS;
+}
+EXPORT_SYMBOL(cnss_wlan_register_oob_irq_handler);
+
+/**
+ * cnss_wlan_unregister_oob_irq_handler() - cnss wlan unregister oob callback API
+ * @pm_oob: parameter which unregistered from platform driver.
+ *
+ * Wlan sdio function driver uses this API to unregister oob callback
+ * function from platform driver.
+ *
+ * Return: 0 means unregister successfully, others means failure.
+ */
+int cnss_wlan_unregister_oob_irq_handler(void *pm_oob)
+{
+	return -ENOSYS;
+}
+EXPORT_SYMBOL(cnss_wlan_unregister_oob_irq_handler);
 
 static int cnss_sdio_wlan_init(void)
 {
@@ -663,6 +971,18 @@ static void cnss_sdio_wlan_exit(void)
 		return;
 
 	sdio_unregister_driver(&cnss_ar6k_driver);
+}
+
+static void cnss_sdio_deinit_bus_bandwidth(void)
+{
+	struct cnss_sdio_bus_bandwidth *bus_bandwidth;
+
+	bus_bandwidth = &cnss_pdata->bus_bandwidth;
+	if (bus_bandwidth->bus_client) {
+			msm_bus_scale_client_update_request(
+			bus_bandwidth->bus_client, CNSS_BUS_WIDTH_NONE);
+		msm_bus_scale_unregister_client(bus_bandwidth->bus_client);
+	}
 }
 
 static int cnss_sdio_configure_wlan_enable_regulator(void)
@@ -811,9 +1131,83 @@ static void cnss_sdio_release_resource(void)
 		regulator_put(cnss_pdata->regulator.wlan_vreg_dsrc);
 }
 
+static int cnss_sdio_pinctrl_init(struct cnss_sdio_data *pdata,
+				  struct platform_device *pdev)
+{
+	int ret = 0;
+	struct device *dev = &pdev->dev;
+	struct cnss_wlan_pinctrl_info *info = &pdata->pinctrl_info;
+
+	if (!of_find_property(dev->of_node, "qcom,is-antenna-shared", NULL))
+		return 0;
+
+	info->is_antenna_shared = true;
+	info->pinctrl = devm_pinctrl_get(dev);
+	if ((IS_ERR_OR_NULL(info->pinctrl))) {
+		dev_err(dev, "%s: Failed to get pinctrl!\n", __func__);
+		return PTR_ERR(info->pinctrl);
+	}
+
+	info->sleep = pinctrl_lookup_state(info->pinctrl,
+						   CNSS_PINCTRL_SLEEP_STATE);
+	if (IS_ERR_OR_NULL(info->sleep)) {
+		dev_err(dev, "%s: Fail to get sleep state for pin\n", __func__);
+		ret = PTR_ERR(info->sleep);
+		goto release_pinctrl;
+	}
+
+	info->active = pinctrl_lookup_state(info->pinctrl,
+					    CNSS_PINCTRL_ACTIVE_STATE);
+	if (IS_ERR_OR_NULL(info->active)) {
+		dev_err(dev, "%s: Fail to get active state for pin\n",
+			__func__);
+		ret = PTR_ERR(info->active);
+		goto release_pinctrl;
+	}
+
+	ret = cnss_set_pinctrl_state(pdata, PINCTRL_SLEEP);
+
+	if (ret) {
+		dev_err(dev, "%s: Fail to set pin in sleep state\n", __func__);
+		goto release_pinctrl;
+	}
+
+	return ret;
+
+release_pinctrl:
+	devm_pinctrl_put(info->pinctrl);
+	info->is_antenna_shared = false;
+	return ret;
+}
+
+static int cnss_sdio_init_bus_bandwidth(void)
+{
+	int ret = 0;
+	struct cnss_sdio_bus_bandwidth *bus_bandwidth;
+	struct device *dev = &cnss_pdata->pdev->dev;
+
+	bus_bandwidth = &cnss_pdata->bus_bandwidth;
+	bus_bandwidth->bus_scale_table = msm_bus_cl_get_pdata(cnss_pdata->pdev);
+	if (!bus_bandwidth->bus_scale_table) {
+		dev_err(dev, "Failed to get the bus scale platform data\n");
+		ret = -EINVAL;
+	}
+
+	bus_bandwidth->bus_client = msm_bus_scale_register_client(
+			bus_bandwidth->bus_scale_table);
+	if (!bus_bandwidth->bus_client) {
+		dev_err(dev, "Failed to register with bus_scale client\n");
+		ret = -EINVAL;
+	}
+
+	return ret;
+}
+
 static int cnss_sdio_probe(struct platform_device *pdev)
 {
 	int error;
+	struct device *dev = &pdev->dev;
+	struct cnss_sdio_info *info;
 
 	if (pdev->dev.of_node) {
 		cnss_pdata = devm_kzalloc(
@@ -828,6 +1222,15 @@ static int cnss_sdio_probe(struct platform_device *pdev)
 		return -EINVAL;
 
 	cnss_pdata->pdev = pdev;
+	info = &cnss_pdata->cnss_sdio_info;
+
+	error = cnss_sdio_pinctrl_init(cnss_pdata, pdev);
+	if (error) {
+		dev_err(&pdev->dev, "Fail to configure pinctrl err:%d\n",
+			error);
+		return error;
+	}
+
 	error = cnss_sdio_configure_regulator();
 	if (error) {
 		dev_err(&pdev->dev, "Failed to configure voltage regulator error=%d\n",
@@ -858,6 +1261,9 @@ static int cnss_sdio_probe(struct platform_device *pdev)
 		}
 	}
 
+	info->skip_wlan_en_toggle = of_property_read_bool(dev->of_node,
+							  "qcom,skip-wlan-en-toggle");
+
 	error = cnss_sdio_wlan_init();
 	if (error) {
 		dev_err(&pdev->dev, "cnss wlan init failed error=%d\n", error);
@@ -878,8 +1284,20 @@ static int cnss_sdio_probe(struct platform_device *pdev)
 		goto err_subsys_init;
 	}
 
+	if (of_property_read_bool(
+		pdev->dev.of_node, "qcom,cnss-enable-bus-bandwidth")) {
+		error = cnss_sdio_init_bus_bandwidth();
+		if (error) {
+			dev_err(&pdev->dev, "Failed to init bus bandwidth\n");
+			goto err_bus_bandwidth_init;
+		}
+	}
+
 	dev_info(&pdev->dev, "CNSS SDIO Driver registered");
 	return 0;
+
+err_bus_bandwidth_init:
+	cnss_subsys_exit();
 err_subsys_init:
 	cnss_ramdump_cleanup();
 err_ramdump_create:
@@ -895,18 +1313,41 @@ err_wlan_enable_regulator:
 
 static int cnss_sdio_remove(struct platform_device *pdev)
 {
-	struct cnss_dfs_nol_info *dfs_info;
+	struct cnss_sdio_info *info;
 
 	if (!cnss_pdata)
 		return -ENODEV;
 
-	cnss_sdio_wlan_exit();
+	info = &cnss_pdata->cnss_sdio_info;
 
-	dfs_info = &cnss_pdata->dfs_info;
-	kfree(dfs_info->dfs_nol_info);
+	cnss_sdio_deinit_bus_bandwidth();
+	cnss_sdio_wlan_exit();
 	cnss_subsys_exit();
 	cnss_ramdump_cleanup();
+	cnss_put_hw_resources(info->dev);
 	cnss_sdio_release_resource();
+	cnss_pdata = NULL;
+	return 0;
+}
+
+int cnss_sdio_set_wlan_mac_address(const u8 *in, uint32_t len)
+{
+	return 0;
+}
+
+u8 *cnss_sdio_get_wlan_mac_address(uint32_t *num)
+{
+	*num = 0;
+	return NULL;
+}
+
+int cnss_sdio_power_down(struct device *dev)
+{
+	return 0;
+}
+
+int cnss_sdio_power_up(struct device *dev)
+{
 	return 0;
 }
 

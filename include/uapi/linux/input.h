@@ -17,6 +17,9 @@
 #endif
 
 
+/*
+ * The event structure itself
+ */
 
 struct input_event {
 	struct timeval time;
@@ -25,9 +28,15 @@ struct input_event {
 	__s32 value;
 };
 
+/*
+ * Protocol version.
+ */
 
 #define EV_VERSION		0x010001
 
+/*
+ * IOCTLs (0x00 - 0x7f)
+ */
 
 struct input_id {
 	__u16 bustype;
@@ -36,6 +45,25 @@ struct input_id {
 	__u16 version;
 };
 
+/**
+ * struct input_absinfo - used by EVIOCGABS/EVIOCSABS ioctls
+ * @value: latest reported value for the axis.
+ * @minimum: specifies minimum value for the axis.
+ * @maximum: specifies maximum value for the axis.
+ * @fuzz: specifies fuzz value that is used to filter noise from
+ *	the event stream.
+ * @flat: values that are within this value will be discarded by
+ *	joydev interface and reported as 0 instead.
+ * @resolution: specifies resolution for the values reported for
+ *	the axis.
+ *
+ * Note that input core does not clamp reported values to the
+ * [minimum, maximum] limits, such task is left to userspace.
+ *
+ * Resolution for main axes (ABS_X, ABS_Y, ABS_Z) is reported in
+ * units per millimeter (units/mm), resolution for rotational axes
+ * (ABS_RX, ABS_RY, ABS_RZ) is reported in units per radian.
+ */
 struct input_absinfo {
 	__s32 value;
 	__s32 minimum;
@@ -45,6 +73,21 @@ struct input_absinfo {
 	__s32 resolution;
 };
 
+/**
+ * struct input_keymap_entry - used by EVIOCGKEYCODE/EVIOCSKEYCODE ioctls
+ * @scancode: scancode represented in machine-endian form.
+ * @len: length of the scancode that resides in @scancode buffer.
+ * @index: index in the keymap, may be used instead of scancode
+ * @flags: allows to specify how kernel should handle the request. For
+ *	example, setting INPUT_KEYMAP_BY_INDEX flag indicates that kernel
+ *	should perform lookup in keymap by @index instead of @scancode
+ * @keycode: key code assigned to this scancode
+ *
+ * The structure is used to retrieve and modify keymap data. Users have
+ * option of performing lookup either by @scancode itself or by @index
+ * in keymap entry. EVIOCGKEYCODE will also return scancode or index
+ * (depending on which element was used to perform lookup).
+ */
 struct input_keymap_entry {
 #define INPUT_KEYMAP_BY_INDEX	(1 << 0)
 	__u8  flags;
@@ -54,57 +97,88 @@ struct input_keymap_entry {
 	__u8  scancode[32];
 };
 
-#define EVIOCGVERSION		_IOR('E', 0x01, int)			
-#define EVIOCGID		_IOR('E', 0x02, struct input_id)	
-#define EVIOCGREP		_IOR('E', 0x03, unsigned int[2])	
-#define EVIOCSREP		_IOW('E', 0x03, unsigned int[2])	
+#define EVIOCGVERSION		_IOR('E', 0x01, int)			/* get driver version */
+#define EVIOCGID		_IOR('E', 0x02, struct input_id)	/* get device ID */
+#define EVIOCGREP		_IOR('E', 0x03, unsigned int[2])	/* get repeat settings */
+#define EVIOCSREP		_IOW('E', 0x03, unsigned int[2])	/* set repeat settings */
 
-#define EVIOCGKEYCODE		_IOR('E', 0x04, unsigned int[2])        
+#define EVIOCGKEYCODE		_IOR('E', 0x04, unsigned int[2])        /* get keycode */
 #define EVIOCGKEYCODE_V2	_IOR('E', 0x04, struct input_keymap_entry)
-#define EVIOCSKEYCODE		_IOW('E', 0x04, unsigned int[2])        
+#define EVIOCSKEYCODE		_IOW('E', 0x04, unsigned int[2])        /* set keycode */
 #define EVIOCSKEYCODE_V2	_IOW('E', 0x04, struct input_keymap_entry)
 
-#define EVIOCGNAME(len)		_IOC(_IOC_READ, 'E', 0x06, len)		
-#define EVIOCGPHYS(len)		_IOC(_IOC_READ, 'E', 0x07, len)		
-#define EVIOCGUNIQ(len)		_IOC(_IOC_READ, 'E', 0x08, len)		
-#define EVIOCGPROP(len)		_IOC(_IOC_READ, 'E', 0x09, len)		
+#define EVIOCGNAME(len)		_IOC(_IOC_READ, 'E', 0x06, len)		/* get device name */
+#define EVIOCGPHYS(len)		_IOC(_IOC_READ, 'E', 0x07, len)		/* get physical location */
+#define EVIOCGUNIQ(len)		_IOC(_IOC_READ, 'E', 0x08, len)		/* get unique identifier */
+#define EVIOCGPROP(len)		_IOC(_IOC_READ, 'E', 0x09, len)		/* get device properties */
 
+/**
+ * EVIOCGMTSLOTS(len) - get MT slot values
+ * @len: size of the data buffer in bytes
+ *
+ * The ioctl buffer argument should be binary equivalent to
+ *
+ * struct input_mt_request_layout {
+ *	__u32 code;
+ *	__s32 values[num_slots];
+ * };
+ *
+ * where num_slots is the (arbitrary) number of MT slots to extract.
+ *
+ * The ioctl size argument (len) is the size of the buffer, which
+ * should satisfy len = (num_slots + 1) * sizeof(__s32).  If len is
+ * too small to fit all available slots, the first num_slots are
+ * returned.
+ *
+ * Before the call, code is set to the wanted ABS_MT event type. On
+ * return, values[] is filled with the slot values for the specified
+ * ABS_MT code.
+ *
+ * If the request code is not an ABS_MT value, -EINVAL is returned.
+ */
 #define EVIOCGMTSLOTS(len)	_IOC(_IOC_READ, 'E', 0x0a, len)
 
-#define EVIOCGKEY(len)		_IOC(_IOC_READ, 'E', 0x18, len)		
-#define EVIOCGLED(len)		_IOC(_IOC_READ, 'E', 0x19, len)		
-#define EVIOCGSND(len)		_IOC(_IOC_READ, 'E', 0x1a, len)		
-#define EVIOCGSW(len)		_IOC(_IOC_READ, 'E', 0x1b, len)		
+#define EVIOCGKEY(len)		_IOC(_IOC_READ, 'E', 0x18, len)		/* get global key state */
+#define EVIOCGLED(len)		_IOC(_IOC_READ, 'E', 0x19, len)		/* get all LEDs */
+#define EVIOCGSND(len)		_IOC(_IOC_READ, 'E', 0x1a, len)		/* get all sounds status */
+#define EVIOCGSW(len)		_IOC(_IOC_READ, 'E', 0x1b, len)		/* get all switch states */
 
-#define EVIOCGBIT(ev,len)	_IOC(_IOC_READ, 'E', 0x20 + (ev), len)	
-#define EVIOCGABS(abs)		_IOR('E', 0x40 + (abs), struct input_absinfo)	
-#define EVIOCSABS(abs)		_IOW('E', 0xc0 + (abs), struct input_absinfo)	
+#define EVIOCGBIT(ev,len)	_IOC(_IOC_READ, 'E', 0x20 + (ev), len)	/* get event bits */
+#define EVIOCGABS(abs)		_IOR('E', 0x40 + (abs), struct input_absinfo)	/* get abs value/limits */
+#define EVIOCSABS(abs)		_IOW('E', 0xc0 + (abs), struct input_absinfo)	/* set abs value/limits */
 
-#define EVIOCSFF		_IOC(_IOC_WRITE, 'E', 0x80, sizeof(struct ff_effect))	
-#define EVIOCRMFF		_IOW('E', 0x81, int)			
-#define EVIOCGEFFECTS		_IOR('E', 0x84, int)			
+#define EVIOCSFF		_IOC(_IOC_WRITE, 'E', 0x80, sizeof(struct ff_effect))	/* send a force effect to a force feedback device */
+#define EVIOCRMFF		_IOW('E', 0x81, int)			/* Erase a force effect */
+#define EVIOCGEFFECTS		_IOR('E', 0x84, int)			/* Report number of effects playable at the same time */
 
-#define EVIOCGRAB		_IOW('E', 0x90, int)			
+#define EVIOCGRAB		_IOW('E', 0x90, int)			/* Grab/Release device */
 
-			
+/* HACK: disable conflicting EVIOCREVOKE until Android userspace stops using EVIOCSSUSPENDBLOCK */
+/*#define EVIOCREVOKE		_IOW('E', 0x91, int)*/			/* Revoke device access */
 
-#define EVIOCGSUSPENDBLOCK	_IOR('E', 0x91, int)			
-#define EVIOCSSUSPENDBLOCK	_IOW('E', 0x91, int)			
+#define EVIOCGSUSPENDBLOCK	_IOR('E', 0x91, int)			/* get suspend block enable */
+#define EVIOCSSUSPENDBLOCK	_IOW('E', 0x91, int)			/* set suspend block enable */
 
-#define EVIOCSCLOCKID		_IOW('E', 0xa0, int)			
+#define EVIOCSCLOCKID		_IOW('E', 0xa0, int)			/* Set clockid to be used for timestamps */
 
+/*
+ * Device properties and quirks
+ */
 
-#define INPUT_PROP_POINTER		0x00	
-#define INPUT_PROP_DIRECT		0x01	
-#define INPUT_PROP_BUTTONPAD		0x02	
-#define INPUT_PROP_SEMI_MT		0x03	
-#define INPUT_PROP_TOPBUTTONPAD		0x04	
-#define INPUT_PROP_POINTING_STICK	0x05	
-#define INPUT_PROP_NO_DUMMY_RELEASE	0x06	
+#define INPUT_PROP_POINTER		0x00	/* needs a pointer */
+#define INPUT_PROP_DIRECT		0x01	/* direct input devices */
+#define INPUT_PROP_BUTTONPAD		0x02	/* has button(s) under pad */
+#define INPUT_PROP_SEMI_MT		0x03	/* touch rectangle only */
+#define INPUT_PROP_TOPBUTTONPAD		0x04	/* softbuttons at top of pad */
+#define INPUT_PROP_POINTING_STICK	0x05	/* is a pointing stick */
+#define INPUT_PROP_NO_DUMMY_RELEASE	0x06	/* no dummy event */
 
 #define INPUT_PROP_MAX			0x1f
 #define INPUT_PROP_CNT			(INPUT_PROP_MAX + 1)
 
+/*
+ * Event types
+ */
 
 #define EV_SYN			0x00
 #define EV_KEY			0x01
@@ -121,6 +195,9 @@ struct input_keymap_entry {
 #define EV_MAX			0x1f
 #define EV_CNT			(EV_MAX+1)
 
+/*
+ * Synchronization events.
+ */
 
 #define SYN_REPORT		0
 #define SYN_CONFIG		1
@@ -129,6 +206,16 @@ struct input_keymap_entry {
 #define SYN_MAX			0xf
 #define SYN_CNT			(SYN_MAX+1)
 
+/*
+ * Keys and buttons
+ *
+ * Most of the keys/buttons are modeled after USB HUT 1.12
+ * (see http://www.usb.org/developers/hidpage).
+ * Abbreviations in the comments:
+ * AC - Application Control
+ * AL - Application Launch Button
+ * SC - System Control
+ */
 
 #define KEY_RESERVED		0
 #define KEY_ESC			1
@@ -246,11 +333,11 @@ struct input_keymap_entry {
 #define KEY_MUTE		113
 #define KEY_VOLUMEDOWN		114
 #define KEY_VOLUMEUP		115
-#define KEY_POWER		116	
+#define KEY_POWER		116	/* SC System Power Down */
 #define KEY_KPEQUAL		117
 #define KEY_KPPLUSMINUS		118
 #define KEY_PAUSE		119
-#define KEY_SCALE		120	
+#define KEY_SCALE		120	/* AL Compiz Scale (Expose) */
 
 #define KEY_KPCOMMA		121
 #define KEY_HANGEUL		122
@@ -261,39 +348,39 @@ struct input_keymap_entry {
 #define KEY_RIGHTMETA		126
 #define KEY_COMPOSE		127
 
-#define KEY_STOP		128	
+#define KEY_STOP		128	/* AC Stop */
 #define KEY_AGAIN		129
-#define KEY_PROPS		130	
-#define KEY_UNDO		131	
+#define KEY_PROPS		130	/* AC Properties */
+#define KEY_UNDO		131	/* AC Undo */
 #define KEY_FRONT		132
-#define KEY_COPY		133	
-#define KEY_OPEN		134	
-#define KEY_PASTE		135	
-#define KEY_FIND		136	
-#define KEY_CUT			137	
-#define KEY_HELP		138	
-#define KEY_MENU		139	
-#define KEY_CALC		140	
+#define KEY_COPY		133	/* AC Copy */
+#define KEY_OPEN		134	/* AC Open */
+#define KEY_PASTE		135	/* AC Paste */
+#define KEY_FIND		136	/* AC Search */
+#define KEY_CUT			137	/* AC Cut */
+#define KEY_HELP		138	/* AL Integrated Help Center */
+#define KEY_MENU		139	/* Menu (show menu) */
+#define KEY_CALC		140	/* AL Calculator */
 #define KEY_SETUP		141
-#define KEY_SLEEP		142	
-#define KEY_WAKEUP		143	
-#define KEY_FILE		144	
+#define KEY_SLEEP		142	/* SC System Sleep */
+#define KEY_WAKEUP		143	/* System Wake Up */
+#define KEY_FILE		144	/* AL Local Machine Browser */
 #define KEY_SENDFILE		145
 #define KEY_DELETEFILE		146
 #define KEY_XFER		147
 #define KEY_PROG1		148
 #define KEY_PROG2		149
-#define KEY_WWW			150	
+#define KEY_WWW			150	/* AL Internet Browser */
 #define KEY_MSDOS		151
-#define KEY_COFFEE		152	
+#define KEY_COFFEE		152	/* AL Terminal Lock/Screensaver */
 #define KEY_SCREENLOCK		KEY_COFFEE
 #define KEY_DIRECTION		153
 #define KEY_CYCLEWINDOWS	154
 #define KEY_MAIL		155
-#define KEY_BOOKMARKS		156	
+#define KEY_BOOKMARKS		156	/* AC Bookmarks */
 #define KEY_COMPUTER		157
-#define KEY_BACK		158	
-#define KEY_FORWARD		159	
+#define KEY_BACK		158	/* AC Back */
+#define KEY_FORWARD		159	/* AC Forward */
 #define KEY_CLOSECD		160
 #define KEY_EJECTCD		161
 #define KEY_EJECTCLOSECD	162
@@ -303,20 +390,20 @@ struct input_keymap_entry {
 #define KEY_STOPCD		166
 #define KEY_RECORD		167
 #define KEY_REWIND		168
-#define KEY_PHONE		169	
+#define KEY_PHONE		169	/* Media Select Telephone */
 #define KEY_ISO			170
-#define KEY_CONFIG		171	
-#define KEY_HOMEPAGE		172	
-#define KEY_REFRESH		173	
-#define KEY_EXIT		174	
+#define KEY_CONFIG		171	/* AL Consumer Control Configuration */
+#define KEY_HOMEPAGE		172	/* AC Home */
+#define KEY_REFRESH		173	/* AC Refresh */
+#define KEY_EXIT		174	/* AC Exit */
 #define KEY_MOVE		175
 #define KEY_EDIT		176
 #define KEY_SCROLLUP		177
 #define KEY_SCROLLDOWN		178
 #define KEY_KPLEFTPAREN		179
 #define KEY_KPRIGHTPAREN	180
-#define KEY_NEW			181	
-#define KEY_REDO		182	
+#define KEY_NEW			181	/* AC New */
+#define KEY_REDO		182	/* AC Redo/Repeat */
 
 #define KEY_F13			183
 #define KEY_F14			184
@@ -335,13 +422,13 @@ struct input_keymap_entry {
 #define KEY_PAUSECD		201
 #define KEY_PROG3		202
 #define KEY_PROG4		203
-#define KEY_DASHBOARD		204	
+#define KEY_DASHBOARD		204	/* AL Dashboard */
 #define KEY_SUSPEND		205
-#define KEY_CLOSE		206	
+#define KEY_CLOSE		206	/* AC Close */
 #define KEY_PLAY		207
 #define KEY_FASTFORWARD		208
 #define KEY_BASSBOOST		209
-#define KEY_PRINT		210	
+#define KEY_PRINT		210	/* AC Print */
 #define KEY_HP			211
 #define KEY_CAMERA		212
 #define KEY_SOUND		213
@@ -350,24 +437,25 @@ struct input_keymap_entry {
 #define KEY_CHAT		216
 #define KEY_SEARCH		217
 #define KEY_CONNECT		218
-#define KEY_FINANCE		219	
+#define KEY_FINANCE		219	/* AL Checkbook/Finance */
 #define KEY_SPORT		220
 #define KEY_SHOP		221
 #define KEY_ALTERASE		222
-#define KEY_CANCEL		223	
+#define KEY_CANCEL		223	/* AC Cancel */
 #define KEY_BRIGHTNESSDOWN	224
 #define KEY_BRIGHTNESSUP	225
 #define KEY_MEDIA		226
 
-#define KEY_SWITCHVIDEOMODE	227	
+#define KEY_SWITCHVIDEOMODE	227	/* Cycle between available video
+					   outputs (Monitor/LCD/TV-out/etc) */
 #define KEY_KBDILLUMTOGGLE	228
 #define KEY_KBDILLUMDOWN	229
 #define KEY_KBDILLUMUP		230
 
-#define KEY_SEND		231	
-#define KEY_REPLY		232	
-#define KEY_FORWARDMAIL		233	
-#define KEY_SAVE		234	
+#define KEY_SEND		231	/* AC Send */
+#define KEY_REPLY		232	/* AC Reply */
+#define KEY_FORWARDMAIL		233	/* AC Forward Msg */
+#define KEY_SAVE		234	/* AC Save */
 #define KEY_DOCUMENTS		235
 
 #define KEY_BATTERY		236
@@ -378,22 +466,25 @@ struct input_keymap_entry {
 
 #define KEY_UNKNOWN		240
 
-#define KEY_VIDEO_NEXT		241	
-#define KEY_VIDEO_PREV		242	
-#define KEY_BRIGHTNESS_CYCLE	243	
-#define KEY_BRIGHTNESS_AUTO	244	
+#define KEY_VIDEO_NEXT		241	/* drive next video source */
+#define KEY_VIDEO_PREV		242	/* drive previous video source */
+#define KEY_BRIGHTNESS_CYCLE	243	/* brightness up, after max is min */
+#define KEY_BRIGHTNESS_AUTO	244	/* Set Auto Brightness: manual
+					  brightness control is off,
+					  rely on ambient */
 #define KEY_BRIGHTNESS_ZERO	KEY_BRIGHTNESS_AUTO
-#define KEY_DISPLAY_OFF		245	
+#define KEY_DISPLAY_OFF		245	/* display device to off state */
 
-#define KEY_WWAN		246	
+#define KEY_WWAN		246	/* Wireless WAN (LTE, UMTS, GSM, etc.) */
 #define KEY_WIMAX		KEY_WWAN
-#define KEY_RFKILL		247	
+#define KEY_RFKILL		247	/* Key that controls all radios */
 
-#define KEY_MICMUTE		248	
-#define KEY_APP_SWITCH		249	
-#define HALL_N_POLE             251     
-#define HALL_S_POLE             252     
+#define KEY_MICMUTE		248	/* Mute / unmute the microphone */
+#define KEY_APP_SWITCH		249	/* key for list app*/
+#define HALL_N_POLE             251     /* HALL Sensor N pole*/
+#define HALL_S_POLE             252     /* HALL Sensor S pole*/
 
+/* Code 255 is reserved for special needs of AT keyboard driver */
 
 #define BTN_MISC		0x100
 #define BTN_0			0x100
@@ -462,13 +553,13 @@ struct input_keymap_entry {
 #define BTN_TOOL_FINGER		0x145
 #define BTN_TOOL_MOUSE		0x146
 #define BTN_TOOL_LENS		0x147
-#define BTN_TOOL_QUINTTAP	0x148	
+#define BTN_TOOL_QUINTTAP	0x148	/* Five fingers on trackpad */
 #define BTN_TOUCH		0x14a
 #define BTN_STYLUS		0x14b
 #define BTN_STYLUS2		0x14c
 #define BTN_TOOL_DOUBLETAP	0x14d
 #define BTN_TOOL_TRIPLETAP	0x14e
-#define BTN_TOOL_QUADTAP	0x14f	
+#define BTN_TOOL_QUADTAP	0x14f	/* Four fingers on trackpad */
 
 #define BTN_WHEEL		0x150
 #define BTN_GEAR_DOWN		0x150
@@ -480,15 +571,15 @@ struct input_keymap_entry {
 #define KEY_CLEAR		0x163
 #define KEY_POWER2		0x164
 #define KEY_OPTION		0x165
-#define KEY_INFO		0x166	
+#define KEY_INFO		0x166	/* AL OEM Features/Tips/Tutorial */
 #define KEY_TIME		0x167
 #define KEY_VENDOR		0x168
 #define KEY_ARCHIVE		0x169
-#define KEY_PROGRAM		0x16a	
+#define KEY_PROGRAM		0x16a	/* Media Select Program Guide */
 #define KEY_CHANNEL		0x16b
 #define KEY_FAVORITES		0x16c
 #define KEY_EPG			0x16d
-#define KEY_PVR			0x16e	
+#define KEY_PVR			0x16e	/* Media Select Home */
 #define KEY_MHP			0x16f
 #define KEY_LANGUAGE		0x170
 #define KEY_TITLE		0x171
@@ -498,36 +589,36 @@ struct input_keymap_entry {
 #define KEY_MODE		0x175
 #define KEY_KEYBOARD		0x176
 #define KEY_SCREEN		0x177
-#define KEY_PC			0x178	
-#define KEY_TV			0x179	
-#define KEY_TV2			0x17a	
-#define KEY_VCR			0x17b	
-#define KEY_VCR2		0x17c	
-#define KEY_SAT			0x17d	
+#define KEY_PC			0x178	/* Media Select Computer */
+#define KEY_TV			0x179	/* Media Select TV */
+#define KEY_TV2			0x17a	/* Media Select Cable */
+#define KEY_VCR			0x17b	/* Media Select VCR */
+#define KEY_VCR2		0x17c	/* VCR Plus */
+#define KEY_SAT			0x17d	/* Media Select Satellite */
 #define KEY_SAT2		0x17e
-#define KEY_CD			0x17f	
-#define KEY_TAPE		0x180	
+#define KEY_CD			0x17f	/* Media Select CD */
+#define KEY_TAPE		0x180	/* Media Select Tape */
 #define KEY_RADIO		0x181
-#define KEY_TUNER		0x182	
+#define KEY_TUNER		0x182	/* Media Select Tuner */
 #define KEY_PLAYER		0x183
 #define KEY_TEXT		0x184
-#define KEY_DVD			0x185	
+#define KEY_DVD			0x185	/* Media Select DVD */
 #define KEY_AUX			0x186
 #define KEY_MP3			0x187
-#define KEY_AUDIO		0x188	
-#define KEY_VIDEO		0x189	
+#define KEY_AUDIO		0x188	/* AL Audio Browser */
+#define KEY_VIDEO		0x189	/* AL Movie Browser */
 #define KEY_DIRECTORY		0x18a
 #define KEY_LIST		0x18b
-#define KEY_MEMO		0x18c	
+#define KEY_MEMO		0x18c	/* Media Select Messages */
 #define KEY_CALENDAR		0x18d
 #define KEY_RED			0x18e
 #define KEY_GREEN		0x18f
 #define KEY_YELLOW		0x190
 #define KEY_BLUE		0x191
-#define KEY_CHANNELUP		0x192	
-#define KEY_CHANNELDOWN		0x193	
+#define KEY_CHANNELUP		0x192	/* Channel Increment */
+#define KEY_CHANNELDOWN		0x193	/* Channel Decrement */
 #define KEY_FIRST		0x194
-#define KEY_LAST		0x195	
+#define KEY_LAST		0x195	/* Recall Last */
 #define KEY_AB			0x196
 #define KEY_NEXT		0x197
 #define KEY_RESTART		0x198
@@ -538,36 +629,36 @@ struct input_keymap_entry {
 #define KEY_DIGITS		0x19d
 #define KEY_TEEN		0x19e
 #define KEY_TWEN		0x19f
-#define KEY_VIDEOPHONE		0x1a0	
-#define KEY_GAMES		0x1a1	
-#define KEY_ZOOMIN		0x1a2	
-#define KEY_ZOOMOUT		0x1a3	
-#define KEY_ZOOMRESET		0x1a4	
-#define KEY_WORDPROCESSOR	0x1a5	
-#define KEY_EDITOR		0x1a6	
-#define KEY_SPREADSHEET		0x1a7	
-#define KEY_GRAPHICSEDITOR	0x1a8	
-#define KEY_PRESENTATION	0x1a9	
-#define KEY_DATABASE		0x1aa	
-#define KEY_NEWS		0x1ab	
-#define KEY_VOICEMAIL		0x1ac	
-#define KEY_ADDRESSBOOK		0x1ad	
-#define KEY_MESSENGER		0x1ae	
-#define KEY_DISPLAYTOGGLE	0x1af	
+#define KEY_VIDEOPHONE		0x1a0	/* Media Select Video Phone */
+#define KEY_GAMES		0x1a1	/* Media Select Games */
+#define KEY_ZOOMIN		0x1a2	/* AC Zoom In */
+#define KEY_ZOOMOUT		0x1a3	/* AC Zoom Out */
+#define KEY_ZOOMRESET		0x1a4	/* AC Zoom */
+#define KEY_WORDPROCESSOR	0x1a5	/* AL Word Processor */
+#define KEY_EDITOR		0x1a6	/* AL Text Editor */
+#define KEY_SPREADSHEET		0x1a7	/* AL Spreadsheet */
+#define KEY_GRAPHICSEDITOR	0x1a8	/* AL Graphics Editor */
+#define KEY_PRESENTATION	0x1a9	/* AL Presentation App */
+#define KEY_DATABASE		0x1aa	/* AL Database App */
+#define KEY_NEWS		0x1ab	/* AL Newsreader */
+#define KEY_VOICEMAIL		0x1ac	/* AL Voicemail */
+#define KEY_ADDRESSBOOK		0x1ad	/* AL Contacts/Address Book */
+#define KEY_MESSENGER		0x1ae	/* AL Instant Messaging */
+#define KEY_DISPLAYTOGGLE	0x1af	/* Turn display (LCD) on and off */
 #define KEY_BRIGHTNESS_TOGGLE	KEY_DISPLAYTOGGLE
-#define KEY_SPELLCHECK		0x1b0   
-#define KEY_LOGOFF		0x1b1   
+#define KEY_SPELLCHECK		0x1b0   /* AL Spell Check */
+#define KEY_LOGOFF		0x1b1   /* AL Logoff */
 
 #define KEY_DOLLAR		0x1b2
 #define KEY_EURO		0x1b3
 
-#define KEY_FRAMEBACK		0x1b4	
+#define KEY_FRAMEBACK		0x1b4	/* Consumer - transport controls */
 #define KEY_FRAMEFORWARD	0x1b5
-#define KEY_CONTEXT_MENU	0x1b6	
-#define KEY_MEDIA_REPEAT	0x1b7	
-#define KEY_10CHANNELSUP	0x1b8	
-#define KEY_10CHANNELSDOWN	0x1b9	
-#define KEY_IMAGES		0x1ba	
+#define KEY_CONTEXT_MENU	0x1b6	/* GenDesc - system context menu */
+#define KEY_MEDIA_REPEAT	0x1b7	/* Consumer - transport control */
+#define KEY_10CHANNELSUP	0x1b8	/* 10 channels up (10+) */
+#define KEY_10CHANNELSDOWN	0x1b9	/* 10 channels down (10-) */
+#define KEY_IMAGES		0x1ba	/* AL Image Browser */
 
 #define KEY_DEL_EOL		0x1c0
 #define KEY_DEL_EOS		0x1c1
@@ -607,8 +698,8 @@ struct input_keymap_entry {
 #define KEY_BRL_DOT9		0x1f9
 #define KEY_BRL_DOT10		0x1fa
 
-#define KEY_NUMERIC_0		0x200	
-#define KEY_NUMERIC_1		0x201	
+#define KEY_NUMERIC_0		0x200	/* used by phones, remote controls, */
+#define KEY_NUMERIC_1		0x201	/* and other keypads */
 #define KEY_NUMERIC_2		0x202
 #define KEY_NUMERIC_3		0x203
 #define KEY_NUMERIC_4		0x204
@@ -621,9 +712,9 @@ struct input_keymap_entry {
 #define KEY_NUMERIC_POUND	0x20b
 
 #define KEY_CAMERA_FOCUS	0x210
-#define KEY_WPS_BUTTON		0x211	
+#define KEY_WPS_BUTTON		0x211	/* WiFi Protected Setup key */
 
-#define KEY_TOUCHPAD_TOGGLE	0x212	
+#define KEY_TOUCHPAD_TOGGLE	0x212	/* Request switch touchpad on or off */
 #define KEY_TOUCHPAD_ON		0x213
 #define KEY_TOUCHPAD_OFF	0x214
 
@@ -636,26 +727,26 @@ struct input_keymap_entry {
 
 #define KEY_ATTENDANT_ON	0x21b
 #define KEY_ATTENDANT_OFF	0x21c
-#define KEY_ATTENDANT_TOGGLE	0x21d	
-#define KEY_LIGHTS_TOGGLE	0x21e	
+#define KEY_ATTENDANT_TOGGLE	0x21d	/* Attendant call on or off */
+#define KEY_LIGHTS_TOGGLE	0x21e	/* Reading light on or off */
 
 #define BTN_DPAD_UP		0x220
 #define BTN_DPAD_DOWN		0x221
 #define BTN_DPAD_LEFT		0x222
 #define BTN_DPAD_RIGHT		0x223
 
-#define KEY_ALS_TOGGLE		0x230	
+#define KEY_ALS_TOGGLE		0x230	/* Ambient light sensor */
 
-#define KEY_BUTTONCONFIG		0x240	
-#define KEY_TASKMANAGER		0x241	
-#define KEY_JOURNAL		0x242	
-#define KEY_CONTROLPANEL		0x243	
-#define KEY_APPSELECT		0x244	
-#define KEY_SCREENSAVER		0x245	
-#define KEY_VOICECOMMAND		0x246	
+#define KEY_BUTTONCONFIG		0x240	/* AL Button Configuration */
+#define KEY_TASKMANAGER		0x241	/* AL Task/Project Manager */
+#define KEY_JOURNAL		0x242	/* AL Log/Journal/Timecard */
+#define KEY_CONTROLPANEL		0x243	/* AL Control Panel */
+#define KEY_APPSELECT		0x244	/* AL Select Task/Application */
+#define KEY_SCREENSAVER		0x245	/* AL Screen Saver */
+#define KEY_VOICECOMMAND		0x246	/* Listening Voice Command */
 
-#define KEY_BRIGHTNESS_MIN		0x250	
-#define KEY_BRIGHTNESS_MAX		0x251	
+#define KEY_BRIGHTNESS_MIN		0x250	/* Set Brightness to Minimum */
+#define KEY_BRIGHTNESS_MAX		0x251	/* Set Brightness to Maximum */
 
 #define KEY_KBDINPUTASSIST_PREV		0x260
 #define KEY_KBDINPUTASSIST_NEXT		0x261
@@ -706,10 +797,14 @@ struct input_keymap_entry {
 #define BTN_TRIGGER_HAPPY39		0x2e6
 #define BTN_TRIGGER_HAPPY40		0x2e7
 
+/* We avoid low common keys in module aliases so they don't get huge. */
 #define KEY_MIN_INTERESTING	KEY_MUTE
 #define KEY_MAX			0x2ff
 #define KEY_CNT			(KEY_MAX+1)
 
+/*
+ * Relative axes
+ */
 
 #define REL_X			0x00
 #define REL_Y			0x01
@@ -724,6 +819,9 @@ struct input_keymap_entry {
 #define REL_MAX			0x0f
 #define REL_CNT			(REL_MAX+1)
 
+/*
+ * Absolute axes
+ */
 
 #define ABS_X			0x00
 #define ABS_Y			0x01
@@ -754,52 +852,59 @@ struct input_keymap_entry {
 
 #define ABS_MISC		0x28
 
-#define ABS_MT_POSITION     0x2a    
-#define ABS_MT_AMPLITUDE    0x2b    
-#define ABS_MT_SLOT		0x2f	
-#define ABS_MT_TOUCH_MAJOR	0x30	
-#define ABS_MT_TOUCH_MINOR	0x31	
-#define ABS_MT_WIDTH_MAJOR	0x32	
-#define ABS_MT_WIDTH_MINOR	0x33	
-#define ABS_MT_ORIENTATION	0x34	
-#define ABS_MT_POSITION_X	0x35	
-#define ABS_MT_POSITION_Y	0x36	
-#define ABS_MT_TOOL_TYPE	0x37	
-#define ABS_MT_BLOB_ID		0x38	
-#define ABS_MT_TRACKING_ID	0x39	
-#define ABS_MT_PRESSURE		0x3a	
-#define ABS_MT_DISTANCE		0x3b	
-#define ABS_MT_TOOL_X		0x3c	
-#define ABS_MT_TOOL_Y		0x3d	
+#define ABS_MT_POSITION     0x2a    /* Group a set of X and Y */
+#define ABS_MT_AMPLITUDE    0x2b    /* Group a set of Z and W */
+#define ABS_MT_SLOT		0x2f	/* MT slot being modified */
+#define ABS_MT_TOUCH_MAJOR	0x30	/* Major axis of touching ellipse */
+#define ABS_MT_TOUCH_MINOR	0x31	/* Minor axis (omit if circular) */
+#define ABS_MT_WIDTH_MAJOR	0x32	/* Major axis of approaching ellipse */
+#define ABS_MT_WIDTH_MINOR	0x33	/* Minor axis (omit if circular) */
+#define ABS_MT_ORIENTATION	0x34	/* Ellipse orientation */
+#define ABS_MT_POSITION_X	0x35	/* Center X touch position */
+#define ABS_MT_POSITION_Y	0x36	/* Center Y touch position */
+#define ABS_MT_TOOL_TYPE	0x37	/* Type of touching device */
+#define ABS_MT_BLOB_ID		0x38	/* Group a set of packets as a blob */
+#define ABS_MT_TRACKING_ID	0x39	/* Unique ID of initiated contact */
+#define ABS_MT_PRESSURE		0x3a	/* Pressure on contact area */
+#define ABS_MT_DISTANCE		0x3b	/* Contact hover distance */
+#define ABS_MT_TOOL_X		0x3c	/* Center X tool position */
+#define ABS_MT_TOOL_Y		0x3d	/* Center Y tool position */
 #define ABS_MT_GLOVE		0x3e
 
 #define ABS_MAX			0x3f
 #define ABS_CNT			(ABS_MAX+1)
 
+/*
+ * Switch events
+ */
 
-#define SW_LID			0x00  
-#define SW_TABLET_MODE		0x01  
-#define SW_HEADPHONE_INSERT	0x02  
-#define SW_RFKILL_ALL		0x03  
-#define SW_RADIO		SW_RFKILL_ALL	
-#define SW_MICROPHONE_INSERT	0x04  
-#define SW_DOCK			0x05  
-#define SW_LINEOUT_INSERT	0x06  
-#define SW_JACK_PHYSICAL_INSERT 0x07  
-#define SW_VIDEOOUT_INSERT	0x08  
-#define SW_CAMERA_LENS_COVER	0x09  
-#define SW_KEYPAD_SLIDE		0x0a  
-#define SW_FRONT_PROXIMITY	0x0b  
-#define SW_ROTATE_LOCK		0x0c  
-#define SW_LINEIN_INSERT	0x0d  
-#define SW_HPHL_OVERCURRENT	0x0e  
-#define SW_HPHR_OVERCURRENT	0x0f  
-#define SW_UNSUPPORT_INSERT	0x10  
-#define SW_MICROPHONE2_INSERT   0x11  
-#define SW_MUTE_DEVICE		0x12  
+#define SW_LID			0x00  /* set = lid shut */
+#define SW_TABLET_MODE		0x01  /* set = tablet mode */
+#define SW_HEADPHONE_INSERT	0x02  /* set = inserted */
+#define SW_RFKILL_ALL		0x03  /* rfkill master switch, type "any"
+					 set = radio enabled */
+#define SW_RADIO		SW_RFKILL_ALL	/* deprecated */
+#define SW_MICROPHONE_INSERT	0x04  /* set = inserted */
+#define SW_DOCK			0x05  /* set = plugged into dock */
+#define SW_LINEOUT_INSERT	0x06  /* set = inserted */
+#define SW_JACK_PHYSICAL_INSERT 0x07  /* set = mechanical switch set */
+#define SW_VIDEOOUT_INSERT	0x08  /* set = inserted */
+#define SW_CAMERA_LENS_COVER	0x09  /* set = lens covered */
+#define SW_KEYPAD_SLIDE		0x0a  /* set = keypad slide out */
+#define SW_FRONT_PROXIMITY	0x0b  /* set = front proximity sensor active */
+#define SW_ROTATE_LOCK		0x0c  /* set = rotate locked/disabled */
+#define SW_LINEIN_INSERT	0x0d  /* set = inserted */
+#define SW_HPHL_OVERCURRENT	0x0e  /* set = over current on left hph */
+#define SW_HPHR_OVERCURRENT	0x0f  /* set = over current on right hph */
+#define SW_UNSUPPORT_INSERT	0x10  /* set = unsupported device inserted */
+#define SW_MICROPHONE2_INSERT   0x11  /* set = inserted */
+#define SW_MUTE_DEVICE		0x12  /* set = device disabled */
 #define SW_MAX			0x20
 #define SW_CNT			(SW_MAX+1)
 
+/*
+ * Misc events
+ */
 
 #define MSC_SERIAL		0x00
 #define MSC_PULSELED		0x01
@@ -810,6 +915,9 @@ struct input_keymap_entry {
 #define MSC_MAX			0x07
 #define MSC_CNT			(MSC_MAX+1)
 
+/*
+ * LEDs
+ */
 
 #define LED_NUML		0x00
 #define LED_CAPSL		0x01
@@ -825,12 +933,18 @@ struct input_keymap_entry {
 #define LED_MAX			0x0f
 #define LED_CNT			(LED_MAX+1)
 
+/*
+ * Autorepeat values
+ */
 
 #define REP_DELAY		0x00
 #define REP_PERIOD		0x01
 #define REP_MAX			0x01
 #define REP_CNT			(REP_MAX+1)
 
+/*
+ * Sounds
+ */
 
 #define SND_CLICK		0x00
 #define SND_BELL		0x01
@@ -838,6 +952,9 @@ struct input_keymap_entry {
 #define SND_MAX			0x07
 #define SND_CNT			(SND_MAX+1)
 
+/*
+ * IDs.
+ */
 
 #define ID_BUS			0
 #define ID_VENDOR		1
@@ -865,26 +982,62 @@ struct input_keymap_entry {
 #define BUS_ATARI		0x1B
 #define BUS_SPI			0x1C
 
+/*
+ * MT_TOOL types
+ */
 #define MT_TOOL_FINGER		0
 #define MT_TOOL_PEN		1
 #define MT_TOOL_MAX		1
 
+/*
+ * Values describing the status of a force-feedback effect
+ */
 #define FF_STATUS_STOPPED	0x00
 #define FF_STATUS_PLAYING	0x01
 #define FF_STATUS_MAX		0x01
 
+/*
+ * Structures used in ioctls to upload effects to a device
+ * They are pieces of a bigger structure (called ff_effect)
+ */
 
+/*
+ * All duration values are expressed in ms. Values above 32767 ms (0x7fff)
+ * should not be used and have unspecified results.
+ */
 
+/**
+ * struct ff_replay - defines scheduling of the force-feedback effect
+ * @length: duration of the effect
+ * @delay: delay before effect should start playing
+ */
 struct ff_replay {
 	__u16 length;
 	__u16 delay;
 };
 
+/**
+ * struct ff_trigger - defines what triggers the force-feedback effect
+ * @button: number of the button triggering the effect
+ * @interval: controls how soon the effect can be re-triggered
+ */
 struct ff_trigger {
 	__u16 button;
 	__u16 interval;
 };
 
+/**
+ * struct ff_envelope - generic force-feedback effect envelope
+ * @attack_length: duration of the attack (ms)
+ * @attack_level: level at the beginning of the attack
+ * @fade_length: duration of fade (ms)
+ * @fade_level: level at the end of fade
+ *
+ * The @attack_level and @fade_level are absolute values; when applying
+ * envelope force-feedback core will convert to positive/negative
+ * value based on polarity of the default level of the effect.
+ * Valid range for the attack and fade levels is 0x0000 - 0x7fff
+ */
 struct ff_envelope {
 	__u16 attack_length;
 	__u16 attack_level;
@@ -892,17 +1045,38 @@ struct ff_envelope {
 	__u16 fade_level;
 };
 
+/**
+ * struct ff_constant_effect - defines parameters of a constant force-feedback effect
+ * @level: strength of the effect; may be negative
+ * @envelope: envelope data
+ */
 struct ff_constant_effect {
 	__s16 level;
 	struct ff_envelope envelope;
 };
 
+/**
+ * struct ff_ramp_effect - defines parameters of a ramp force-feedback effect
+ * @start_level: beginning strength of the effect; may be negative
+ * @end_level: final strength of the effect; may be negative
+ * @envelope: envelope data
+ */
 struct ff_ramp_effect {
 	__s16 start_level;
 	__s16 end_level;
 	struct ff_envelope envelope;
 };
 
+/**
+ * struct ff_condition_effect - defines a spring or friction force-feedback effect
+ * @right_saturation: maximum level when joystick moved all way to the right
+ * @left_saturation: same for the left side
+ * @right_coeff: controls how fast the force grows when the joystick moves
+ *	to the right
+ * @left_coeff: same for the left side
+ * @deadband: size of the dead zone, where no force is produced
+ * @center: position of the dead zone
+ */
 struct ff_condition_effect {
 	__u16 right_saturation;
 	__u16 left_saturation;
@@ -914,6 +1088,24 @@ struct ff_condition_effect {
 	__s16 center;
 };
 
+/**
+ * struct ff_periodic_effect - defines parameters of a periodic force-feedback effect
+ * @waveform: kind of the effect (wave)
+ * @period: period of the wave (ms)
+ * @magnitude: peak value
+ * @offset: mean value of the wave (roughly)
+ * @phase: 'horizontal' shift
+ * @envelope: envelope data
+ * @custom_len: number of samples (FF_CUSTOM only)
+ * @custom_data: buffer of samples (FF_CUSTOM only)
+ *
+ * Known waveforms - FF_SQUARE, FF_TRIANGLE, FF_SINE, FF_SAW_UP,
+ * FF_SAW_DOWN, FF_CUSTOM. The exact syntax FF_CUSTOM is undefined
+ * for the time being as no driver supports it yet.
+ *
+ * Note: the data pointed by custom_data is copied by the driver.
+ * You can therefore dispose of the memory after the upload/update.
+ */
 struct ff_periodic_effect {
 	__u16 waveform;
 	__u16 period;
@@ -927,11 +1119,42 @@ struct ff_periodic_effect {
 	__s16 __user *custom_data;
 };
 
+/**
+ * struct ff_rumble_effect - defines parameters of a periodic force-feedback effect
+ * @strong_magnitude: magnitude of the heavy motor
+ * @weak_magnitude: magnitude of the light one
+ *
+ * Some rumble pads have two motors of different weight. Strong_magnitude
+ * represents the magnitude of the vibration generated by the heavy one.
+ */
 struct ff_rumble_effect {
 	__u16 strong_magnitude;
 	__u16 weak_magnitude;
 };
 
+/**
+ * struct ff_effect - defines force feedback effect
+ * @type: type of the effect (FF_CONSTANT, FF_PERIODIC, FF_RAMP, FF_SPRING,
+ *	FF_FRICTION, FF_DAMPER, FF_RUMBLE, FF_INERTIA, or FF_CUSTOM)
+ * @id: an unique id assigned to an effect
+ * @direction: direction of the effect
+ * @trigger: trigger conditions (struct ff_trigger)
+ * @replay: scheduling of the effect (struct ff_replay)
+ * @u: effect-specific structure (one of ff_constant_effect, ff_ramp_effect,
+ *	ff_periodic_effect, ff_condition_effect, ff_rumble_effect) further
+ *	defining effect parameters
+ *
+ * This structure is sent through ioctl from the application to the driver.
+ * To create a new effect application should set its @id to -1; the kernel
+ * will return assigned @id which can later be used to update or delete
+ * this effect.
+ *
+ * Direction of the effect is encoded as follows:
+ *	0 deg -> 0x0000 (down)
+ *	90 deg -> 0x4000 (left)
+ *	180 deg -> 0x8000 (up)
+ *	270 deg -> 0xC000 (right)
+ */
 struct ff_effect {
 	__u16 type;
 	__s16 id;
@@ -943,11 +1166,14 @@ struct ff_effect {
 		struct ff_constant_effect constant;
 		struct ff_ramp_effect ramp;
 		struct ff_periodic_effect periodic;
-		struct ff_condition_effect condition[2]; 
+		struct ff_condition_effect condition[2]; /* One for each axis */
 		struct ff_rumble_effect rumble;
 	} u;
 };
 
+/*
+ * Force feedback effect types
+ */
 
 #define FF_RUMBLE	0x50
 #define FF_PERIODIC	0x51
@@ -961,6 +1187,9 @@ struct ff_effect {
 #define FF_EFFECT_MIN	FF_RUMBLE
 #define FF_EFFECT_MAX	FF_RAMP
 
+/*
+ * Force feedback periodic effect types
+ */
 
 #define FF_SQUARE	0x58
 #define FF_TRIANGLE	0x59
@@ -972,6 +1201,9 @@ struct ff_effect {
 #define FF_WAVEFORM_MIN	FF_SQUARE
 #define FF_WAVEFORM_MAX	FF_CUSTOM
 
+/*
+ * Set ff device properties
+ */
 
 #define FF_GAIN		0x60
 #define FF_AUTOCENTER	0x61
@@ -979,4 +1211,4 @@ struct ff_effect {
 #define FF_MAX		0x7f
 #define FF_CNT		(FF_MAX+1)
 
-#endif 
+#endif /* _UAPI_INPUT_H */

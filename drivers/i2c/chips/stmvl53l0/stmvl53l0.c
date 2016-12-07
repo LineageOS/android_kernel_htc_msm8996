@@ -43,10 +43,10 @@
 #include "inc/stmvl53l0.h"
 #include "inc/vl53l0_api.h"
 
-#define D(x...) pr_debug("[Laser] " x)
-#define I(x...) pr_info("[Laser] " x)
-#define W(x...) pr_warn("[Laser] " x)
-#define E(x...) pr_err("[Laser] " x)
+#define D(x...) pr_debug("[LSR] " x)
+#define I(x...) pr_info("[LSR] " x)
+#define W(x...) pr_warn("[LSR] " x)
+#define E(x...) pr_err("[LSR] " x)
 
 #define VL53L0_MODEL_ID        0xEE
 #define VL53L0_MODULE_ID_1_1   0x10
@@ -75,6 +75,8 @@
 
 #define LASER_USE_INTERRUPT_MODE 1  
 
+#define WITH_POWER_OFF 0
+#define WITH_POWER_ON  1
 #define LASER_STMVL53L0_HW_WORKAROUND 1
 #if LASER_STMVL53L0_HW_WORKAROUND
 u8 g_hw_workaround = false;
@@ -94,8 +96,8 @@ static TARGET_HW_WORKAROUND hw_workaround_table [] = {
         {"HT62S01",	5,	38	},
         {"HT62T01",	1,	16	},
         {"HT63201",	1,	421	},
-	{"HT63301",	1,	31	},
-	{"HT63401",	1,	111	},
+        {"HT63301",	1,	31	},
+        {"HT63401",	1,	111	},
 };
 #endif
 
@@ -139,6 +141,8 @@ static struct i2c_client *g_pstLaser_I2Cclient = NULL;
 VL53L0_Dev_t MyDevice;
 u32 g_refSpadCount = 0;
 u8 g_isApertureSpads = 0;
+u8 g_vhvSettings = 0;
+u8 g_phaseCal = 0;
 
 int Laser_RegWriteByte(u8 addr, u8 data)
 {
@@ -297,8 +301,10 @@ int Laser_poweron_by_camera(void)
 	VL53L0_Error Status = VL53L0_ERROR_NONE;
 	u32 SpadCount = 0;
 	u8 IsAperture = 0;
+	u8 VhvSettings = 0;
+	u8 PhaseCal = 0;
 
-	I("%s +\n", __func__);
+	I("lsr_on_cam+\n");
 	if (!probe_success) {
 		I("%s return due to probe not ready\n", __func__);
 		return -1;
@@ -334,9 +340,9 @@ int Laser_poweron_by_camera(void)
 
 #if LASER_STMVL53L0_HW_WORKAROUND
 	if(g_hw_workaround) {
-		I("%s: API#1.1.12\n", __func__);
+		I("lsr_on_cam: v12\n");
 	} else {
-		I("%s: API#1.1.13\n", __func__);
+		I("lsr_on_cam: v13\n");
 #endif
 		if (g_refSpadCount == 0 && g_isApertureSpads == 0) {
 			
@@ -345,12 +351,12 @@ int Laser_poweron_by_camera(void)
 				E("%s: VL53L0_PerformRefSpadManagement failed with Status = %d\n", __func__, Status);
 				return Status;
 			}
-			I("%s: Set SpadCount = %d and IsAperture = %d\n", __func__, SpadCount, IsAperture);
+			I("lsr_on_cam: P'S Spd = %d, Apt = %d\n", SpadCount, IsAperture);
 			
 			g_refSpadCount = SpadCount;
 			g_isApertureSpads = IsAperture;
 		} else {
-			I("%s: Set refSpadCount = %d and isApertureSpads = %d\n", __func__, g_refSpadCount, g_isApertureSpads);
+			I("lsr_on_cam: Spd = %d, Apt = %d\n", g_refSpadCount, g_isApertureSpads);
 			Status = VL53L0_SetReferenceSpads(&MyDevice, g_refSpadCount, g_isApertureSpads);
 			if (Status != VL53L0_ERROR_NONE) {
 				E("%s: VL53L0_SetReferenceSpads failed with Status = %d\n", __func__, Status);
@@ -360,8 +366,30 @@ int Laser_poweron_by_camera(void)
 #if LASER_STMVL53L0_HW_WORKAROUND
 	}
 #endif
+
+	
+	if (g_vhvSettings == 0 && g_phaseCal == 0) {
+		
+		Status = VL53L0_PerformRefCalibration(&MyDevice, &VhvSettings, &PhaseCal);
+		if (Status != VL53L0_ERROR_NONE) {
+			E("%s: VL53L0_PerformRefCalibration failed with Status = %d\n", __func__, Status);
+			return Status;
+		}
+		I("lsr_on_cam: P'S Vhv = %d, Phs = %d\n", VhvSettings, PhaseCal);
+		
+		g_vhvSettings = VhvSettings;
+		g_phaseCal = PhaseCal;
+	} else {
+		I("lsr_on_cam: Vhv = %d, Phs = %d\n", g_vhvSettings, g_phaseCal);
+		Status = VL53L0_SetRefCalibration(&MyDevice, g_vhvSettings, g_phaseCal);
+		if (Status != VL53L0_ERROR_NONE) {
+			E("%s: VL53L0_SetReferenceSpads failed with Status = %d\n", __func__, Status);
+			return Status;
+		}
+	}
+
 	laser_data->laser_power = 1;
-	I("%s -\n", __func__);
+	I("lsr_on_cam-\n");
 	return ret;
 }
 static int Laser_poweron(void)
@@ -370,6 +398,8 @@ static int Laser_poweron(void)
 	VL53L0_Error Status = VL53L0_ERROR_NONE;
 	u32 SpadCount = 0;
 	u8 IsAperture = 0;
+	u8 VhvSettings = 0;
+	u8 PhaseCal = 0;
 
 	ret = regulator_enable(laser_data->camio_1v8);
 	if (ret) {
@@ -401,9 +431,9 @@ static int Laser_poweron(void)
 
 #if LASER_STMVL53L0_HW_WORKAROUND
 	if(g_hw_workaround) {
-		I("%s: API#1.1.12\n", __func__);
+		I("lsr_on: v12\n");
 	} else {
-		I("%s: API#1.1.13\n", __func__);
+		I("lsr_on: v13\n");
 #endif
 		if (g_refSpadCount == 0 && g_isApertureSpads == 0) {
 			
@@ -412,12 +442,12 @@ static int Laser_poweron(void)
 				E("%s: VL53L0_PerformRefSpadManagement failed with Status = %d\n", __func__, Status);
 				return Status;
 			}
-			I("%s: Set SpadCount = %d and IsAperture = %d\n", __func__, SpadCount, IsAperture);
+			I("lsr_on: P'S Spd = %d, Apt = %d\n", SpadCount, IsAperture);
 			
 			g_refSpadCount = SpadCount;
 			g_isApertureSpads = IsAperture;
 		} else {
-			I("%s: Set refSpadCount = %d and isApertureSpads = %d\n", __func__, g_refSpadCount, g_isApertureSpads);
+			I("lsr_on: Spd = %d, Apt = %d\n", g_refSpadCount, g_isApertureSpads);
 			Status = VL53L0_SetReferenceSpads(&MyDevice, g_refSpadCount, g_isApertureSpads);
 			if (Status != VL53L0_ERROR_NONE) {
 				E("%s: VL53L0_SetReferenceSpads failed with Status = %d\n", __func__, Status);
@@ -427,6 +457,27 @@ static int Laser_poweron(void)
 #if LASER_STMVL53L0_HW_WORKAROUND
 	}
 #endif
+
+	
+	if (g_vhvSettings == 0 && g_phaseCal == 0) {
+		
+		Status = VL53L0_PerformRefCalibration(&MyDevice, &VhvSettings, &PhaseCal);
+		if (Status != VL53L0_ERROR_NONE) {
+			E("%s: VL53L0_PerformRefCalibration failed with Status = %d\n", __func__, Status);
+			return Status;
+		}
+		I("lsr_on: P'S Vhv = %d, Phs = %d\n", VhvSettings, PhaseCal);
+		
+		g_vhvSettings = VhvSettings;
+		g_phaseCal = PhaseCal;
+	} else {
+		I("lsr_on: Vhv = %d, Phs = %d\n", g_vhvSettings, g_phaseCal);
+		Status = VL53L0_SetRefCalibration(&MyDevice, g_vhvSettings, g_phaseCal);
+		if (Status != VL53L0_ERROR_NONE) {
+			E("%s: VL53L0_SetReferenceSpads failed with Status = %d\n", __func__, Status);
+			return Status;
+		}
+	}
 
 	
 	if (laser_data->offset_kvalue != 0) {
@@ -486,7 +537,7 @@ static int Laser_poweron_without_init(void)
 int Laser_poweroff_by_camera(void)
 {
 	int ret = 0;
-	I("%s +\n", __func__);
+	I("lsr_off_cam+\n");
 	if (!probe_success) {
 		I("%s return due to probe not ready\n", __func__);
 		return -1;
@@ -512,10 +563,10 @@ int Laser_poweroff_by_camera(void)
 	}
 
 	laser_data->laser_power = 0;
-	I("%s -\n", __func__);
+	I("lsr_off_cam-\n");
 	return ret;
 }
-static int Laser_poweroff(void)
+static int Laser_poweroff(uint8_t type)
 {
 	int ret = 0;
 #ifdef LASER_USE_INTERRUPT_MODE
@@ -523,18 +574,20 @@ static int Laser_poweroff(void)
 
 	
 	if (laser_data->enabled) {
-		I("%s: stop measurement\n", __func__);
+		I("lsr_off: stp meas\n");
 		disable_irq(laser_data->IRQ);
 		Status = VL53L0_StopMeasurement(&MyDevice);
 	}
 #endif
 
-	ret = gpio_direction_output(laser_data->power_gpio, 0);
-	if (ret) {
-		E("%s: Failed to pull down power_gpio\n", __func__);
-		return ret;
-	}
-	udelay(500);
+    if (type == WITH_POWER_OFF) {
+        ret = gpio_direction_output(laser_data->power_gpio, 0);
+        if (ret) {
+            E("%s: Failed to pull down power_gpio\n", __func__);
+            return ret;
+        }
+        udelay(500);
+    }
 
 	ret = gpio_direction_output(laser_data->pwdn_gpio, 0);
 	if (ret) {
@@ -710,7 +763,7 @@ static void report_laser(struct laser_device_data *laser_data)
 	if (laser_data->enabled && !laser_data->startmeasure) {
 		laser_data->startmeasure = true;
 
-		I("report_laser++\n");
+		I("rpt_lsr++\n");
 		Status = VL53L0_SetGpioConfig(&MyDevice, 0, VL53L0_DEVICEMODE_CONTINUOUS_RANGING,
 					VL53L0_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY, VL53L0_INTERRUPTPOLARITY_LOW);
 		if (Status == VL53L0_ERROR_NONE) {
@@ -721,7 +774,7 @@ static void report_laser(struct laser_device_data *laser_data)
 		if (Status == VL53L0_ERROR_NONE) {
 			Status = VL53L0_StartMeasurement(&MyDevice);
 		}
-		I("report_laser--\n");
+		I("rpt_lsr--\n");
 #endif
 	}
 }
@@ -731,7 +784,7 @@ static int RangeStatus_determination(int RangeStatus) {
 		debounce_counter++;
 		if(debounce_counter >= 10) {
 			if(debounce_counter % 30 == 0)
-				I("debounce_counter sustained %d\n", debounce_counter);
+				I("db_cnt %d\n", (debounce_counter / 30));
 			return 3;
 		} else
 			return 0;
@@ -757,9 +810,11 @@ static irqreturn_t laser_irq_handler(int irq, void *handle)
 			data[3] = RangingMeasurementData.AmbientRateRtnMegaCps;
 			data[4] = RangeStatus_determination(RangingMeasurementData.RangeStatus);
 
+
 			laser_send_event(laser_data, LASER_RANGE_DATA, data, 0);
 
-			Status = VL53L0_ClearInterruptMask(&MyDevice, 0);
+            Status = VL53L0_ClearInterruptMask(&MyDevice, 0);
+
 			if (Status != VL53L0_ERROR_NONE) {
 				E("%s: Failed to clear interrupt mask, Status = %d\n", __func__, Status);
 			}
@@ -803,7 +858,7 @@ static int laser_pseudo_irq_enable(struct iio_dev *indio_dev)
 	struct laser_device_data *laser_data = iio_priv(indio_dev);
 
 	if (!atomic_cmpxchg(&laser_data->pseudo_irq_enable, 0, 1)) {
-		I("%s:\n", __func__);
+		I("iio_en\n");
 		cancel_delayed_work_sync(&laser_data->work);
 		queue_delayed_work(laser_data->laser_wq, &laser_data->work, 0);
 	}
@@ -817,7 +872,7 @@ static int laser_pseudo_irq_disable(struct iio_dev *indio_dev)
 
 	if (atomic_cmpxchg(&laser_data->pseudo_irq_enable, 1, 0)) {
 		cancel_delayed_work_sync(&laser_data->work);
-		I("%s:\n", __func__);
+		I("iio_dis\n");
 	}
 	return 0;
 }
@@ -996,7 +1051,7 @@ static ssize_t active_set(struct device *dev, struct device_attribute *attr,
 		if (enabled == 1) {
 			rc = Laser_poweron();
 		} else {
-			rc = Laser_poweroff();
+			rc = Laser_poweroff(WITH_POWER_ON);
 			laser_data->startmeasure = false;
 		}
 		if (rc)
@@ -1005,7 +1060,7 @@ static ssize_t active_set(struct device *dev, struct device_attribute *attr,
 
 	laser_data->enabled = !!enabled;
 
-	I("%s: enabled = %d\n", __func__, laser_data->enabled);
+	I("ate_set: en = %d\n", laser_data->enabled);
 
 #ifdef LASER_USE_INTERRUPT_MODE
 	if (laser_data->enabled == 1) {
@@ -1048,8 +1103,7 @@ static ssize_t batch_set(struct device *dev,
 	else
 		E("%s: Invalid delay_ms = %d\n", __func__, delay_ms);
 
-	I("%s--: laser_data->delay = %d, delay_ms = %d\n", __func__,
-	  atomic_read(&laser_data->delay), delay_ms);
+    I("bch_set: lsr->delay = delay_ms = %d\n", delay_ms);
 
 	return (rc) ? rc : count;
 }
@@ -1276,7 +1330,7 @@ static ssize_t laser_power_store(struct device *dev, struct device_attribute *at
 	if (value == 1)
 		err = Laser_poweron();
 	else
-		err = Laser_poweroff();
+		err = Laser_poweroff(WITH_POWER_OFF);
 
 	if (err)
 		return -1;
@@ -1295,7 +1349,7 @@ static ssize_t laser_hwid_show(struct device *dev, struct device_attribute *attr
 
 	ret = Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_MODEL_ID, &model_id);
 	ret += Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_REVISION_ID, &revisin_id);
-	ret += Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_MODULE_ID, &module_id);
+	ret += Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_REVISION_ID, &module_id);
 
 	if (ret == 0)
 		return scnprintf(buf, PAGE_SIZE, "0x%X 0x%X 0x%X 0x%X 0x%X\n", model_id, revisin_id, module_id, rangeA_timeout, rangeB1_timeout);
@@ -1576,7 +1630,7 @@ static long Laser_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			
 			I("Sum of measurement data = (0x%X , 0x%X)", RangeSum, RateSum);
 			RangingMeasurementData.RangeMilliMeter = RangeSum / RANGE_MEASUREMENT_TIMES;
-			RangingMeasurementData.SignalRateRtnMegaCps = RateSum / RANGE_MEASUREMENT_TIMES;		
+			RangingMeasurementData.SignalRateRtnMegaCps = RateSum / RANGE_MEASUREMENT_TIMES;
 
 			if (copy_to_user(argp , &RangingMeasurementData , sizeof(VL53L0_RangingMeasurementData_t)))
 			{
@@ -1653,9 +1707,13 @@ static long Laser_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			I("Set distance for xtalk calibration to %d mm\n", distance_mm);
 		}
 		break;
+	default:
+		E("%s: invalid cmd %d\n", __func__, _IOC_NR(cmd));
+        Laser_poweroff(WITH_POWER_OFF);
+		return -EINVAL;
 	}
 
-	Laser_poweroff();
+	Laser_poweroff(WITH_POWER_OFF);
 
 	return 0;
 }
@@ -1854,19 +1912,19 @@ static int Laser_probe(struct i2c_client *client, const struct i2c_device_id *id
 		Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_MODEL_ID, &model_id);
 		if (model_id != VL53L0_MODEL_ID) {
 			E("Model ID doesn't match!\n");
-			err = Laser_poweroff();
+			err = Laser_poweroff(WITH_POWER_OFF);
 			err = -ENOENT;
 			goto exit_err_create_link;
 		}
-		Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_MODULE_ID, &module_id);
+		Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_REVISION_ID, &module_id);
 		if ( module_id != VL53L0_MODULE_ID_1_1) {
 			E("module ID doesn't match!\n");
-			err = Laser_poweroff();
+			err = Laser_poweroff(WITH_POWER_OFF);
 			err = -ENOENT;
 			goto exit_err_create_link;
 		}
 	}
-	err = Laser_poweroff();
+	err = Laser_poweroff(WITH_POWER_OFF);
 	probe_success = 1;
 	I("%s: Successful\n", __func__);
 

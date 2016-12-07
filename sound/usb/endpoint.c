@@ -110,7 +110,7 @@ int snd_usb_endpoint_next_packet_size(struct snd_usb_endpoint *ep)
 static void retire_outbound_urb(struct snd_usb_endpoint *ep,
 				struct snd_urb_ctx *urb_ctx)
 {
-	if (ep->retire_data_urb && ep->data_subs) 
+	if (ep->retire_data_urb)
 		ep->retire_data_urb(ep->data_subs, urb_ctx->urb);
 }
 
@@ -127,7 +127,7 @@ static void retire_inbound_urb(struct snd_usb_endpoint *ep,
 	if (ep->sync_slave)
 		snd_usb_handle_sync_urb(ep->sync_slave, ep, urb);
 
-	if (ep->retire_data_urb && ep->data_subs) 
+	if (ep->retire_data_urb)
 		ep->retire_data_urb(ep->data_subs, urb);
 }
 
@@ -142,7 +142,7 @@ static void prepare_outbound_urb(struct snd_usb_endpoint *ep,
 
 	switch (ep->type) {
 	case SND_USB_ENDPOINT_TYPE_DATA:
-		if (ep->prepare_data_urb && ep->data_subs) { 
+		if (ep->prepare_data_urb) {
 			ep->prepare_data_urb(ep->data_subs, urb);
 		} else {
 			
@@ -764,10 +764,10 @@ void snd_usb_endpoint_stop(struct snd_usb_endpoint *ep)
 
 	if (--ep->use_count == 0) {
 		deactivate_urbs(ep, false);
-		ep->data_subs = NULL;
-		ep->sync_slave = NULL;
 		ep->retire_data_urb = NULL;
 		ep->prepare_data_urb = NULL;
+		ep->data_subs = NULL;
+		ep->sync_slave = NULL;
 		set_bit(EP_FLAG_STOPPING, &ep->flags);
 	}
 }

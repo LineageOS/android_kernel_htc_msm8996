@@ -28,6 +28,8 @@
 #include <linux/miscdevice.h>
 #include <linux/platform_device.h>
 #include <linux/input/touch_fw_update.h>
+//#include <mach/board.h>
+//#include <mach/board_htc.h>
 
 #define TOUCH_LOG_NAME "[TP][FWU]"
 
@@ -189,7 +191,7 @@ static int touch_fwu_release(struct inode *inode, struct file *filp)
 
 static ssize_t touch_fwu_read(struct file *file, char __user *buf, size_t count, loff_t *offset)
 {
-	
+	//struct cdev_data *fw_cdev = filp->private_data;
 	pr_info("%s: %zu", __func__, count);
 	return 0;
 }
@@ -306,7 +308,7 @@ touch_fwu_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 }
 #else
 #define touch_fwu_compat_ioctl NULL
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static int fw_update_process(struct firmware *fw)
 {

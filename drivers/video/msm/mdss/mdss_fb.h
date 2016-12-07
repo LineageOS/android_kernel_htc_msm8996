@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -50,7 +50,6 @@
 
 #define MDP_PP_AD_BL_LINEAR	0x0
 #define MDP_PP_AD_BL_LINEAR_INV	0x1
-#define MAX_LAYER_COUNT		0xC
 
 enum mdp_notify_event {
 	MDP_NOTIFY_FRAME_BEGIN = 1,
@@ -77,9 +76,9 @@ enum mdp_mmap_type {
 
 enum dyn_mode_switch_state {
 	MDSS_MDP_NO_UPDATE_REQUESTED,
-	MDSS_MDP_WAIT_FOR_PREP,
-	MDSS_MDP_WAIT_FOR_SYNC,
+	MDSS_MDP_WAIT_FOR_VALIDATE,
 	MDSS_MDP_WAIT_FOR_COMMIT,
+	MDSS_MDP_WAIT_FOR_KICKOFF,
 };
 
 enum mdss_fb_idle_state {
@@ -144,6 +143,8 @@ struct msm_mdp_interface {
 					struct mdp_display_commit *data);
 	int (*atomic_validate)(struct msm_fb_data_type *mfd, struct file *file,
 				struct mdp_layer_commit_v1 *commit);
+	bool (*is_config_same)(struct msm_fb_data_type *mfd,
+				struct mdp_output_layer *layer);
 	int (*pre_commit)(struct msm_fb_data_type *mfd, struct file *file,
 				struct mdp_layer_commit_v1 *commit);
 	int (*pre_commit_fnc)(struct msm_fb_data_type *mfd);
@@ -160,9 +161,8 @@ struct msm_mdp_interface {
 		int *bl_out, bool *bl_out_notify);
 	int (*panel_register_done)(struct mdss_panel_data *pdata);
 	u32 (*fb_stride)(u32 fb_index, u32 xres, int bpp);
+	struct mdss_mdp_format_params *(*get_format_params)(u32 format);
 	int (*splash_init_fnc)(struct msm_fb_data_type *mfd);
-	struct msm_sync_pt_data *(*get_sync_fnc)(struct msm_fb_data_type *mfd,
-				const struct mdp_buf_sync *buf_sync);
 	void (*check_dsi_status)(struct work_struct *work, uint32_t interval);
 	int (*configure_panel)(struct msm_fb_data_type *mfd, int mode,
 				int dest_ctrl);
@@ -208,7 +208,7 @@ struct msm_fb_data_type {
 	u32 idle_state;
 	struct delayed_work idle_notify_work;
 
-	bool validate_pending;
+	bool atomic_commit_pending;
 
 	int op_enable;
 	u32 fb_imgType;
@@ -239,6 +239,7 @@ struct msm_fb_data_type {
 	bool allow_bl_update;
 	u32 bl_level_scaled;
 	struct mutex bl_lock;
+	bool ipc_resume;
 
 	struct platform_device *pdev;
 

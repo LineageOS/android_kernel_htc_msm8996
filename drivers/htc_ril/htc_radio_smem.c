@@ -5,6 +5,7 @@
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/of.h>
+//#include <linux/htc_flags.h>
 #include <linux/ctype.h>
 #include <linux/dma-mapping.h>
 #include <linux/debugfs.h>
@@ -20,15 +21,16 @@
 #include <linux/uaccess.h>
 #include <linux/mm.h>
 #include <linux/miscdevice.h>
-#endif 
+#endif // CONFIG_RADIO_FEEDBACK
 
 #ifdef CONFIG_RAMDUMP_SMLOG
 #include <soc/qcom/smem.h>
 #include <soc/qcom/ramdump.h>
 #include <linux/remote_spinlock.h>
 #include <soc/qcom/subsystem_notif.h>
-#endif 
+#endif // CONFIG_RAMDUMP_SMLOG
 
+/* set default as normal */
 static int boot_mode = APP_IN_HLOS;
 static unsigned long radioflag;
 static unsigned long radioflagex1;
@@ -46,7 +48,7 @@ struct htc_smem_type *htc_radio_smem_via_smd;
 #define UT_LONG_SKU_LEN 5
 #define UT_LONG_SKU_FIRST_NUM '9'
 #define UT_SHORT_SKU_NUM "999"
-#define RMTFS_SIZE 0x200000 
+#define RMTFS_SIZE 0x200000 // need to align size of rmtfs in arch/arm/boot/dts/qcom/msmxxxx.dtsi
 
 
 #ifdef CONFIG_RADIO_FEEDBACK
@@ -59,7 +61,7 @@ struct msm_radio_feedback_config {
 };
 struct mutex radio_feedback_lock;
 struct msm_radio_feedback_config radio_feedback_config;
-#endif 
+#endif // CONFIG_RADIO_FEEDBACK
 
 #ifdef CONFIG_RAMDUMP_SMLOG
 struct restart_notifier_block {
@@ -71,7 +73,7 @@ struct restart_notifier_block {
 static uint32_t num_smlog_areas;
 static struct ramdump_segment *smlog_ramdump_segments;
 static void *smlog_ramdump_dev;
-#endif 
+#endif // CONFIG_RAMDUMP_SMLOG
 
 int __init cmdline_boot_mode_read(char *s)
 {
@@ -201,7 +203,7 @@ static bool get_rom_version(void)
        int property_size = 0;
 
        if(!rom_version) {
-               
+               /* get ROM version */
                dnp = of_find_node_by_path(HTC_ROM_VERSION_PATH);
                if(dnp) {
                        rom_version = (char *) of_get_property(dnp, HTC_ROM_VERSION_PROPERTY, &property_size);
@@ -213,6 +215,11 @@ static bool get_rom_version(void)
        return true;
 }
 
+/*
+ * UT ROM Checking Rule
+ * 1. sku version = 999
+ * 2. length of sku version = 5 and first number is 9 (ex. 9xxxx)
+ */
 static bool is_ut_rom(void)
 {
 	int len = 0;
@@ -256,6 +263,18 @@ static bool is_ut_rom(void)
 	return false;
 }
 
+/*
+ * smlog Enabled Rule
+ * --------------------------------
+ *          |   RADIO_SMLOG_FLAG
+ * --------------------------------
+ *  UT ROM  |     Y     |    N
+ * --------------------------------
+ *     Y    |  disable  |  enable
+ * --------------------------------
+ *     N    |  enable   |  disable
+ * --------------------------------
+ */
 bool is_smlog_enabled(void)
 {
 	if(boot_mode == APP_IN_HLOS){
@@ -287,7 +306,7 @@ static void set_smlog_magic(bool is_enabled, struct htc_smem_type *smem, dma_add
 #ifdef CONFIG_RADIO_FEEDBACK
         radio_feedback_config.start_addr = smem->htc_smlog_base;
         radio_feedback_config.max_size = smem->htc_smlog_size;
-#endif 
+#endif // CONFIG_RADIO_FEEDBACK
 
 	pr_info("[smem]%s: smlog_magic:0x%x, smlog_base:0x%x, smlog_size:0x%x.\n",
 			__func__, smem->htc_smlog_magic, smem->htc_smlog_base, smem->htc_smlog_size);
@@ -412,7 +431,7 @@ static int restart_notifier_cb(struct notifier_block *this,
 static struct restart_notifier_block restart_notifiers[] = {
 	{SMEM_MODEM, "modem", .nb.notifier_call = restart_notifier_cb},
 };
-#endif 
+#endif //CONFIG_RAMDUMP_SMLOG
 
 static int check_smlog_alloc(struct device *dev, struct htc_smem_type *smem)
 {
@@ -425,9 +444,9 @@ static int check_smlog_alloc(struct device *dev, struct htc_smem_type *smem)
        struct restart_notifier_block *nb;
        int smlog_idx = 0;
        struct ramdump_segment *ramdump_segments_tmp = NULL;
-#endif 
+#endif //CONFIG_RAMDUMP_SMLOG
 
-	
+	/* check CMA reserved region */
 	if(!dev->cma_area){
 		pr_err("[smem]%s: CMA reserved fail.\n", __func__);
 		cma_reserved = false;
@@ -453,7 +472,7 @@ static int check_smlog_alloc(struct device *dev, struct htc_smem_type *smem)
 		smlog_base_vaddr += RMTFS_SIZE;  
 
 #ifdef CONFIG_RAMDUMP_SMLOG
-	
+	/* support smlog ramdump if smlog is enabled */
 
 		num_smlog_areas = 1;
 		ramdump_segments_tmp = kmalloc_array(num_smlog_areas,
@@ -486,7 +505,7 @@ static int check_smlog_alloc(struct device *dev, struct htc_smem_type *smem)
 				smlog_ramdump_segments[smlog_idx].address,
 				smlog_ramdump_segments[smlog_idx].size,
 				smlog_ramdump_segments[smlog_idx].v_address);
-#endif 
+#endif // CONFIG_RAMDUMP_SMLOG
 
 		pr_info("[smem]%s: smlog is enabled.\n", __func__);
 	}else
@@ -512,7 +531,7 @@ static int htc_radio_smem_probe(struct platform_device *pdev)
 
 	pr_info("[smem]%s: start.\n", __func__);
 
-	
+	/* get smem start address */
 	key = "smem-start-addr";
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, key);
 	if(!res){
@@ -533,17 +552,17 @@ static int htc_radio_smem_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	
+	/* get ROM version */
 	if(!rom_version) {
 	        if(!get_rom_version()) {
 	 	        pr_err("[smem]%s: no ROM version.\n", __func__);
 	        }
 	}
 
-	
+	/* set smem init 0 */
         smem_init(htc_radio_smem_via_smd);
 
-        
+        /* set secure smem init 0 */
         secure_smem_init(htc_radio_secure_smem);
 
 	dnp = of_find_node_by_path(DEVICE_TREE_RADIO_PATH);
@@ -564,7 +583,7 @@ static int htc_radio_smem_probe(struct platform_device *pdev)
 	if(ret < 0)
 		pr_err("[smem]%s smlog region alloc fail.\n", __func__);
 
-	
+	/* write data to shared memory */
         htc_radio_smem_write(htc_radio_smem_via_smd);
 
 	pr_info("[smem]%s: end.\n", __func__);
@@ -628,7 +647,7 @@ static struct miscdevice radio_feedback_misc = {
 	.name = "radio_feedback",
 	.fops = &radio_feedback_fops,
 };
-#endif 
+#endif // CONFIG_RADIO_FEEDBACK
 
 static struct platform_driver htc_radio_smem_driver = {
 	.probe = htc_radio_smem_probe,
@@ -669,7 +688,7 @@ static int __init htc_radio_smem_init(void)
 		goto register_fail;
 	}
 	mutex_init(&radio_feedback_lock);
-#endif 
+#endif // CONFIG_RADIO_FEEDBACK
 
 register_fail:
 	return ret;
@@ -682,7 +701,7 @@ static void __exit htc_radio_smem_exit(void)
 	ret = misc_deregister(&radio_feedback_misc);
 	if (ret < 0)
 		pr_err("failed to unregister misc device!\n");
-#endif 
+#endif // CONFIG_RADIO_FEEDBACK
 	platform_driver_unregister(&htc_radio_smem_driver);
 }
 

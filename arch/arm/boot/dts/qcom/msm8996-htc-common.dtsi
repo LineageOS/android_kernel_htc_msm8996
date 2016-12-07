@@ -63,19 +63,21 @@
 		linux,contiguous-region = <&ramoops_mem>;
 		record-size = <0x00008000>;  /*  32 KB */
 		console-size = <0x00080000>; /* 512 KB */
-		ftrace-size = <0x00040000>;  /* 256 KB */
+		pmsg-size = <0x00040000>;    /* 256 KB */
+		ftrace-size = <0x00020000>;  /* 128 KB */
+		dump-oops = <0x1>;
 	};
 
 	htc_battery_store {
         compatible = "htc,htc_battery_store";
-		stored-batt-magic-num = <(-1)>;
-		stored-batt-soc = <(-1)>;
-		stored-batt-update-time = <(-1)>;
-		stored-batt-temperature = <(-1)>;
-		qcom,stored-batt-total-level = <0>;
-		qcom,stored-batt-overheat-sec = <0>;
-		qcom,stored-batt-first-use = <0>;
-		qcom,stored-batt-checksum = <0>;
+		stored-batt-magic-num = <(-1)>; /* CONFIG_HTC_BATT_PCN0002 */
+		stored-batt-soc = <(-1)>; /* CONFIG_HTC_BATT_PCN0002 */
+		stored-batt-update-time = <(-1)>; /* CONFIG_HTC_BATT_PCN0002 */
+		stored-batt-temperature = <(-1)>; /* CONFIG_HTC_BATT_PCN0002 */
+		qcom,stored-batt-total-level = <0>; /* CONFIG_HTC_BATT_PCN0008 */
+		qcom,stored-batt-overheat-sec = <0>; /* CONFIG_HTC_BATT_PCN0008 */
+		qcom,stored-batt-first-use = <0>; /* CONFIG_HTC_BATT_PCN0008 */
+		qcom,stored-batt-checksum = <0>; /* CONFIG_HTC_BATT_PCN0008 */
     };
 };
 

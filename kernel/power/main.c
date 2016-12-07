@@ -637,6 +637,24 @@ powersave_store(struct kobject *kobj, struct kobj_attribute *attr,
 power_attr(powersave);
 #endif
 
+static char ktop_buf[1024];
+static ssize_t
+ktop_accu_show(struct kobject *kobj, struct kobj_attribute *attr,
+                char *buf)
+{
+	return scnprintf(buf, sizeof(ktop_buf), "%s", ktop_buf);
+}
+
+static ssize_t
+ktop_accu_store(struct kobject *kobj, struct kobj_attribute *attr,
+                const char *buf, size_t n)
+{
+	strncpy(ktop_buf, buf, sizeof(ktop_buf) - 1);
+	ktop_buf[sizeof(ktop_buf) - 1] = '\0';
+	return n;
+}
+power_attr(ktop_accu);
+
 #define MAX_BUF 1024
 static char thermal_monitor_buf[MAX_BUF];
 static char *thermal_monitor_change[2] = { "thermal_monitor", NULL };
@@ -650,7 +668,6 @@ static struct kobj_attribute _name##_attr = {	\
 	.show   = _name##_show,			\
 	.store  = _name##_store,		\
  }
-
 
 static ssize_t
 thermal_monitor_show(struct kobject *kobj, struct kobj_attribute *attr,
@@ -704,6 +721,7 @@ static struct attribute * g[] = {
 	&powersave_attr.attr,
 #endif
 	&thermal_monitor_attr.attr,
+	&ktop_accu_attr.attr,
 	NULL,
 };
 

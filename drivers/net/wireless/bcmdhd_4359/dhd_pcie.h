@@ -80,7 +80,7 @@
 #define CONSOLE_BUFFER_MAX	(8 * 1024)
 
 #ifndef MAX_CNTL_D3ACK_TIMEOUT
-#define MAX_CNTL_D3ACK_TIMEOUT 2
+#define MAX_CNTL_D3ACK_TIMEOUT 1
 #endif 
 
 #ifdef DHD_DEBUG
@@ -213,8 +213,10 @@ typedef struct dhd_bus {
 	uint32 d0_inform_cnt;
 	uint32 d0_inform_in_use_cnt;
 	uint8 force_suspend;
+	uint32 d3_ack_war_cnt;
 	uint32 oob_irq_num;
 	uint32 pci_d3hot_done;
+	bool d3_suspend_pending;
 #ifdef CUSTOMER_HW_ONE
 	struct workqueue_struct *cleanup_wq;
 	struct work_struct cleanup_flow_work;

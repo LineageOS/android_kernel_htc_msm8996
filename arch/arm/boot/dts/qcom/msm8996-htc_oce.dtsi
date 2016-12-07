@@ -1,0 +1,325 @@
+/* Copyright (c) 2016, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+
+#include "msm8996-htc-common.dtsi"
+#include "msm8996-htc-nanohub-v2.dtsi"
+#include "msm8996-battery-oce.dtsi"
+
+// [HTC_BT] +++
+//#include "msm8996-htc_o2-fm.dtsi"
+
+&htcbtpower {
+        brcm,bt-regon-gpio = <&pm8994_gpios 19 0>; /* O2 BT_EN */
+};
+
+&htcbtlpm {
+        brcm_bt_host_wake = <&tlmm 79 0>; /* BT_WAKE_HOST */
+        brcm_bt_wake_dev  = <&tlmm 132 0>; /* BT_WAKE_DEV */
+};
+
+&bt_wake_host_gpio_on {
+	config {
+		pins = "gpio79";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+};
+
+&bt_wake_host_gpio_off {
+	config {
+		pins = "gpio79";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+};
+
+// [HTC_BT] ---
+
+/* HTC_WIFI_START */
+// ** HPKB[#6821] Platform patches
+&wlan_seci_out_init {
+	mux {
+		pins = "gpio45";
+		function = "gpio";
+	};
+	config {
+		pins = "gpio45";
+		drive-strength = <2>;	/* 2 mA */
+		bias-pull-down;	/* PULL DOWN */
+	};
+};
+
+&wlan_seci_in_init {
+	mux {
+		pins = "gpio46";
+		function = "gpio";
+	};
+	config {
+		pins = "gpio46";
+		drive-strength = <2>;	/* 2 mA */
+		bias-pull-down;	/* PULL DOWN */
+	};
+};
+
+&soc {
+	htc,wifi_gpio {
+		compatible = "htc_wifi_gpio";
+		wlan-en-gpio = <&pm8994_gpios 8 0>;
+		wlan-irq-gpio = <&tlmm 122 0>;
+		wlan-seci-out = <&tlmm 45 0>;
+		wlan-seci-in = <&tlmm 46 0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&wlan_wake_host &wlan_seci_out_init &wlan_seci_in_init>;
+		htc,wlan-rc-num = <0>;
+	};
+};
+/* HTC_WIFI_END */
+
+//NFC++
+#include "msm8996-htc_oce-pn548.dtsi"
+//NFC--
+
+/*IOEXPANDER++*/
+&i2c_8 {
+        tca6418_i2c: tca6418-i2c@34 {
+                compatible = "ti,tca6418-i2c";
+                reg = <0x34>;
+                pinctrl = <&tca6418>;
+        };
+};
+
+&soc {
+        tca6418: tca6418-pinctrl {
+                compatible = "ti,tca6418-pinctrl";
+                #gpio-cells = <2>;
+                label = "tca6418-gpio";
+                i2c-client = <&tca6418_i2c>;
+         };
+};
+
+&pm8994_gpios {
+	gpio@c600 {
+		reg = <0xc600 0x100>;
+		qcom,mode = <0>;                /* Digital INPUT*/
+		qcom,pin-num = <7>;		/* IO_EXT_INT# */
+		qcom,pull = <0>;		/* PULLUP_30UA */
+		qcom,vin-sel = <2>;		/* VIN2 */
+		qcom,src-sel = <0>;             /* GPIO */
+		qcom,master-en = <1>;           /* Enable GPIO */
+		status = "ok";
+	};
+	gpio@cc00 {
+		reg = <0xcc00 0x100>;
+		qcom,mode = <1>;                /* Digital OUTPUT*/
+		qcom,pin-num = <13>;		/* IO_EXT_RST# */
+		qcom,vin-sel = <2>;		/* VIN2 */
+		qcom,src-sel = <0>;             /* GPIO */
+		qcom,master-en = <1>;           /* Enable GPIO */
+		qcom,invert = <1>;      /* Output HIGH initially */
+		status = "ok";
+	};
+};
+/*IOEXPANDER--*/
+
+&i2c_12 {
+	status = "disabled";
+};
+
+/ {
+	aliases {
+		i2c3 = &i2c_3; /* PWR I2C */
+		/* i2c7:          LASER I2C */
+		/* i2c8:          NFC I2C */
+		i2c9 = &i2c_9; /* MHL I2C */
+	};
+};
+
+&soc {
+	i2c_3: i2c@7577000 { /* BLSP1 QUP3 */
+		compatible = "qcom,i2c-msm-v2";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <0x7577000  0x1000>;
+		reg-names = "qup_phys_addr";
+		interrupt-names = "qup_irq";
+		interrupts = <0 97 0>;
+		dmas = <&dma_blsp1 16 64 0x20000020 0x20>,
+			<&dma_blsp1 17 32 0x20000020 0x20>;
+		dma-names = "tx", "rx";
+		qcom,master-id = <86>;
+		qcom,clk-freq-out = <400000>;
+		qcom,clk-freq-in  = <19200000>;
+		clock-names = "iface_clk", "core_clk";
+		clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
+			 <&clock_gcc clk_gcc_blsp1_qup3_i2c_apps_clk>;
+		pinctrl-names = "i2c_active", "i2c_sleep";
+		pinctrl-0 = <&i2c_3_active>;
+		pinctrl-1 = <&i2c_3_sleep>;
+		qcom,disable-dma;
+	};
+
+	i2c_9: i2c@75b7000 { /* BLSP2 QUP3 */
+		compatible = "qcom,i2c-msm-v2";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg-names = "qup_phys_addr";
+		reg = <0x75b7000 0x1000>;
+		interrupt-names = "qup_irq";
+		interrupts = <0 103 0>;
+		dmas = <&dma_blsp2 16 32 0x20000020 0x20>,
+			<&dma_blsp2 17 32 0x20000020 0x20>;
+		dma-names = "tx", "rx";
+		qcom,master-id = <84>;
+		qcom,clk-freq-out = <400000>;
+		qcom,clk-freq-in  = <19200000>;
+		clock-names = "iface_clk", "core_clk";
+		clocks = <&clock_gcc clk_gcc_blsp2_ahb_clk>,
+			 <&clock_gcc clk_gcc_blsp2_qup3_i2c_apps_clk>;
+		pinctrl-names = "i2c_active", "i2c_sleep";
+		pinctrl-0 = <&i2c_9_active>;
+		pinctrl-1 = <&i2c_9_sleep>;
+		qcom,disable-dma;
+	};
+};
+
+&tlmm {
+	i2c_3 {
+		i2c_3_active: i2c_3_active {
+			mux {
+				pins = "gpio47", "gpio48";
+				function = "blsp_i2c3";
+			};
+
+			config {
+				pins = "gpio47", "gpio48";
+					drive-strength = <8>;
+					bias-disable;
+				};
+			};
+
+		i2c_3_sleep: i2c_3_sleep {
+			mux {
+				pins = "gpio47", "gpio48";
+				function = "blsp_i2c3";
+			};
+
+			config {
+				pins = "gpio47", "gpio48";
+				drive-strength = <8>;
+				bias-disable;
+			};
+		};
+	};
+};
+
+&soc {
+	tlmm: pinctrl@01010000 {
+		/* gpio47, gpio48 */
+		blsp1_uart3_active: blsp1_uart3_active {
+			mux {
+				/delete-property/ pins;
+			};
+
+			config {
+				/delete-property/ pins;
+			};
+		};
+
+		blsp1_uart3_sleep: blsp1_uart3_sleep {
+			mux {
+				/delete-property/ pins;
+			};
+
+			config {
+				/delete-property/ pins;
+			};
+		};
+
+		spi_2 {
+			spi_2_active: spi_2_active {
+				mux {
+					/delete-property/ pins;
+				};
+
+				config {
+					/delete-property/ pins;
+				};
+			};
+
+			spi_2_sleep: spi_2_sleep {
+				mux {
+					/delete-property/ pins;
+				};
+
+				config {
+					/delete-property/ pins;
+				};
+			};
+		};
+	};
+};
+&spmi_bus {
+	qcom,pmi8994@2 {
+		mpp@a100 {
+			compatible = "qcom,rgb-qpnp";
+			reg = <0xa100 0x100>;
+			label = "mpp";
+			status = "okay";
+			qcom,led_mpp_2 {
+				label = "mpp";
+				linux,name = "button-backlight";
+				linux,default-trigger = "none";
+				pwms = <&pmi8994_pwm_4 0 0>;
+				qcom,default-state = "off";
+				qcom,max-current = <40>;
+				qcom,current-setting = <40>;
+				qcom,id = <6>;
+				qcom,mode = "lpg";
+				qcom,source-sel = <14>;
+				qcom,mode-ctrl = <0x60>;
+				qcom,pwm-us = <1000>;
+				qcom,duty-pcts = [00 00 00 00 64
+					64 00 00 00 00];
+				qcom,start-idx = <0>;
+				qcom,pause-hi = <1>;
+				qcom,pause-lo = <1>;
+				qcom,ramp-step-ms = <64>;
+				qcom,lut-flags = <0x18>;
+				vk-pwm-array = [00 03 0A 0A 84 84 FF FF FF FF FF];
+				vk-black-cg-id-def = "DEF00", "GRY00", "LOB00", "BLK00";
+				vk-black-cg-id-sec = "LEB00";
+				vk-white-cg-id-def = "PNK00", "GOD00", "LOW00", "WHT00";
+				vk-white-cg-id-sec = "LEW00";
+				vk-black-pwm-array-def = [00 03 0A 0A 0A 30 30 FF FF FF FF FF];
+				vk-white-pwm-array-def = [00 03 0C 0C 0C 84 84 FF FF FF FF FF];
+				vk-current-array-def =   [14 14 28 28 28 28 28 28 28 28 28 28];
+				vk-black-pwm-array-sec = [00 03 0F 0F 0F 10 10 60 60 60 60 60];
+				vk-white-pwm-array-sec = [00 06 18 18 18 84 84 FF FF FF FF FF];
+				vk-current-array-sec =   [0A 0A 14 14 14 28 28 28 28 28 28 28];
+			};
+		};
+	};
+	qcom,pmi8994@3 {
+		qcom,leds@d000{
+			compatible = "qcom,rgb-qpnp";
+			reg = <0xd000 0x100>;
+			label = "rgb";
+			status = "okay";
+			qcom,rgb_indicator{
+				label = "rgb";
+				pwm_ratio = /bits/ 8 <255>;
+				linux,name = "indicator";
+			};
+		};
+	};
+};

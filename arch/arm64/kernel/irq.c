@@ -30,6 +30,7 @@
 #include <linux/ratelimit.h>
 #ifdef CONFIG_HTC_POWER_DEBUG
 #include <linux/slab.h>
+#include <soc/qcom/htc_util.h>
 #endif
 
 unsigned long irq_err_count;
@@ -46,11 +47,14 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 #ifdef CONFIG_HTC_POWER_DEBUG
 unsigned int *previous_irqs;
 static int pre_nr_irqs = 0;
+static char irq_output[1024];
 static void htc_show_interrupt(int i)
 {
         struct irqaction *action;
         unsigned long flags;
         struct irq_desc *desc;
+        char irq_piece[32];
+        char name_resize[16];
 
         if (i < nr_irqs) {
                 desc = irq_to_desc(i);
@@ -62,12 +66,15 @@ static void htc_show_interrupt(int i)
                         goto unlock;
                 if (!(kstat_irqs_cpu(i, 0)) || previous_irqs[i] == (kstat_irqs_cpu(i, 0)))
                         goto unlock;
-                printk("%3d:", i);
-                printk("%6u\t", kstat_irqs_cpu(i, 0)-previous_irqs[i]);
-                printk("%s", action->name);
-                for (action = action->next; action; action = action->next)
-                        printk(", %s", action->name);
-                printk("\n");
+                memset(irq_piece, 0, sizeof(irq_piece));
+                memset(name_resize, 0, sizeof(name_resize));
+                strncat(name_resize, action->name, 8);
+                snprintf(irq_piece, sizeof(irq_piece), "%s(%d:%s,%u)",
+                    strlen(irq_output)>0 ? "," : "",
+                    i,
+                    name_resize,
+                    kstat_irqs_cpu(i, 0)-previous_irqs[i]);
+                safe_strcat(irq_output, irq_piece);
                 previous_irqs[i] = kstat_irqs_cpu(i, 0);
 unlock:
                 raw_spin_unlock_irqrestore(&desc->lock, flags);
@@ -86,8 +93,11 @@ void htc_show_interrupts(void)
                        pre_nr_irqs = nr_irqs;
                        previous_irqs = (unsigned int *)kcalloc(nr_irqs, sizeof(int),GFP_KERNEL);
                }
-               for (i = 0; i <= nr_irqs; i++)
+               memset(irq_output, 0, sizeof(irq_output));
+               for (i = 0; i <= nr_irqs; i++) {
                        htc_show_interrupt(i);
+               }
+               k_pr_embedded("[K] irq: %s\n", irq_output);
 }
 #endif
 
@@ -114,10 +124,6 @@ static bool migrate_one_irq(struct irq_desc *desc)
 	struct irq_data *d = irq_desc_get_irq_data(desc);
 	const struct cpumask *affinity = d->affinity;
 
-	/*
-	 * If this is a per-CPU interrupt, or the affinity does not
-	 * include this CPU, then we have nothing to do.
-	 */
 	if (irqd_is_per_cpu(d) || !cpumask_test_cpu(smp_processor_id(), affinity))
 		return false;
 
@@ -127,14 +133,6 @@ static bool migrate_one_irq(struct irq_desc *desc)
 	return irq_set_affinity_locked(d, affinity, false) != 0;
 }
 
-/*
- * The current CPU has been marked offline.  Migrate IRQs off this CPU.
- * If the affinity settings do not allow other CPUs, force them onto any
- * available CPU.
- *
- * Note: we must iterate over all IRQs, whether they have an attached
- * action structure or not, as we need to get chained interrupts too.
- */
 void migrate_irqs(void)
 {
 	unsigned int i;
@@ -157,4 +155,4 @@ void migrate_irqs(void)
 
 	local_irq_restore(flags);
 }
-#endif /* CONFIG_HOTPLUG_CPU */
+#endif 

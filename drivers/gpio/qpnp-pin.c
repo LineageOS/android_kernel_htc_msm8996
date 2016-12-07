@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -382,7 +382,7 @@ static int qpnp_pin_check_config(enum qpnp_pin_param_type idx,
 			return -EINVAL;
 		break;
 	case Q_PIN_CFG_DTEST_SEL:
-		if (!val && val > QPNP_PIN_DTEST_SEL_INVALID)
+		if (val > QPNP_PIN_DTEST_SEL_INVALID)
 			return -EINVAL;
 		break;
 	default:
@@ -618,7 +618,8 @@ static int _qpnp_pin_config(struct qpnp_pin_chip *q_chip,
 			  param->output_type);
 
 	
-	if (Q_HAVE_HW_SP(Q_PIN_CFG_DTEST_SEL, q_spec, param->dtest_sel)) {
+	if (Q_HAVE_HW_SP(Q_PIN_CFG_DTEST_SEL, q_spec, param->dtest_sel)
+			&& param->dtest_sel) {
 		if (is_gpio_lv_mv(q_spec)) {
 			q_reg_clr_set(&q_spec->regs[Q_REG_I_DIG_IN_CTL],
 					Q_REG_LV_MV_DTEST_SEL_CFG_SHIFT,
@@ -1255,6 +1256,18 @@ static int qpnp_pin_debugfs_set(void *data, u64 val)
 	q_spec = container_of(idx, struct qpnp_pin_spec, params[*idx]);
 	q_chip = q_spec->q_chip;
 
+	if ((q_spec->subtype == Q_GPIO_SUBTYPE_GPIO_LV ||
+		q_spec->subtype == Q_GPIO_SUBTYPE_GPIO_MV) &&
+				*idx == Q_PIN_CFG_DTEST_SEL) {
+		
+		cfg.shift = Q_REG_LV_MV_DTEST_SEL_EN_SHIFT;
+		cfg.mask = Q_REG_LV_MV_DTEST_SEL_EN_MASK;
+		cfg.addr = Q_REG_DIG_IN_CTL;
+		cfg.idx = Q_REG_I_DIG_IN_CTL;
+		q_reg_clr_set(&q_spec->regs[cfg.idx],
+				cfg.shift, cfg.mask, !!val);
+	}
+
 	rc = qpnp_pin_check_config(*idx, q_spec, val);
 	if (rc)
 		return rc;
@@ -1262,6 +1275,14 @@ static int qpnp_pin_debugfs_set(void *data, u64 val)
 	rc = qpnp_pin_reg_attr(*idx, &cfg, q_spec);
 	if (rc)
 		return rc;
+
+	if (*idx == Q_PIN_CFG_DTEST_SEL && val)  {
+		if (is_gpio_lv_mv(q_spec))
+			val -= 1;
+		else
+			val = BIT(val - 1);
+	}
+
 	q_reg_clr_set(&q_spec->regs[cfg.idx], cfg.shift, cfg.mask, val);
 	rc = spmi_ext_register_writel(q_chip->spmi->ctrl, q_spec->slave,
 				      Q_REG_ADDR(q_spec, cfg.addr),

@@ -1,4 +1,5 @@
 /* 8996PME Charger Config */
+/* CONFIG_HTC_BATT_PCN0016 */
 
 // ================
 //  CHARGER DRIVER
@@ -28,6 +29,7 @@
 		status = "okay";
 	};
 
+    /* CONFIG_HTC_BATT_PCN0022++ */
 	mpp@a600 { /*MPP 7*/
 		reg = <0xa600 0x100>;
 		qcom,pin-num = <7>;
@@ -38,6 +40,7 @@
 		qcom,ain-route = <2>;  /* QPNP_PIN_AIN_AMUX_CH7 */
 		status = "okay";
 	};
+    /* CONFIG_HTC_BATT_PCN0022-- */
 };
 
 &pm8994_vadc {

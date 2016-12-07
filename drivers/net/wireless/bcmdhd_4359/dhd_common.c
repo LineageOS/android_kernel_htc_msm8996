@@ -300,6 +300,39 @@ const bcm_iovar_t dhd_iovars[] = {
 	{NULL, 0, 0, 0, 0 }
 };
 
+bool
+dhd_query_bus_erros(dhd_pub_t *dhdp)
+{
+        bool ret = FALSE;
+
+        if (dhdp->dongle_reset) {
+                DHD_ERROR(("%s: Dongle Reset occurred, cannot proceed\n",
+                        __FUNCTION__));
+                ret = TRUE;
+        }
+
+        if (dhdp->dongle_trap_occured) {
+                DHD_ERROR(("%s: FW TRAP has occurred, cannot proceed\n",
+                        __FUNCTION__));
+                ret = TRUE;
+        }
+
+        if (dhdp->iovar_timeout_occured) {
+                DHD_ERROR(("%s: Resumed on timeout for previous IOVAR, cannot proceed\n",
+                        __FUNCTION__));
+                ret = TRUE;
+        }
+
+#ifdef PCIE_FULL_DONGLE
+        if (dhdp->d3ack_timeout_occured) {
+                DHD_ERROR(("%s: Resumed on timeout for previous D3ACK, cannot proceed\n",
+                        __FUNCTION__));
+                ret = TRUE;
+        }
+#endif 
+
+        return ret;
+}
 #define DHD_IOVAR_BUF_SIZE	128
 
 #ifdef DHD_FW_COREDUMP

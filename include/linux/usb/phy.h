@@ -1,3 +1,10 @@
+/* USB OTG (On The Go) defines */
+/*
+ *
+ * These APIs may be used between USB controllers.  USB device drivers
+ * (for either host or peripheral roles) don't use these calls; they
+ * continue to use just usb_device and usb_gadget.
+ */
 
 #ifndef __LINUX_USB_PHY_H
 #define __LINUX_USB_PHY_H
@@ -15,34 +22,36 @@ enum usb_phy_interface {
 };
 
 enum usb_phy_events {
-	USB_EVENT_NONE,         
-	USB_EVENT_VBUS,         
-	USB_EVENT_ID,           
-	USB_EVENT_CHARGER,      
-	USB_EVENT_ENUMERATED,   
+	USB_EVENT_NONE,         /* no events or cable disconnected */
+	USB_EVENT_VBUS,         /* vbus valid event */
+	USB_EVENT_ID,           /* id was grounded */
+	USB_EVENT_CHARGER,      /* usb dedicated charger */
+	USB_EVENT_ENUMERATED,   /* gadget driver enumerated */
 };
 
+/* associate a type with PHY */
 enum usb_phy_type {
 	USB_PHY_TYPE_UNDEFINED,
 	USB_PHY_TYPE_USB2,
 	USB_PHY_TYPE_USB3,
 };
 
+/* OTG defines lots of enumeration states before device reset */
 enum usb_otg_state {
 	OTG_STATE_UNDEFINED = 0,
 
-	
+	/* single-role peripheral, and dual-role default-b */
 	OTG_STATE_B_IDLE,
 	OTG_STATE_B_SRP_INIT,
 	OTG_STATE_B_PERIPHERAL,
 	OTG_STATE_B_SUSPEND,
 	OTG_STATE_B_CHARGER,
 
-	
+	/* extra dual-role default-b states */
 	OTG_STATE_B_WAIT_ACON,
 	OTG_STATE_B_HOST,
 
-	
+	/* dual-role default-a */
 	OTG_STATE_A_IDLE,
 	OTG_STATE_A_WAIT_VRISE,
 	OTG_STATE_A_WAIT_BCON,
@@ -56,6 +65,9 @@ enum usb_otg_state {
 struct usb_phy;
 struct usb_otg;
 
+/* for transceivers connected thru an ULPI interface, the user must
+ * provide access ops
+ */
 struct usb_phy_io_ops {
 	int (*read)(struct usb_phy *x, u32 reg);
 	int (*write)(struct usb_phy *x, u32 val, u32 reg);
@@ -76,51 +88,64 @@ struct usb_phy {
 	struct usb_phy_io_ops	*io_ops;
 	void __iomem		*io_priv;
 
-	
+	/* for notification of usb_phy_events */
 	struct atomic_notifier_head	notifier;
 
-	
+	/* to pass extra port status to the root hub */
 	u16			port_status;
 	u16			port_change;
 
-	
+	/* to support controllers that have multiple transceivers */
 	struct list_head	head;
 
-	
+	/* initialize/shutdown the OTG controller */
 	int	(*init)(struct usb_phy *x);
 	void	(*shutdown)(struct usb_phy *x);
 
-	
+	/* enable/disable VBUS */
 	int	(*set_vbus)(struct usb_phy *x, int on);
 
-	
+	/* effective for B devices, ignored for A-peripheral */
 	int	(*set_power)(struct usb_phy *x,
 				unsigned mA);
 
-	
+	/* for non-OTG B devices: set transceiver into suspend mode */
 	int	(*set_suspend)(struct usb_phy *x,
 				int suspend);
 
+	/*
+	 * Set wakeup enable for PHY, in that case, the PHY can be
+	 * woken up from suspend status due to external events,
+	 * like vbus change, dp/dm change and id.
+	 */
 	int	(*set_wakeup)(struct usb_phy *x, bool enabled);
 
-	
+	/* notify phy connect status change */
 	int	(*notify_connect)(struct usb_phy *x,
 			enum usb_device_speed speed);
 	int	(*notify_disconnect)(struct usb_phy *x,
 			enum usb_device_speed speed);
 
-	
+	/* reset the PHY clocks */
 	int	(*reset)(struct usb_phy *x);
 
-	
+	/* for notification of usb_phy_dbg_events */
 	void    (*dbg_event)(struct usb_phy *x,
 			char *event, int msg1, int msg2);
-	
+	/* update DP/DM state */
 	int	(*change_dpdm)(struct usb_phy *x, int dpdm);
-	
+	/* return linestate with Idp_src (used for DCD with USB2 PHY) */
 	int	(*dpdm_with_idp_src)(struct usb_phy *x);
 };
 
+/**
+ * struct usb_phy_bind - represent the binding for the phy
+ * @dev_name: the device name of the device that will bind to the phy
+ * @phy_dev_name: the device name of the phy
+ * @index: used if a single controller uses multiple phys
+ * @phy: reference to the phy
+ * @list: to maintain a linked list of the binding information
+ */
 struct usb_phy_bind {
 	const char	*dev_name;
 	const char	*phy_dev_name;
@@ -129,10 +154,12 @@ struct usb_phy_bind {
 	struct list_head list;
 };
 
+/* for board-specific init logic */
 extern int usb_add_phy(struct usb_phy *, enum usb_phy_type type);
 extern int usb_add_phy_dev(struct usb_phy *);
 extern void usb_remove_phy(struct usb_phy *);
 
+/* helpers for direct access thru low-level io interface */
 static inline int usb_phy_io_read(struct usb_phy *x, u32 reg)
 {
 	if (x && x->io_ops && x->io_ops->read)
@@ -192,6 +219,7 @@ usb_phy_reset(struct usb_phy *x)
 	return 0;
 }
 
+/* for usb host and peripheral controller drivers */
 #if IS_ENABLED(CONFIG_USB_PHY)
 extern struct usb_phy *usb_get_phy(enum usb_phy_type type);
 extern struct usb_phy *devm_usb_get_phy(struct device *dev,
@@ -263,6 +291,7 @@ usb_phy_change_dpdm(struct usb_phy *x, int dpdm)
 	return 0;
 }
 
+/* Context: can sleep */
 static inline int
 usb_phy_set_suspend(struct usb_phy *x, int suspend)
 {
@@ -315,6 +344,7 @@ usb_phy_dpdm_with_idp_src(struct usb_phy *x)
 	return 0;
 }
 
+/* notifiers */
 static inline int
 usb_register_notifier(struct usb_phy *x, struct notifier_block *nb)
 {
@@ -338,4 +368,4 @@ static inline const char *usb_phy_type_string(enum usb_phy_type type)
 		return "UNKNOWN PHY TYPE";
 	}
 }
-#endif 
+#endif /* __LINUX_USB_PHY_H */

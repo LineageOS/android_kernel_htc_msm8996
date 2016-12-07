@@ -3239,7 +3239,7 @@ int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 		if (dhdp->op_mode & DHD_FLAG_HOSTAP_MODE)
 			bytes_written = wl_android_set_ap_mac_list(net, command + PROFILE_OFFSET);
 		else
-			DHD_ERROR(("Not in AP mode skip this %s cmmd\n", CMD_AP_MAC_LIST_SET));
+			DHD_ERROR(("Not in AP mode skip this %s cmd\n", CMD_AP_MAC_LIST_SET));
 	}
 	else if (strnicmp(command, CMD_LTECOEX, strlen(CMD_LTECOEX)) == 0) {
 		bytes_written = wl_android_ltecoex_mode(net, command, priv_cmd.total_len);

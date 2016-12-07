@@ -5,6 +5,9 @@
 
 #define ipv6_optlen(p)  (((p)->hdrlen+1) << 3)
 #define ipv6_authlen(p) (((p)->hdrlen+2) << 2)
+/*
+ * This structure contains configuration options per IPv6 link.
+ */
 struct ipv6_devconf {
 	__s32		forwarding;
 	__s32		hop_limit;
@@ -51,6 +54,7 @@ struct ipv6_devconf {
 	__s32           ndisc_notify;
 	__s32		suppress_frag_ndisc;
 	__s32		accept_ra_prefix_route;
+	__s32		use_oif_addrs_only;
 	void		*sysctl;
 };
 
@@ -80,6 +84,10 @@ static inline struct ipv6hdr *ipipv6_hdr(const struct sk_buff *skb)
 	return (struct ipv6hdr *)skb_transport_header(skb);
 }
 
+/*
+   This structure contains results of exthdrs parsing
+   as offsets from skb->nh.
+ */
 
 struct inet6_skb_parm {
 	int			iif;
@@ -119,6 +127,14 @@ struct ipv6_mc_socklist;
 struct ipv6_ac_socklist;
 struct ipv6_fl_socklist;
 
+/**
+ * struct ipv6_pinfo - ipv6 private area
+ *
+ * In the struct sock hierarchy (tcp6_sock, upd6_sock, etc)
+ * this _must_ be the last member, so that inet6_sk_generic
+ * is able to calculate its offset from the base struct sock
+ * by using the struct proto->slab_obj_size member. -acme
+ */
 struct ipv6_pinfo {
 	struct in6_addr 	saddr;
 	struct in6_pktinfo	sticky_pktinfo;
@@ -130,6 +146,10 @@ struct ipv6_pinfo {
 	__be32			flow_label;
 	__u32			frag_size;
 
+	/*
+	 * Packed in 16bits.
+	 * Omit one shift by by putting the signed field at MSB.
+	 */
 #if defined(__BIG_ENDIAN_BITFIELD)
 	__s16			hop_limit:9;
 	__u16			__unused_1:7;
@@ -139,7 +159,7 @@ struct ipv6_pinfo {
 #endif
 
 #if defined(__BIG_ENDIAN_BITFIELD)
-	
+	/* Packed in 16bits. */
 	__s16			mcast_hops:9;
 	__u16			__unused_2:6,
 				mc_loop:1;
@@ -151,7 +171,7 @@ struct ipv6_pinfo {
 	int			ucast_oif;
 	int			mcast_oif;
 
-	
+	/* pktoption flags */
 	union {
 		struct {
 			__u16	srcrt:1,
@@ -168,18 +188,21 @@ struct ipv6_pinfo {
 				rxtclass:1,
 				rxpmtu:1,
 				rxorigdstaddr:1;
-				
+				/* 2 bits hole */
 		} bits;
 		__u16		all;
 	} rxopt;
 
-	
+	/* sockopt flags */
 	__u16			recverr:1,
 	                        sndflow:1,
 				repflow:1,
 				pmtudisc:3,
-				padding:1,	
-				srcprefs:3,	
+				padding:1,	/* 1 bit hole */
+				srcprefs:3,	/* 001: prefer temporary address
+						 * 010: prefer public address
+						 * 100: prefer care-of address
+						 */
 				dontfrag:1,
 				autoflowlabel:1;
 	__u8			min_hopcount;
@@ -203,26 +226,27 @@ struct ipv6_pinfo {
 	} cork;
 };
 
+/* WARNING: don't change the layout of the members in {raw,udp,tcp}6_sock! */
 struct raw6_sock {
-	
+	/* inet_sock has to be the first member of raw6_sock */
 	struct inet_sock	inet;
-	__u32			checksum;	
-	__u32			offset;		
+	__u32			checksum;	/* perform checksum */
+	__u32			offset;		/* checksum offset  */
 	struct icmp6_filter	filter;
 	__u32			ip6mr_table;
-	
+	/* ipv6_pinfo has to be the last member of raw6_sock, see inet6_sk_generic */
 	struct ipv6_pinfo	inet6;
 };
 
 struct udp6_sock {
 	struct udp_sock	  udp;
-	
+	/* ipv6_pinfo has to be the last member of udp6_sock, see inet6_sk_generic */
 	struct ipv6_pinfo inet6;
 };
 
 struct tcp6_sock {
 	struct tcp_sock	  tcp;
-	
+	/* ipv6_pinfo has to be the last member of tcp6_sock, see inet6_sk_generic */
 	struct ipv6_pinfo inet6;
 };
 
@@ -233,9 +257,9 @@ struct tcp6_timewait_sock {
 };
 
 #if IS_ENABLED(CONFIG_IPV6)
-static inline struct ipv6_pinfo * inet6_sk(const struct sock *__sk)
+static inline struct ipv6_pinfo *inet6_sk(const struct sock *__sk)
 {
-	return inet_sk(__sk)->pinet6;
+	return sk_fullsock(__sk) ? inet_sk(__sk)->pinet6 : NULL;
 }
 
 static inline struct raw6_sock *raw6_sk(const struct sock *sk)
@@ -268,7 +292,7 @@ static inline const struct in6_addr *inet6_rcv_saddr(const struct sock *sk)
 
 static inline int inet_v6_ipv6only(const struct sock *sk)
 {
-	
+	/* ipv6only field is at same position for timewait and other sockets */
 	return ipv6_only_sock(sk);
 }
 #else
@@ -295,7 +319,7 @@ static inline struct raw6_sock *raw6_sk(const struct sock *sk)
 #define inet6_rcv_saddr(__sk)	NULL
 #define tcp_twsk_ipv6only(__sk)		0
 #define inet_v6_ipv6only(__sk)		0
-#endif 
+#endif /* IS_ENABLED(CONFIG_IPV6) */
 
 #define INET6_MATCH(__sk, __net, __saddr, __daddr, __ports, __dif)	\
 	(((__sk)->sk_portpair == (__ports))			&&	\
@@ -306,4 +330,4 @@ static inline struct raw6_sock *raw6_sk(const struct sock *sk)
 	   ((__sk)->sk_bound_dev_if == (__dif))) 		&&	\
 	 net_eq(sock_net(__sk), (__net)))
 
-#endif 
+#endif /* _IPV6_H */

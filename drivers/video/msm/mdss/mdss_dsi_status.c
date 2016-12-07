@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,7 +32,6 @@
 #include "mdss_panel.h"
 #include "mdss_mdp.h"
 
-#define VSYNC_CHECK_MARGIN 1000
 #define STATUS_CHECK_INTERVAL_MS 5000
 #define STATUS_CHECK_INTERVAL_MIN_MS 50
 #define DSI_STATUS_CHECK_INIT -1
@@ -41,12 +40,12 @@
 static uint32_t interval = STATUS_CHECK_INTERVAL_MS;
 static int32_t dsi_status_disable = DSI_STATUS_CHECK_INIT;
 struct dsi_status_data *pstatus_data;
-static uint32_t hw_vsync_count = 0;
 
 static void check_dsi_ctrl_status(struct work_struct *work)
 {
-	unsigned long flag;
 	struct dsi_status_data *pdsi_status = NULL;
+	struct te_data *te = NULL;
+	unsigned long flag;
 
 	pdsi_status = container_of(to_delayed_work(work),
 		struct dsi_status_data, check_status);
@@ -66,68 +65,52 @@ static void check_dsi_ctrl_status(struct work_struct *work)
 		return;
 	}
 
+	te = &(pstatus_data->te);
+	pr_info("%s: count=%d, irq_en=%d\n", __func__, te->count, te->irq_enabled);
+
 	spin_lock_irqsave(&pstatus_data->te.spinlock, flag);
-
-	pr_info("now=%d, last=%d, vsync=%d\n",
-		jiffies_to_msecs(jiffies),
-		jiffies_to_msecs(pstatus_data->te.ts_last_check),
-		jiffies_to_msecs(pstatus_data->te.ts_vsync));
-
-	if (pstatus_data->te.ts_vsync && pstatus_data->te.ts_last_check) {
-		if (time_after(pstatus_data->te.ts_last_check,
-			pstatus_data->te.ts_vsync+msecs_to_jiffies(VSYNC_CHECK_MARGIN))) {
-			pr_warn("%s: Vsync doesn't come within schedule\n", __func__);
-			if (hw_vsync_count) {
-				
-				pstatus_data->te.ts_last_check =
-					pstatus_data->te.ts_vsync = jiffies;
-				spin_unlock_irqrestore(&pstatus_data->te.spinlock, flag);
-				pdsi_status->mfd->mdp.check_dsi_status(work, interval);
-				goto l_end;
-			} else {
-				pr_err("%s: HW vsync missing after unblanking!\n", __func__);
-				panic("LCM DDIC no TE");
-			}
-		} else {
-			pstatus_data->te.ts_last_check = jiffies;
-			enable_irq(pstatus_data->te.irq);
-			pstatus_data->te.irq_enabled = true;
-			spin_unlock_irqrestore(&pstatus_data->te.spinlock, flag);
-			goto l_end;
-		}
+	if (!te->irq_enabled) {
+		te->count = 0;
+		te->irq_enabled = true;
+		enable_irq(te->irq);
 	}
-
-	pstatus_data->te.ts_last_check = jiffies;
 	spin_unlock_irqrestore(&pstatus_data->te.spinlock, flag);
-l_end:
-	mod_delayed_work(system_wq, &pstatus_data->check_status,
-		msecs_to_jiffies(interval));
+
+	pdsi_status->mfd->mdp.check_dsi_status(work, interval);
 }
 
 irqreturn_t hw_vsync_handler(int irq, void *data)
 {
-	unsigned long flag;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata =
 			(struct mdss_dsi_ctrl_pdata *)data;
+
+	struct te_data *te = NULL;
+	unsigned long flag;
+
 	if (!ctrl_pdata) {
 		pr_err("%s: DSI ctrl not available\n", __func__);
 		return IRQ_HANDLED;
 	}
 
 	if (pstatus_data) {
-		spin_lock_irqsave(&pstatus_data->te.spinlock, flag);
-		pstatus_data->te.ts_vsync = jiffies;
-		if (pstatus_data->te.first == true) {
-			pstatus_data->te.first = false;
-			pstatus_data->te.irq = gpio_to_irq(ctrl_pdata->disp_te_gpio);
+		if (ctrl_pdata->status_mode == ESD_TE) {
+			mod_delayed_work(system_wq, &pstatus_data->check_status,
+				msecs_to_jiffies(interval));
+		} else if (ctrl_pdata->status_mode == ESD_TE_V2) {
+			spin_lock_irqsave(&pstatus_data->te.spinlock, flag);
+			te = &(pstatus_data->te);
+			te->count++;
+			if (te->irq_enabled) {
+				if (te->count > 2) {
+					te->irq_enabled = false;
+					disable_irq_nosync(te->irq);
+				}
+			} else {
+				pr_info("%s: TE IRQ was already disabled\n", __func__);
+			}
+			pr_info("%s: count=%d\n", __func__, te->count);
+			spin_unlock_irqrestore(&pstatus_data->te.spinlock, flag);
 		}
-		if (pstatus_data->te.irq_enabled) {
-			pstatus_data->te.irq_enabled = false;
-			disable_irq_nosync(pstatus_data->te.irq);
-		}
-		hw_vsync_count++;
-		pr_info("%s: hw_vsync count = %d\n", __func__, hw_vsync_count);
-		spin_unlock_irqrestore(&pstatus_data->te.spinlock, flag);
 	} else
 		pr_err("Pstatus data is NULL\n");
 
@@ -146,11 +129,18 @@ static int fb_event_callback(struct notifier_block *self,
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	struct mdss_panel_info *pinfo;
 	struct msm_fb_data_type *mfd;
+	struct mipi_panel_info *mipi;
+	bool use_te_esd = false;
+	unsigned long flags;
 
 	if (!evdata) {
 		pr_err("%s: event data not available\n", __func__);
 		return NOTIFY_BAD;
 	}
+
+	
+	if (strncmp("mdssfb", evdata->info->fix.id, 6))
+		return NOTIFY_DONE;
 
 	mfd = evdata->info->par;
 	ctrl_pdata = container_of(dev_get_platdata(&mfd->pdev->dev),
@@ -171,28 +161,47 @@ static int fb_event_callback(struct notifier_block *self,
 	}
 
 	pdata->mfd = evdata->info->par;
+
+	mipi  = &pinfo->mipi;
+	if ((pinfo->type == MIPI_CMD_PANEL) &&
+		mipi->vsync_enable && mipi->hw_vsync_mode) {
+		if (mdss_dsi_is_te_based_esd(ctrl_pdata)) {
+			use_te_esd = true;
+			pdata->te.irq = gpio_to_irq(ctrl_pdata->disp_te_gpio);
+		}
+	}
+
 	if (event == FB_EVENT_BLANK) {
 		int *blank = evdata->data;
-		struct dsi_status_data *pdata = container_of(self,
-				struct dsi_status_data, fb_notifier);
-		pdata->mfd = evdata->info->par;
 
+		spin_lock_irqsave(&pdata->te.spinlock, flags);
 		switch (*blank) {
 		case FB_BLANK_UNBLANK:
-			hw_vsync_count = 0;
+			if (use_te_esd) {
+				pdata->te.irq_enabled = true;
+				enable_irq(pdata->te.irq);
+			}
 			schedule_delayed_work(&pdata->check_status,
-				msecs_to_jiffies(interval));
+				msecs_to_jiffies(1000));
 			break;
 		case FB_BLANK_POWERDOWN:
 		case FB_BLANK_HSYNC_SUSPEND:
 		case FB_BLANK_VSYNC_SUSPEND:
 		case FB_BLANK_NORMAL:
 			cancel_delayed_work(&pdata->check_status);
+			if (use_te_esd && pdata->te.irq_enabled) {
+				disable_irq_nosync(pdata->te.irq);
+				pdata->te.irq_enabled = false;
+				pdata->te.count = 99;
+				atomic_set(&ctrl_pdata->te_irq_ready, 0);
+			}
 			break;
 		default:
 			pr_err("Unknown case in FB_EVENT_BLANK event\n");
 			break;
 		}
+		spin_unlock_irqrestore(&pdata->te.spinlock, flags);
+		pr_info("%s: fb%d, event=%lu, blank=%d\n", __func__, mfd->index, event, *blank);
 	}
 	return 0;
 }
@@ -254,9 +263,6 @@ int __init mdss_dsi_status_init(void)
 
 	pstatus_data->te.irq = -1;
 	pstatus_data->te.irq_enabled = false;
-	pstatus_data->te.first = true;
-	pstatus_data->te.ts_vsync = 0;
-	pstatus_data->te.ts_last_check = 0;
 	spin_lock_init(&pstatus_data->te.spinlock);
 
 	pr_info("%s: DSI status check interval:%d\n", __func__,	interval);
