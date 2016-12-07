@@ -348,6 +348,10 @@ static int msm_isp_start_fetch_engine(struct vfe_device *vfe_dev,
 	void *arg)
 {
 	struct msm_vfe_fetch_eng_start *fe_cfg = arg;
+	/*
+	 * For Offline VFE, HAL expects same frame id
+	 * for offline output which it requested in do_reprocess.
+	 */
 	vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id =
 		fe_cfg->frame_id;
 	return vfe_dev->hw_info->vfe_ops.core_ops.
@@ -361,6 +365,10 @@ static int msm_isp_start_fetch_engine_multi_pass(struct vfe_device *vfe_dev,
 	struct msm_vfe_axi_stream *stream_info = NULL;
 	int i = 0, rc;
 	uint32_t wm_reload_mask = 0;
+	/*
+	 * For Offline VFE, HAL expects same frame id
+	 * for offline output which it requested in do_reprocess.
+	 */
 	vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id =
 		fe_cfg->frame_id;
 
@@ -448,6 +456,10 @@ static int msm_isp_cfg_pix(struct vfe_device *vfe_dev,
 		input_cfg->d.pix_cfg.input_format;
 	vfe_dev->axi_data.src_info[VFE_PIX_0].sof_counter_step = 1;
 
+	/*
+	 * Fill pixel_clock into input_pix_clk so that user space
+	 * can use rounded clk rate
+	 */
 	input_cfg->input_pix_clk =
 		vfe_dev->axi_data.src_info[VFE_PIX_0].pixel_clock;
 
@@ -525,6 +537,11 @@ int msm_isp_cfg_input(struct vfe_device *vfe_dev, void *arg)
 static int msm_isp_set_dual_HW_master_slave_mode(
 	struct vfe_device *vfe_dev, void *arg)
 {
+	/*
+	 * This method assumes no 2 processes are accessing it simultaneously.
+	 * Currently this is guaranteed by mutex lock in ioctl.
+	 * If that changes, need to revisit this
+	 */
 	int rc = 0, i, j;
 	struct msm_isp_set_dual_hw_ms_cmd *dual_hw_ms_cmd = NULL;
 	struct msm_vfe_src_info *src_info = NULL;
@@ -548,7 +565,7 @@ static int msm_isp_set_dual_HW_master_slave_mode(
 			dual_hw_ms_cmd->dual_hw_ms_type;
 	}
 
-	
+	/* No lock needed here since ioctl lock protects 2 session from race */
 	if (src_info != NULL &&
 		dual_hw_ms_cmd->dual_hw_ms_type == MS_TYPE_MASTER) {
 		src_info->dual_hw_type = DUAL_HW_MASTER_SLAVE;
@@ -592,6 +609,9 @@ static int msm_isp_set_dual_HW_master_slave_mode(
 	}
 	ISP_DBG("%s: vfe %d num_src %d\n", __func__, vfe_dev->pdev->id,
 		dual_hw_ms_cmd->num_src);
+	/* This for loop is for non-primary intf to be marked with Master/Slave
+	 * in order for frame id sync. But their timestamp is not saved.
+	 * So no sof_info resource is allocated */
 	for (i = 0; i < dual_hw_ms_cmd->num_src; i++) {
 		if (dual_hw_ms_cmd->input_src[i] >= VFE_SRC_MAX) {
 			pr_err("%s: Error! Invalid SRC param %d\n", __func__,
@@ -730,12 +750,12 @@ static int msm_isp_proc_cmd_list(struct vfe_device *vfe_dev, void *arg)
 	else
 		return msm_isp_proc_cmd_list_unlocked(vfe_dev, arg);
 }
-#else 
+#else /* CONFIG_COMPAT */
 static int msm_isp_proc_cmd_list(struct vfe_device *vfe_dev, void *arg)
 {
 	return msm_isp_proc_cmd_list_unlocked(vfe_dev, arg);
 }
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static long msm_isp_ioctl_unlocked(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
@@ -753,6 +773,12 @@ static long msm_isp_ioctl_unlocked(struct v4l2_subdev *sd,
 		return -EINVAL;
 	}
 
+	/* use real time mutex for hard real-time ioctls such as
+	 * buffer operations and register updates.
+	 * Use core mutex for other ioctls that could take
+	 * longer time to complete such as start/stop ISP streams
+	 * which blocks until the hardware start/stop streaming
+	 */
 	ISP_DBG("%s: cmd: %d\n", __func__, _IOC_TYPE(cmd));
 	switch (cmd) {
 	case VIDIOC_MSM_VFE_REG_CFG: {
@@ -768,11 +794,11 @@ static long msm_isp_ioctl_unlocked(struct v4l2_subdev *sd,
 		break;
 	}
 	case VIDIOC_MSM_ISP_REQUEST_BUF:
-		
+		/* fallthrough */
 	case VIDIOC_MSM_ISP_ENQUEUE_BUF:
-		
+		/* fallthrough */
 	case VIDIOC_MSM_ISP_DEQUEUE_BUF:
-		
+		/* fallthrough */
 	case VIDIOC_MSM_ISP_UNMAP_BUF: {
 		mutex_lock(&vfe_dev->buf_mgr->lock);
 		rc = msm_isp_proc_buf_cmd(vfe_dev->buf_mgr, cmd, arg);
@@ -979,13 +1005,13 @@ long msm_isp_ioctl(struct v4l2_subdev *sd,
 {
 	return msm_isp_ioctl_compat(sd, cmd, arg);
 }
-#else 
+#else /* CONFIG_COMPAT */
 long msm_isp_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
 {
 	return msm_isp_ioctl_unlocked(sd, cmd, arg);
 }
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 	struct msm_vfe_reg_cfg_cmd *reg_cfg_cmd,
@@ -1004,7 +1030,7 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 		return -EINVAL;
 	}
 
-	
+	/* Validate input parameters */
 	switch (reg_cfg_cmd->cmd_type) {
 	case VFE_WRITE:
 	case VFE_READ:
@@ -1492,7 +1518,7 @@ int msm_isp_cal_word_per_line(uint32_t output_format,
 	case V4L2_PIX_FMT_NV42:
 		val = CAL_WORD(pixel_per_line, 1, 8);
 	break;
-		
+		/*TD: Add more image format*/
 	default:
 		msm_isp_print_fourcc_error(__func__, output_format);
 		break;
@@ -1653,7 +1679,7 @@ int msm_isp_get_bit_per_pixel(uint32_t output_format)
 	case V4L2_PIX_FMT_NV24:
 	case V4L2_PIX_FMT_NV42:
 		return 24;
-		
+		/*TD: Add more image format*/
 	default:
 		msm_isp_print_fourcc_error(__func__, output_format);
 		pr_err("%s: Invalid output format %x\n",
@@ -1720,11 +1746,11 @@ void msm_isp_process_overflow_irq(
 {
 	uint32_t overflow_mask;
 
-	
+	/* if there are no active streams - do not start recovery */
 	if (!vfe_dev->axi_data.num_active_stream)
 		return;
 
-	
+	/*Mask out all other irqs if recovery is started*/
 	if (atomic_read(&vfe_dev->error_info.overflow_state) != NO_OVERFLOW) {
 		uint32_t halt_restart_mask0, halt_restart_mask1;
 		vfe_dev->hw_info->vfe_ops.core_ops.
@@ -1736,7 +1762,7 @@ void msm_isp_process_overflow_irq(
 		return;
 	}
 
-	
+	/*Check if any overflow bit is set*/
 	vfe_dev->hw_info->vfe_ops.core_ops.
 		get_overflow_mask(&overflow_mask);
 	if (!force_overflow)
@@ -1749,7 +1775,7 @@ void msm_isp_process_overflow_irq(
 		if (vfe_dev->reset_pending == 1) {
 			pr_err("%s:%d failed: overflow %x during reset\n",
 				__func__, __LINE__, overflow_mask);
-			
+			/* Clear overflow bits since reset is pending */
 			*irq_status1 &= ~overflow_mask;
 			return;
 		}
@@ -1757,7 +1783,7 @@ void msm_isp_process_overflow_irq(
 		ISP_DBG("%s: VFE%d Bus overflow detected: start recovery!\n",
 			__func__, vfe_dev->pdev->id);
 
-		
+		/* maks off irq for current vfe */
 		atomic_cmpxchg(&vfe_dev->error_info.overflow_state,
 			NO_OVERFLOW, OVERFLOW_DETECTED);
 		vfe_dev->recovery_irq0_mask = vfe_dev->irq0_mask;
@@ -1766,7 +1792,7 @@ void msm_isp_process_overflow_irq(
 		vfe_dev->hw_info->vfe_ops.core_ops.
 			set_halt_restart_mask(vfe_dev);
 
-		
+		/* mask off other vfe if dual vfe is used */
 		if (vfe_dev->is_split) {
 			uint32_t other_vfe_id;
 			struct vfe_device *other_vfe_dev;
@@ -1792,11 +1818,11 @@ void msm_isp_process_overflow_irq(
 				dual_vfe_res->vfe_dev[other_vfe_id]);
 		}
 
-		
+		/* reset irq status so skip further process */
 		*irq_status0 = 0;
 		*irq_status1 = 0;
 
-		
+		/* send overflow event as needed */
 		if (atomic_read(&vfe_dev->error_info.overflow_state)
 			!= HALT_ENFORCED) {
 			memset(&error_event, 0, sizeof(error_event));
@@ -2071,7 +2097,7 @@ int msm_isp_open_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	vfe_dev->taskletq_idx = 0;
 	vfe_dev->vt_enable = 0;
 	vfe_dev->reg_update_requested = 0;
-	
+	/* Register page fault handler */
 	vfe_dev->buf_mgr->pagefault_debug_disable = 0;
 	cam_smmu_reg_client_page_fault_handler(
 			vfe_dev->buf_mgr->iommu_hdl,
@@ -2116,7 +2142,7 @@ int msm_isp_close_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 		mutex_unlock(&vfe_dev->realtime_mutex);
 		return 0;
 	}
-	
+	/* Unregister page fault handler */
 	cam_smmu_reg_client_page_fault_handler(
 		vfe_dev->buf_mgr->iommu_hdl,
 		NULL, vfe_dev);
@@ -2129,10 +2155,10 @@ int msm_isp_close_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 		update_camif_state(vfe_dev, DISABLE_CAMIF_IMMEDIATELY);
 	vfe_dev->hw_info->vfe_ops.core_ops.reset_hw(vfe_dev, 0, 0);
 
-	
+	/* after regular hw stop, reduce open cnt */
 	vfe_dev->vfe_open_cnt--;
 
-	
+	/* put scratch buf in all the wm */
 	for (wm = 0; wm < vfe_dev->axi_data.hw_info->num_wm; wm++) {
 		msm_isp_cfg_wm_scratch(vfe_dev, wm, VFE_PING_FLAG);
 		msm_isp_cfg_wm_scratch(vfe_dev, wm, VFE_PONG_FLAG);

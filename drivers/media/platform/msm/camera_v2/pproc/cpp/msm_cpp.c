@@ -55,6 +55,7 @@
 #define CPP_FW_VERSION_1_8_0	0x10080000
 #define CPP_FW_VERSION_1_10_0	0x10100000
 
+/* dump the frame command before writing to the hardware */
 #define  MSM_CPP_DUMP_FRM_CMD 0
 
 #define CPP_CLK_INFO_MAX 16
@@ -91,6 +92,11 @@
 		buff_mgr_info.index = cur_index; \
 }
 
+/*
+ * Default value for get buf to be used - 0xFFFFFFFF
+ * 0 is a valid index
+ * no valid index from userspace, use last buffer from queue.
+ */
 #define DEFAULT_OUTPUT_BUF_INDEX 0xFFFFFFFF
 #define IS_DEFAULT_OUTPUT_BUF_INDEX(index) \
 	((index == DEFAULT_OUTPUT_BUF_INDEX) ? 1 : 0)
@@ -174,7 +180,7 @@ void msm_cpp_vbif_register_error_handler(void *dev,
 		cpp_vbif.dev[client] = dev;
 		cpp_vbif.err_handler[client] = client_vbif_error_handler;
 	} else {
-		
+		/* if handler = NULL, is unregister case */
 		cpp_vbif.dev[client] = NULL;
 		cpp_vbif.err_handler[client] = NULL;
 	}
@@ -632,6 +638,12 @@ static int32_t msm_cpp_poll_rx_empty(void __iomem *cpp_base)
 
 	tmp = msm_camera_io_r(cpp_base + MSM_CPP_MICRO_FIFO_RX_STAT);
 	while (((tmp & 0x2) != 0x0) && (retry++ < MSM_CPP_POLL_RETRIES)) {
+		/*
+		* Below usleep values are chosen based on experiments
+		* and this was the smallest number which works. This
+		* sleep is needed to leave enough time for Microcontroller
+		* to read rx fifo.
+		*/
 		usleep_range(200, 300);
 		tmp = msm_camera_io_r(cpp_base + MSM_CPP_MICRO_FIFO_RX_STAT);
 	}
@@ -776,7 +788,7 @@ void msm_cpp_do_tasklet(unsigned long data)
 				msg_id = tx_fifo[i+2];
 				if (msg_id == MSM_CPP_MSG_ID_FRAME_ACK) {
 					CPP_DBG("Frame done!!\n");
-					
+					/* delete CPP timer */
 					CPP_DBG("delete timer.\n");
 					msm_cpp_timer_queue_update(cpp_dev);
 					msm_cpp_notify_frame_done(cpp_dev, 0);
@@ -976,7 +988,7 @@ static int32_t cpp_load_fw(struct cpp_device *cpp_dev, char *fw_name_bin)
 			__func__, __LINE__, rc);
 		goto end;
 	}
-	
+	/*Start firmware loading*/
 	msm_cpp_write(MSM_CPP_CMD_FW_LOAD, cpp_dev->base);
 	msm_cpp_write(cpp_dev->fw->size, cpp_dev->base);
 	msm_cpp_write(MSM_CPP_START_ADDRESS, cpp_dev->base);
@@ -1022,7 +1034,7 @@ static int32_t cpp_load_fw(struct cpp_device *cpp_dev, char *fw_name_bin)
 			__func__, __LINE__, rc);
 		goto end;
 	}
-	
+	/*Trigger MC to jump to start address*/
 	msm_cpp_write(MSM_CPP_CMD_EXEC_JUMP, cpp_dev->base);
 	msm_cpp_write(MSM_CPP_JUMP_ADDRESS, cpp_dev->base);
 
@@ -1072,15 +1084,15 @@ int cpp_vbif_error_handler(void *dev, uint32_t vbif_error)
 
 	cpp_dev = (struct cpp_device *) dev;
 
-	
+	/* MMSS_A_CPP_IRQ_STATUS_0 = 0x10 */
 	pr_err("%s: before reset halt... read MMSS_A_CPP_IRQ_STATUS_0 = 0x%x",
 		__func__, msm_camera_io_r(cpp_dev->cpp_hw_base + 0x10));
 
 	pr_err("%s: start reset bus bridge on FD + CPP!\n", __func__);
-	
+	/* MMSS_A_CPP_RST_CMD_0 = 0x8,  firmware reset = 0x3DF77 */
 	msm_camera_io_w(0x3DF77, cpp_dev->cpp_hw_base + 0x8);
 
-	
+	/* MMSS_A_CPP_IRQ_STATUS_0 = 0x10 */
 	pr_err("%s: after reset halt... read MMSS_A_CPP_IRQ_STATUS_0 = 0x%x",
 		__func__, msm_camera_io_r(cpp_dev->cpp_hw_base + 0x10));
 
@@ -1244,7 +1256,7 @@ static int cpp_close_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 		cpp_dev->state = CPP_STATE_OFF;
 	}
 
-	
+	/* unregister vbif error handler */
 	msm_cpp_vbif_register_error_handler(cpp_dev,
 		VBIF_CLIENT_CPP, NULL);
 	mutex_unlock(&cpp_dev->mutex);
@@ -1411,11 +1423,11 @@ static int msm_cpp_dump_frame_cmd(struct msm_cpp_frame_info_t *frame_info)
 		frame_info->identity, frame_info->frame_id);
 
 	CPP_DBG("msg[%03d] = 0x%08x\n", 0, 0x6);
-	
+	/* send top level and plane level */
 	for (i = 0; i < cpp_dev->payload_params.stripe_base; i++)
 		CPP_DBG("msg[%03d] = 0x%08x\n", i,
 			frame_info->cpp_cmd_msg[i]);
-	
+	/* send stripes */
 	i1 = cpp_dev->payload_params.stripe_base +
 		cpp_dev->payload_params.stripe_size *
 		frame_info->first_stripe_index;
@@ -1425,7 +1437,7 @@ static int msm_cpp_dump_frame_cmd(struct msm_cpp_frame_info_t *frame_info)
 	for (i = 0; i < i2; i++)
 		CPP_DBG("msg[%03d] = 0x%08x\n", i+i1,
 			frame_info->cpp_cmd_msg[i+i1]);
-	
+	/* send trailer */
 	CPP_DBG("msg[%03d] = 0x%08x\n", i+i1, MSM_CPP_MSG_ID_TRAILER);
 	CPP_DBG("--   end: cpp frame cmd for identity=0x%x, frame_id=%d --\n",
 		frame_info->identity, frame_info->frame_id);
@@ -1477,17 +1489,17 @@ static void msm_cpp_do_timeout_work(struct work_struct *work)
 	if (!work || (cpp_timer.data.cpp_dev->state != CPP_STATE_ACTIVE)) {
 		pr_err("Invalid work:%pK or state:%d\n", work,
 			cpp_timer.data.cpp_dev->state);
-		
+		/* Do not flush queue here as it is not a fatal error */
 		goto end;
 	}
 	if (!atomic_read(&cpp_timer.used)) {
 		pr_warn("Delayed trigger, IRQ serviced\n");
-		
+		/* Do not flush queue here as it is not a fatal error */
 		goto end;
 	}
 
 	msm_camera_enable_irq(cpp_timer.data.cpp_dev->irq, false);
-	
+	/* make sure all the pending queued entries are scheduled */
 	tasklet_kill(&cpp_dev->cpp_tasklet);
 
 	queue = &cpp_timer.data.cpp_dev->processing_q;
@@ -1520,7 +1532,7 @@ static void msm_cpp_do_timeout_work(struct work_struct *work)
 
 	if (!atomic_read(&cpp_timer.used)) {
 		pr_warn("Delayed trigger, IRQ serviced\n");
-		
+		/* Do not flush queue here as it is not a fatal error */
 		msm_cpp_set_micro_irq_mask(cpp_dev, 1, 0x8);
 		cpp_dev->timeout_trial_cnt = 0;
 		goto end;
@@ -1558,7 +1570,7 @@ static void msm_cpp_do_timeout_work(struct work_struct *work)
 		}
 		msm_cpp_write(0x6, cpp_dev->base);
 		fifo_counter++;
-		
+		/* send top level and plane level */
 		for (j = 0; j < cpp_dev->payload_params.stripe_base; j++,
 			fifo_counter++) {
 			if (fifo_counter % MSM_CPP_RX_FIFO_LEVEL == 0) {
@@ -1578,7 +1590,7 @@ static void msm_cpp_do_timeout_work(struct work_struct *work)
 				__func__, __LINE__, rc);
 			goto error;
 		}
-		
+		/* send stripes */
 		i1 = cpp_dev->payload_params.stripe_base +
 			cpp_dev->payload_params.stripe_size *
 			processed_frame[i]->first_stripe_index;
@@ -1603,7 +1615,7 @@ static void msm_cpp_do_timeout_work(struct work_struct *work)
 				__func__, __LINE__, rc);
 			goto error;
 		}
-		
+		/* send trailer */
 
 		if (fifo_counter % MSM_CPP_RX_FIFO_LEVEL == 0) {
 			rc = msm_cpp_poll_rx_empty(cpp_dev->base);
@@ -1626,7 +1638,7 @@ end:
 	return;
 error:
 	cpp_dev->state = CPP_STATE_OFF;
-	
+	/* flush the queue */
 	msm_cpp_flush_queue_and_release_buffer(cpp_dev,
 		queue_len);
 	msm_cpp_set_micro_irq_mask(cpp_dev, 0, 0x0);
@@ -1681,7 +1693,7 @@ static int msm_cpp_send_frame_to_hardware(struct cpp_device *cpp_dev,
 		}
 		msm_cpp_write(0x6, cpp_dev->base);
 		fifo_counter++;
-		
+		/* send top level and plane level */
 		for (i = 0; i < cpp_dev->payload_params.stripe_base; i++,
 			fifo_counter++) {
 			if ((fifo_counter % MSM_CPP_RX_FIFO_LEVEL) == 0) {
@@ -1698,7 +1710,7 @@ static int msm_cpp_send_frame_to_hardware(struct cpp_device *cpp_dev,
 				__func__, __LINE__, rc);
 			goto dequeue_frame;
 		}
-		
+		/* send stripes */
 		i1 = cpp_dev->payload_params.stripe_base +
 			cpp_dev->payload_params.stripe_size *
 			process_frame->first_stripe_index;
@@ -1720,7 +1732,7 @@ static int msm_cpp_send_frame_to_hardware(struct cpp_device *cpp_dev,
 				__func__, __LINE__, rc);
 			goto dequeue_frame;
 		}
-		
+		/* send trailer */
 		if ((fifo_counter % MSM_CPP_RX_FIFO_LEVEL) == 0) {
 			rc = msm_cpp_poll_rx_empty(cpp_dev->base);
 			if (rc) {
@@ -1857,10 +1869,10 @@ static int msm_cpp_check_buf_type(struct msm_buf_mngr_info *buff_mgr_info,
 		num_output_bufs = buff_mgr_info->user_buf.buf_cnt;
 		if (buff_mgr_info->user_buf.buf_cnt <
 			new_frame->batch_info.batch_size) {
-			
+			/* Less bufs than Input buffer */
 			num_output_bufs = buff_mgr_info->user_buf.buf_cnt;
 		} else {
-			
+			/* More or equal bufs as Input buffer */
 			num_output_bufs = new_frame->batch_info.batch_size;
 		}
 		for (i = 0; i < num_output_bufs; i++) {
@@ -1868,7 +1880,7 @@ static int msm_cpp_check_buf_type(struct msm_buf_mngr_info *buff_mgr_info,
 				buff_mgr_info->user_buf.buf_idx[i];
 		}
 	} else {
-		
+		/* For non-group case use first buf slot */
 		new_frame->output_buffer_info[0].index = buff_mgr_info->index;
 		num_output_bufs = 1;
 	}
@@ -1896,29 +1908,29 @@ static void msm_cpp_update_frame_msg_phy_address(struct cpp_device *cpp_dev,
 
 	cpp_frame_msg = new_frame->cpp_cmd_msg;
 
-	
+	/* Update stripe/plane size and base offsets */
 	stripe_base = cpp_dev->payload_params.stripe_base;
 	stripe_size = cpp_dev->payload_params.stripe_size;
 	plane_base = cpp_dev->payload_params.plane_base;
 	plane_size = cpp_dev->payload_params.plane_size;
 
-	
+	/* Fetch engine Offset */
 	rd_pntr_off = cpp_dev->payload_params.rd_pntr_off;
-	
+	/* Write engine offsets */
 	wr_0_pntr_off = cpp_dev->payload_params.wr_0_pntr_off;
 	wr_1_pntr_off = wr_0_pntr_off + 1;
 	wr_2_pntr_off = wr_1_pntr_off + 1;
 	wr_3_pntr_off = wr_2_pntr_off + 1;
-	
+	/* Reference engine offsets */
 	rd_ref_pntr_off = cpp_dev->payload_params.rd_ref_pntr_off;
 	wr_ref_pntr_off = cpp_dev->payload_params.wr_ref_pntr_off;
-	
+	/* Meta data offsets */
 	wr_0_meta_data_wr_pntr_off =
 		cpp_dev->payload_params.wr_0_meta_data_wr_pntr_off;
 	wr_1_meta_data_wr_pntr_off = (wr_0_meta_data_wr_pntr_off + 1);
 	wr_2_meta_data_wr_pntr_off = (wr_1_meta_data_wr_pntr_off + 1);
 	wr_3_meta_data_wr_pntr_off = (wr_2_meta_data_wr_pntr_off + 1);
-	
+	/* MMU PF offsets */
 	fe_mmu_pf_ptr_off = cpp_dev->payload_params.fe_mmu_pf_ptr_off;
 	ref_fe_mmu_pf_ptr_off = cpp_dev->payload_params.ref_fe_mmu_pf_ptr_off;
 	we_mmu_pf_ptr_off = cpp_dev->payload_params.we_mmu_pf_ptr_off;
@@ -1927,12 +1939,17 @@ static void msm_cpp_update_frame_msg_phy_address(struct cpp_device *cpp_dev,
 
 	pr_debug("%s: feature_mask 0x%x\n", __func__, new_frame->feature_mask);
 
-	
+	/* Update individual module status from feature mask */
 	tnr_enabled = ((new_frame->feature_mask & TNR_MASK) >> 2);
 	ubwc_enabled = ((new_frame->feature_mask & UBWC_MASK) >> 5);
 	cds_en = ((new_frame->feature_mask & CDS_MASK) >> 6);
 	mmu_pf_en = ((new_frame->feature_mask & MMU_PF_MASK) >> 7);
 
+	/*
+	 * Update the stripe based addresses for fetch/write/reference engines.
+	 * Update meta data offset for ubwc.
+	 * Update ref engine address for cds / tnr.
+	 */
 	for (i = 0; i < new_frame->num_strips; i++) {
 		cpp_frame_msg[stripe_base + rd_pntr_off + i * stripe_size] +=
 			(uint32_t) in_phyaddr;
@@ -1971,7 +1988,7 @@ static void msm_cpp_update_frame_msg_phy_address(struct cpp_device *cpp_dev,
 	if (!mmu_pf_en)
 		goto exit;
 
-	
+	/* Update mmu prefetch related plane specific address */
 	for (i = 0; i < PAYLOAD_NUM_PLANES; i++) {
 		cpp_frame_msg[plane_base + fe_mmu_pf_ptr_off +
 			i * plane_size] += (uint32_t)in_phyaddr;
@@ -2022,6 +2039,12 @@ static int32_t msm_cpp_set_group_buffer_duplicate(struct cpp_device *cpp_dev,
 			break;
 		}
 
+		/*
+		 * Length of  MSM_CPP_CMD_GROUP_BUFFER_DUP command +
+		 * 4 byte for header + 4 byte for the length field +
+		 * 4 byte for the trailer + 4 byte for
+		 * MSM_CPP_CMD_GROUP_BUFFER_DUP prefix before the payload
+		 */
 		set_group_buffer_len += 4;
 		set_group_buffer_len_bytes = set_group_buffer_len *
 			sizeof(uint32_t);
@@ -2038,13 +2061,17 @@ static int32_t msm_cpp_set_group_buffer_duplicate(struct cpp_device *cpp_dev,
 			set_group_buffer_len_bytes);
 		dup_frame_off =
 			cpp_dev->payload_params.dup_frame_indicator_off;
-		
+		/* Add a factor of 1 as command is prefixed to the payload. */
 		dup_frame_off += 1;
 		ubwc_enabled = ((new_frame->feature_mask & UBWC_MASK) >> 5);
 		ptr = set_group_buffer_w_duplication;
-		
+		/*create and send Set Group Buffer with Duplicate command*/
 		*ptr++ = MSM_CPP_CMD_GROUP_BUFFER_DUP;
 		*ptr++ = MSM_CPP_MSG_ID_CMD;
+		/*
+		 * This field is the value read from dt and stands for length of
+		 * actual data in payload
+		 */
 		*ptr++ = cpp_dev->payload_params.set_group_buffer_len;
 		*ptr++ = MSM_CPP_CMD_GROUP_BUFFER_DUP;
 		*ptr++ = 0;
@@ -2082,6 +2109,10 @@ static int32_t msm_cpp_set_group_buffer_duplicate(struct cpp_device *cpp_dev,
 		else
 			set_group_buffer_w_duplication[dup_frame_off] = 0;
 
+		/*
+		 * Index for cpp message id trailer is length of payload for
+		 * set group buffer minus 1
+		 */
 		set_group_buffer_w_duplication[set_group_buffer_len - 1] =
 			MSM_CPP_MSG_ID_TRAILER;
 		rc = msm_cpp_send_command_to_hardware(cpp_dev,
@@ -2139,6 +2170,12 @@ static int32_t msm_cpp_set_group_buffer(struct cpp_device *cpp_dev,
 
 	set_group_buffer_len =
 		2 + 3 * (num_output_bufs - 1);
+	/*
+	 * Length of  MSM_CPP_CMD_GROUP_BUFFER command +
+	 * 4 byte for header + 4 byte for the length field +
+	 * 4 byte for the trailer + 4 byte for
+	 * MSM_CPP_CMD_GROUP_BUFFER prefix before the payload
+	 */
 	set_group_buffer_len += 4;
 	set_group_buffer_len_bytes = set_group_buffer_len *
 		sizeof(uint32_t);
@@ -2154,9 +2191,13 @@ static int32_t msm_cpp_set_group_buffer(struct cpp_device *cpp_dev,
 	memset(set_group_buffer, 0x0,
 		set_group_buffer_len_bytes);
 	ptr = set_group_buffer;
-	
+	/*Create and send Set Group Buffer*/
 	*ptr++ = MSM_CPP_CMD_GROUP_BUFFER;
 	*ptr++ = MSM_CPP_MSG_ID_CMD;
+	/*
+	 * This field is the value read from dt and stands
+	 * for length of actual data in payload
+	 */
 	*ptr++ = set_group_buffer_len - 4;
 	*ptr++ = MSM_CPP_CMD_GROUP_BUFFER;
 	*ptr++ = 0;
@@ -2184,6 +2225,10 @@ static int32_t msm_cpp_set_group_buffer(struct cpp_device *cpp_dev,
 	if (rc)
 		goto free_and_exit;
 
+	/*
+	 * Index for cpp message id trailer is length of
+	 * payload for set group buffer minus 1
+	 */
 	set_group_buffer[set_group_buffer_len - 1] =
 		MSM_CPP_MSG_ID_TRAILER;
 	rc = msm_cpp_send_command_to_hardware(cpp_dev,
@@ -2289,6 +2334,10 @@ static int msm_cpp_cfg_frame(struct cpp_device *cpp_dev,
 			SWAP_IDENTITY_FOR_BATCH_ON_PREVIEW(new_frame,
 				iden, new_frame->duplicate_identity);
 
+			/*
+			 * Swap the input buffer index for batch mode with
+			 * buffer on preview
+			 */
 			SWAP_BUF_INDEX_FOR_BATCH_ON_PREVIEW(new_frame,
 				buff_mgr_info, op_index, dup_index);
 
@@ -2338,7 +2387,7 @@ static int msm_cpp_cfg_frame(struct cpp_device *cpp_dev,
 	}
 	out_phyaddr1 = out_phyaddr0;
 
-	
+	/* get buffer for duplicate output */
 	if (new_frame->duplicate_output) {
 		int32_t iden = new_frame->duplicate_identity;
 		CPP_DBG("duplication enabled, dup_id=0x%x",
@@ -2349,6 +2398,10 @@ static int msm_cpp_cfg_frame(struct cpp_device *cpp_dev,
 
 		memset(&dup_buff_mgr_info, 0, sizeof(struct msm_buf_mngr_info));
 
+		/*
+		 * Swap the input buffer index for batch mode with
+		 * buffer on preview
+		 */
 		SWAP_BUF_INDEX_FOR_BATCH_ON_PREVIEW(new_frame,
 			dup_buff_mgr_info, dup_index, op_index);
 
@@ -2386,7 +2439,7 @@ static int msm_cpp_cfg_frame(struct cpp_device *cpp_dev,
 				0x0, &dup_buff_mgr_info);
 			goto phyaddr_err;
 		}
-		
+		/* set duplicate enable bit */
 		cpp_frame_msg[5] |= 0x1;
 		CPP_DBG("out_phyaddr1= %08x\n", (uint32_t)out_phyaddr1);
 	}
@@ -2543,7 +2596,7 @@ static int msm_cpp_copy_from_ioctl_ptr(void *dst_ptr,
 		return -EINVAL;
 	}
 
-	
+	/* For compat task, source ptr is in kernel space */
 	if (is_compat_task()) {
 		memcpy(dst_ptr, ioctl_ptr->ioctl_ptr, ioctl_ptr->len);
 		ret = 0;
@@ -2585,7 +2638,7 @@ static int32_t msm_cpp_fw_version(struct cpp_device *cpp_dev)
 			__func__, __LINE__, rc);
 		goto end;
 	}
-	
+	/*Get Firmware Version*/
 	msm_cpp_write(MSM_CPP_CMD_GET_FW_VER, cpp_dev->base);
 	msm_cpp_write(MSM_CPP_MSG_ID_CMD, cpp_dev->base);
 	msm_cpp_write(0x1, cpp_dev->base);
@@ -3370,7 +3423,7 @@ static struct msm_cpp_frame_info_t *get_64bit_cpp_frame_from_compat(
 	new_frame->batch_info.pick_preview_idx =
 		new_frame32->batch_info.pick_preview_idx;
 
-	
+	/* Convert the 32 bit pointer to 64 bit pointer */
 	new_frame->cookie = compat_ptr(new_frame32->cookie);
 	cpp_cmd_msg_64bit = compat_ptr(new_frame32->cpp_cmd_msg);
 	if ((new_frame->msg_len == 0) ||
@@ -3495,17 +3548,21 @@ static long msm_cpp_subdev_fops_compat_ioctl(struct file *file,
 		return -EINVAL;
 	}
 	mutex_lock(&cpp_dev->mutex);
+	/*
+	 * copy the user space 32 bit pointer to kernel space 32 bit compat
+	 * pointer
+	 */
 	if (copy_from_user(&up32_ioctl, (void __user *)up,
 		sizeof(up32_ioctl))) {
 		mutex_unlock(&cpp_dev->mutex);
 		return -EFAULT;
 	}
 
-	
+	/* copy the data from 32 bit compat to kernel space 64 bit pointer */
 	kp_ioctl.id = up32_ioctl.id;
 	kp_ioctl.len = up32_ioctl.len;
 	kp_ioctl.trans_code = up32_ioctl.trans_code;
-	
+	/* Convert the 32 bit pointer to 64 bit pointer */
 	kp_ioctl.ioctl_ptr = compat_ptr(up32_ioctl.ioctl_ptr);
 	if (!kp_ioctl.ioctl_ptr) {
 		pr_err("%s: Invalid ioctl pointer\n", __func__);
@@ -3513,6 +3570,11 @@ static long msm_cpp_subdev_fops_compat_ioctl(struct file *file,
 		return -EINVAL;
 	}
 
+	/*
+	 * Convert 32 bit IOCTL ID's to 64 bit IOCTL ID's
+	 * except VIDIOC_MSM_CPP_CFG32, which needs special
+	 * processing
+	 */
 	switch (cmd) {
 	case VIDIOC_MSM_CPP_CFG32:
 	{
@@ -3526,13 +3588,13 @@ static long msm_cpp_subdev_fops_compat_ioctl(struct file *file,
 			mutex_unlock(&cpp_dev->mutex);
 			return -EFAULT;
 		}
-		
+		/* Get the cpp frame pointer */
 		cpp_frame = get_64bit_cpp_frame_from_compat(&kp_ioctl);
 
-		
+		/* Configure the cpp frame */
 		if (cpp_frame) {
 			rc = msm_cpp_cfg_frame(cpp_dev, cpp_frame);
-			
+			/* Cpp_frame can be free'd by cfg_frame in error */
 			if (rc >= 0) {
 				k32_frame_info.output_buffer_info[0] =
 					cpp_frame->output_buffer_info[0];
@@ -3547,7 +3609,7 @@ static long msm_cpp_subdev_fops_compat_ioctl(struct file *file,
 
 		kp_ioctl.trans_code = rc;
 
-		
+		/* Convert the 32 bit pointer to 64 bit pointer */
 		status = compat_ptr(k32_frame_info.status);
 
 		if (copy_to_user((void __user *)status, &rc,
@@ -3921,7 +3983,7 @@ static int msm_cpp_buffer_private_ops(struct cpp_device *cpp_dev,
 			sizeof(void *));
 		rc = cpp_dev->buf_mgr_ops.msm_cam_buf_mgr_ops(buff_mgr_ops,
 			&ioctl_arg);
-		
+		/* Use VIDIOC_MSM_BUF_MNGR_GET_BUF if getbuf with indx fails */
 		if (rc < 0) {
 			pr_err_ratelimited("get_buf_by_idx for %d err %d,use get_buf\n",
 				buff_mgr_info->index, rc);
@@ -4085,7 +4147,7 @@ static int cpp_probe(struct platform_device *pdev)
 	cpp_dev->iommu_state = CPP_IOMMU_STATE_DETACHED;
 	cpp_timer.data.cpp_dev = cpp_dev;
 	atomic_set(&cpp_timer.used, 0);
-	
+	/* install timer for cpp timeout */
 	CPP_DBG("Installing cpp_timer\n");
 	setup_timer(&cpp_timer.cpp_timer,
 		cpp_timer_callback, (unsigned long)&cpp_timer);

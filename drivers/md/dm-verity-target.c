@@ -46,10 +46,25 @@ struct dm_verity_prefetch_work {
 	unsigned n_blocks;
 };
 
+/*
+ * Auxiliary structure appended to each dm-bufio buffer. If the value
+ * hash_verified is nonzero, hash of the block has been verified.
+ *
+ * The variable hash_verified is set to 0 when allocating the buffer, then
+ * it can be changed to 1 and it is never reset to 0 again.
+ *
+ * There is no lock around this value, a race condition can at worst cause
+ * that multiple processes verify the hash of the same buffer simultaneously
+ * and write 1 to hash_verified simultaneously.
+ * This condition is harmless, so we don't need locking.
+ */
 struct buffer_aux {
 	int hash_verified;
 };
 
+/*
+ * Initialize struct buffer_aux for a freshly created buffer.
+ */
 static void dm_bufio_alloc_callback(struct dm_buffer *buf)
 {
 	struct buffer_aux *aux = dm_bufio_get_aux_data(buf);
@@ -57,17 +72,29 @@ static void dm_bufio_alloc_callback(struct dm_buffer *buf)
 	aux->hash_verified = 0;
 }
 
+/*
+ * Translate input sector number to the sector number on the target device.
+ */
 static sector_t verity_map_sector(struct dm_verity *v, sector_t bi_sector)
 {
 	return v->data_start + dm_target_offset(v->ti, bi_sector);
 }
 
+/*
+ * Return hash position of a specified block at a specified tree level
+ * (0 is the lowest level).
+ * The lowest "hash_per_block_bits"-bits of the result denote hash position
+ * inside a hash block. The remaining bits denote location of the hash block.
+ */
 static sector_t verity_position_at_level(struct dm_verity *v, sector_t block,
 					 int level)
 {
 	return block >> (level * v->hash_per_block_bits);
 }
 
+/*
+ * Wrapper for crypto_shash_init, which handles verity salting.
+ */
 static int verity_hash_init(struct dm_verity *v, struct shash_desc *desc)
 {
 	int r;
@@ -161,6 +188,9 @@ static void verity_hash_at_level(struct dm_verity *v, sector_t block, int level,
 		*offset = idx << (v->hash_dev_block_bits - v->hash_per_block_bits);
 }
 
+/*
+ * Handle verification errors.
+ */
 static int verity_handle_err(struct dm_verity *v, enum verity_block_type type,
 			     unsigned long long block)
 {
@@ -169,7 +199,7 @@ static int verity_handle_err(struct dm_verity *v, enum verity_block_type type,
 	const char *type_str = "";
 	struct mapped_device *md = dm_table_get_md(v->ti->table);
 
-	
+	/* Corruption should be visible in device status in all modes */
 	v->hash_failed = 1;
 
 	if (v->corrupted_errs >= DM_VERITY_MAX_CORRUPTED_ERRS)
@@ -209,6 +239,17 @@ out:
 	return 1;
 }
 
+/*
+ * Verify hash of a metadata block pertaining to the specified data block
+ * ("block" argument) at a specified level ("level" argument).
+ *
+ * On successful return, verity_io_want_digest(v, io) contains the hash value
+ * for a lower tree level or for the data block (if we're at the lowest level).
+ *
+ * If "skip_unverified" is true, unverified buffer is skipped and 1 is returned.
+ * If "skip_unverified" is false, unverified buffer is hashed and verified
+ * against current value of verity_io_want_digest(v, io).
+ */
 static int verity_verify_level(struct dm_verity *v, struct dm_verity_io *io,
 			       sector_t block, int level, bool skip_unverified,
 			       u8 *want_digest)
@@ -264,12 +305,23 @@ release_ret_r:
 	return r;
 }
 
+/*
+ * Find a hash for a given block, write it to digest and verify the integrity
+ * of the hash tree if necessary.
+ */
 int verity_hash_for_block(struct dm_verity *v, struct dm_verity_io *io,
 			  sector_t block, u8 *digest, bool *is_zero)
 {
 	int r = 0, i;
 
 	if (likely(v->levels)) {
+		/*
+		 * First, we try to get the requested hash for
+		 * the current block. If the hash block itself is
+		 * verified, zero is returned. If it isn't, this
+		 * function returns 1 and we fall back to whole
+		 * chain verification.
+		 */
 		r = verity_verify_level(v, io, block, 0, true, digest);
 		if (likely(r <= 0))
 			goto out;
@@ -291,6 +343,10 @@ out:
 	return r;
 }
 
+/*
+ * Calls function process for 1 << v->data_dev_block_bits bytes in the bio_vec
+ * starting from iter.
+ */
 int verity_for_bv_block(struct dm_verity *v, struct dm_verity_io *io,
 			struct bvec_iter *iter,
 			int (*process)(struct dm_verity *v,
@@ -338,6 +394,9 @@ static int verity_bv_zero(struct dm_verity *v, struct dm_verity_io *io,
 	return 0;
 }
 
+/*
+ * Verify one "dm_verity_io" structure.
+ */
 static int verity_verify_io(struct dm_verity_io *io)
 {
 	bool is_zero;
@@ -356,6 +415,10 @@ static int verity_verify_io(struct dm_verity_io *io)
 			return r;
 
 		if (is_zero) {
+			/*
+			 * If we expect a zero block, don't validate, just
+			 * return zeros.
+			 */
 			r = verity_for_bv_block(v, io, &io->iter,
 						verity_bv_zero);
 			if (unlikely(r < 0))
@@ -391,6 +454,9 @@ static int verity_verify_io(struct dm_verity_io *io)
 	return 0;
 }
 
+/*
+ * End one "io" structure with a given error.
+ */
 static void verity_finish_io(struct dm_verity_io *io, int error)
 {
 	struct dm_verity *v = io->v;
@@ -424,6 +490,11 @@ static void verity_end_io(struct bio *bio, int error)
 	queue_work(io->v->verify_wq, &io->work);
 }
 
+/*
+ * Prefetch buffers for the specified io.
+ * The root buffer is not prefetched, it is assumed that it will be cached
+ * all the time.
+ */
 static void verity_prefetch_io(struct work_struct *work)
 {
 	struct dm_verity_prefetch_work *pw =
@@ -476,6 +547,10 @@ static void verity_submit_prefetch(struct dm_verity *v, struct dm_verity_io *io)
 	queue_work(v->verify_wq, &pw->work);
 }
 
+/*
+ * Bio map function. It allocates dm_verity_io structure and bio vector and
+ * fills them. Then it issues prefetches and the I/O.
+ */
 int verity_map(struct dm_target *ti, struct bio *bio)
 {
 	struct dm_verity *v = ti->private;
@@ -519,6 +594,9 @@ int verity_map(struct dm_target *ti, struct bio *bio)
 	return DM_MAPIO_SUBMITTED;
 }
 
+/*
+ * Status: V (valid) or C (corruption found)
+ */
 void verity_status(struct dm_target *ti, status_type_t type,
 			  unsigned status_flags, char *result, unsigned maxlen)
 {
@@ -673,7 +751,7 @@ static int verity_alloc_zero_digest(struct dm_verity *v)
 	desc = kmalloc(v->shash_descsize, GFP_KERNEL);
 
 	if (!desc)
-		return r; 
+		return r; /* verity_dtr will free zero_digest */
 
 	zero_data = kzalloc(1 << v->data_dev_block_bits, GFP_KERNEL);
 
@@ -742,6 +820,20 @@ static int verity_parse_opt_args(struct dm_arg_set *as, struct dm_verity *v)
 	return r;
 }
 
+/*
+ * Target parameters:
+ *	<version>	The current format is version 1.
+ *			Vsn 0 is compatible with original Chromium OS releases.
+ *	<data device>
+ *	<hash device>
+ *	<data block size>
+ *	<hash block size>
+ *	<the number of data blocks>
+ *	<hash start block>
+ *	<algorithm>
+ *	<digest>
+ *	<salt>		Hex string or "-" if no salt.
+ */
 int verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
 	struct dm_verity *v;
@@ -896,7 +988,7 @@ int verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	argv += 10;
 	argc -= 10;
 
-	
+	/* Optional parameters */
 	if (argc) {
 		as.argc = argc;
 		as.argv = argv;
@@ -953,7 +1045,7 @@ int verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 		goto bad;
 	}
 
-	
+	/* WQ_UNBOUND greatly improves performance when running on ramdisk */
 	v->verify_wq = alloc_workqueue("kverityd",
 				       WQ_HIGHPRI | WQ_MEM_RECLAIM | WQ_UNBOUND,
 				       num_online_cpus());

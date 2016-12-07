@@ -18,11 +18,29 @@
 #include "mdss_dsi.h"
 #include "mdss_mdp.h"
 
+/*
+ * mdss_check_te_status() - Check the status of panel for TE based ESD.
+ * @ctrl_pdata   : dsi controller data
+ * @pstatus_data : dsi status data
+ * @interval     : duration in milliseconds to schedule work queue
+ *
+ * This function is called when the TE signal from the panel doesn't arrive
+ * after 'interval' milliseconds. If the TE IRQ is not ready, the workqueue
+ * gets re-scheduled. Otherwise, report the panel to be dead due to ESD attack.
+ */
 static bool mdss_check_te_status(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 		struct dsi_status_data *pstatus_data, uint32_t interval)
 {
 	bool ret;
 
+	/*
+	 * During resume, the panel status will be ON but due to race condition
+	 * between ESD thread and display UNBLANK (or rather can be put as
+	 * asynchronuous nature between these two threads), the ESD thread might
+	 * reach this point before the TE IRQ line is enabled or before the
+	 * first TE interrupt arrives after the TE IRQ line is enabled. For such
+	 * cases, re-schedule the ESD thread.
+	 */
 	ret = !atomic_read(&ctrl_pdata->te_irq_ready);
 	if (ret) {
 		schedule_delayed_work(&pstatus_data->check_status,
@@ -122,6 +140,16 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 	}
 
 
+	/*
+	 * TODO: Because mdss_dsi_cmd_mdp_busy has made sure DMA to
+	 * be idle in mdss_dsi_cmdlist_commit, it is not necessary
+	 * to acquire ov_lock in case of video mode. Removing this
+	 * lock to fix issues so that ESD thread would not block other
+	 * overlay operations. Need refine this lock for command mode
+	 *
+	 * If Burst mode is enabled then we dont have to acquire ov_lock as
+	 * command and data arbitration is possible in h/w
+	 */
 
 	if ((mipi->mode == DSI_CMD_MODE) && !ctrl_pdata->burst_mode_enabled)
 		mutex_lock(&mdp5_data->ov_lock);
@@ -138,6 +166,16 @@ void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 		return;
 	}
 
+	/*
+	 * For the command mode panels, we return pan display
+	 * IOCTL on vsync interrupt. So, after vsync interrupt comes
+	 * and when DMA_P is in progress, if the panel stops responding
+	 * and if we trigger BTA before DMA_P finishes, then the DSI
+	 * FIFO will not be cleared since the DSI data bus control
+	 * doesn't come back to the host after BTA. This may cause the
+	 * display reset not to be proper. Hence, wait for DMA_P done
+	 * for command mode panels before triggering BTA.
+	 */
 	if (ctl->ops.wait_pingpong && !ctrl_pdata->burst_mode_enabled)
 		ctl->ops.wait_pingpong(ctl, NULL);
 

@@ -148,7 +148,7 @@ static void ion_system_secure_heap_prefetch_work(struct work_struct *work)
 		vmid_flags = info->vmid;
 		kfree(info);
 
-		
+		/* buffer->heap used by free() */
 		buffer->heap = &secure_heap->heap;
 		buffer->flags = ION_FLAG_POOL_PREFETCH;
 		buffer->flags |= vmid_flags;
@@ -338,7 +338,7 @@ void ion_system_secure_heap_destroy(struct ion_heap *heap)
 	LIST_HEAD(items);
 	struct prefetch_info *info, *tmp;
 
-	
+	/* Stop any pending/future work */
 	spin_lock_irqsave(&secure_heap->work_lock, flags);
 	secure_heap->destroy_heap = true;
 	list_splice_init(&secure_heap->prefetch_list, &items);

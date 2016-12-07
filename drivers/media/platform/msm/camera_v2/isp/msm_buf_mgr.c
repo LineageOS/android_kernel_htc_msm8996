@@ -83,7 +83,7 @@ struct msm_isp_bufq *msm_isp_get_bufq(
 	struct msm_isp_bufq *bufq = NULL;
 	uint32_t bufq_index = bufq_handle & 0xFF;
 
-	
+	/* bufq_handle cannot be 0 */
 	if ((bufq_handle == 0) ||
 		bufq_index >= BUF_MGR_NUM_BUF_Q ||
 		(bufq_index > buf_mgr->num_buf_q))
@@ -130,7 +130,7 @@ static uint32_t msm_isp_get_buf_handle(
 			return 0;
 	}
 
-	
+	/* put stream id in handle, if its stats, use FFFF */
 	if (stream_id & (1 << 31))
 		embedded_stream_id = 0xFFFF;
 	else
@@ -154,7 +154,7 @@ static int msm_isp_free_bufq_handle(struct msm_isp_buf_mgr *buf_mgr,
 	if (!bufq)
 		return -EINVAL;
 
-	
+	/* Set everything except lock to 0 */
 	bufq->bufq_handle = 0;
 	bufq->bufs = 0;
 	bufq->session_id = 0;
@@ -537,6 +537,8 @@ static int msm_isp_get_buf(struct msm_isp_buf_mgr *buf_mgr, uint32_t id,
 		}
 		break;
 	case MSM_ISP_BUFFER_SRC_SCRATCH:
+		/* In scratch buf case we have only on buffer in queue.
+		 * We return every time same buffer. */
 		*buf_info = list_entry(bufq->head.next, typeof(**buf_info),
 				list);
 		break;
@@ -773,6 +775,11 @@ static int msm_isp_buf_done(struct msm_isp_buf_mgr *buf_mgr,
 		goto done;
 	}
 
+	/*
+	 * For native buffer put the diverted buffer back to queue since caller
+	 * is not going to send it to CPP, this is error case like
+	 * drop_frame/empty_buffer
+	 */
 	if (state == MSM_ISP_BUFFER_STATE_DIVERTED) {
 		buf_info->state = MSM_ISP_BUFFER_STATE_PREPARED;
 		rc = msm_isp_put_buf_unsafe(buf_mgr, buf_info->bufq_handle,
@@ -1082,6 +1089,12 @@ static void msm_isp_release_all_bufq(
 }
 
 
+/**
+ * msm_isp_buf_put_scratch() - Release scratch buffers
+ * @buf_mgr: The buffer structure for h/w
+ *
+ * Returns 0 on success else error code
+ */
 static int msm_isp_buf_put_scratch(struct msm_isp_buf_mgr *buf_mgr)
 {
 	int rc;
@@ -1102,12 +1115,21 @@ static int msm_isp_buf_put_scratch(struct msm_isp_buf_mgr *buf_mgr)
 	return rc;
 }
 
+/**
+ * msm_isp_buf_get_scratch() - Create scratch buffers
+ * @buf_mgr: The buffer structure for h/w
+ *
+ * Create and map scratch buffers for all IOMMU's under the buffer
+ * manager.
+ *
+ * Returns 0 on success else error code
+ */
 static int msm_isp_buf_get_scratch(struct msm_isp_buf_mgr *buf_mgr)
 {
 	int rc;
 
 	if (buf_mgr->scratch_buf_addr || !buf_mgr->scratch_buf_range)
-		
+		/* already mapped or not supported */
 		return 0;
 
 	rc = cam_smmu_get_phy_addr_scratch(
@@ -1135,6 +1157,10 @@ int msm_isp_smmu_attach(struct msm_isp_buf_mgr *buf_mgr,
 	if (cmd->iommu_attach_mode == IOMMU_ATTACH) {
 		buf_mgr->secure_enable = cmd->security_mode;
 
+		/*
+		 * Call hypervisor thru scm call to notify secure or
+		 * non-secure mode
+		 */
 		if (buf_mgr->attach_ref_cnt == 0) {
 			rc = cam_smmu_ops(buf_mgr->iommu_hdl,
 				CAM_SMMU_ATTACH);

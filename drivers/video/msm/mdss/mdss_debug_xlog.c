@@ -35,6 +35,11 @@
 
 #define MDSS_XLOG_PRINT_ENTRY	256
 
+/*
+ * xlog keeps this number of entries in memory for debug purpose. This
+ * number must be greater than print entry to prevent out of bound xlog
+ * entry array access.
+ */
 #define MDSS_XLOG_ENTRY	(MDSS_XLOG_PRINT_ENTRY * 4)
 #define MDSS_XLOG_MAX_DATA 15
 #define MDSS_XLOG_BUF_MAX 512
@@ -68,9 +73,9 @@ struct mdss_dbg_xlog {
 	bool work_panic;
 	bool work_dbgbus;
 	bool work_vbif_dbgbus;
-	u32 *dbgbus_dump; 
-	u32 *vbif_dbgbus_dump; 
-	u32 *nrt_vbif_dbgbus_dump; 
+	u32 *dbgbus_dump; /* address for the debug bus dump */
+	u32 *vbif_dbgbus_dump; /* address for the vbif debug bus dump */
+	u32 *nrt_vbif_dbgbus_dump; /* address for the nrt vbif debug bus dump */
 } mdss_dbg_xlog;
 
 static inline bool mdss_xlog_is_enabled(u32 flag)
@@ -114,6 +119,7 @@ void mdss_xlog(const char *name, int line, int flag, ...)
 	spin_unlock_irqrestore(&xlock, flags);
 }
 
+/* always dump the last entries which are not dumped yet */
 static bool __mdss_xlog_dump_calc_range(void)
 {
 	static u32 next;
@@ -232,7 +238,7 @@ static void mdss_dump_debug_bus(u32 bus_dump_flag,
 	if (!(mdata->dbg_bus && list_size))
 		return;
 
-	
+	/* will keep in memory 4 entries of 4 bytes each */
 	list_size = (list_size * 4 * 4);
 
 	in_log = (bus_dump_flag & MDSS_DBG_DUMP_IN_LOG);
@@ -276,7 +282,7 @@ static void mdss_dump_debug_bus(u32 bus_dump_flag,
 			dump_addr[i*4 + 3] = status;
 		}
 
-		
+		/* Disable debug bus once we are done */
 		writel_relaxed(0, mdss_res->mdp_base + head->wr_addr);
 
 	}
@@ -297,11 +303,11 @@ static void __vbif_debug_bus(struct vbif_debug_bus *head,
 	for (i = 0; i < head->block_cnt; i++) {
 		writel_relaxed(1 << (i + head->bit_offset),
 				vbif_base + head->block_bus_addr);
-		
+		/* make sure that current bus blcok enable */
 		wmb();
 		for (j = 0; j < head->test_pnt_cnt; j++) {
 			writel_relaxed(j, vbif_base + head->block_bus_addr + 4);
-			
+			/* make sure that test point is enabled */
 			wmb();
 			val = readl_relaxed(vbif_base + MMSS_VBIF_TEST_BUS_OUT);
 			if (dump_addr) {
@@ -346,13 +352,13 @@ static void mdss_dump_vbif_debug_bus(u32 bus_dump_flag,
 	if (!dbg_bus || !bus_size)
 		return;
 
-	
+	/* allocate memory for each test point */
 	for (i = 0; i < bus_size; i++) {
 		head = dbg_bus + i;
 		list_size += (head->block_cnt * head->test_pnt_cnt);
 	}
 
-	
+	/* 4 bytes * 4 entries for each test point*/
 	list_size *= 16;
 
 	in_log = (bus_dump_flag & MDSS_DBG_DUMP_IN_LOG);
@@ -378,7 +384,7 @@ static void mdss_dump_vbif_debug_bus(u32 bus_dump_flag,
 	value = readl_relaxed(vbif_base + MMSS_VBIF_CLKON);
 	writel_relaxed(value | BIT(1), vbif_base + MMSS_VBIF_CLKON);
 
-	
+	/* make sure that vbif core is on */
 	wmb();
 
 	for (i = 0; i < bus_size; i++) {
@@ -386,7 +392,7 @@ static void mdss_dump_vbif_debug_bus(u32 bus_dump_flag,
 
 		writel_relaxed(0, vbif_base + head->disable_bus_addr);
 		writel_relaxed(BIT(0), vbif_base + MMSS_VBIF_TEST_BUS_OUT_CTRL);
-		
+		/* make sure that other bus is off */
 		wmb();
 
 		__vbif_debug_bus(head, vbif_base, dump_addr, in_log);
@@ -477,7 +483,7 @@ static void mdss_dump_reg_by_ranges(struct mdss_debug_base *dbg,
 
 	pr_info("%s:=========%s DUMP=========\n", __func__, dbg->name);
 
-	
+	/* If there is a list to dump the registers by ranges, use the ranges */
 	if (!list_empty(&dbg->dump_list)) {
 		list_for_each_entry_safe(xlog_node, xlog_tmp,
 			&dbg->dump_list, head) {
@@ -493,7 +499,7 @@ static void mdss_dump_reg_by_ranges(struct mdss_debug_base *dbg,
 				false);
 		}
 	} else {
-		
+		/* If there is no list to dump ranges, dump all registers */
 		pr_info("Ranges not found, will dump full registers");
 		pr_info("base:0x%pK len:0x%zu\n", dbg->base, dbg->max_offset);
 		addr = dbg->base;
@@ -650,7 +656,7 @@ void mdss_xlog_tout_handler_default(bool queue, const char *name, ...)
 	va_end(args);
 
 	if (queue) {
-		
+		/* schedule work to dump later */
 		mdss_dbg_xlog.work_panic = dead;
 		mdss_dbg_xlog.work_dbgbus = dump_dbgbus;
 		mdss_dbg_xlog.work_vbif_dbgbus = dump_vbif_dbgbus;
@@ -663,7 +669,7 @@ void mdss_xlog_tout_handler_default(bool queue, const char *name, ...)
 
 static int mdss_xlog_dump_open(struct inode *inode, struct file *file)
 {
-	
+	/* non-seekable */
 	file->f_mode &= ~(FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE);
 	file->private_data = inode->i_private;
 	return 0;

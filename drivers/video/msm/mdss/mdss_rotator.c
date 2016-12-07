@@ -29,9 +29,15 @@
 #include "mdss_mdp.h"
 #include "mdss_debug.h"
 
+/* waiting for hw time out, 3 vsync for 30fps*/
 #define ROT_HW_ACQUIRE_TIMEOUT_IN_MS 100
 
+/* acquire fence time out, following other driver fence time out practice */
 #define ROT_FENCE_WAIT_TIMEOUT MSEC_PER_SEC
+/*
+ * Max rotator hw blocks possible. Used for upper array limits instead of
+ * alloc and freeing small array
+ */
 #define ROT_MAX_HW_BLOCKS 2
 
 #define ROT_CHECK_BOUNDS(offset, size, max_size) \
@@ -150,6 +156,11 @@ static int mdss_rotator_enable_reg_bus(struct mdss_rot_mgr *mgr, u64 quota)
 	return ret;
 }
 
+/*
+ * Clock rate of all open sessions working a particular hw block
+ * are added together to get the required rate for that hw block.
+ * The max of each hw block becomes the final clock rate voted for
+ */
 static unsigned long mdss_rotator_clk_rate_calc(
 	struct mdss_rot_mgr *mgr,
 	struct mdss_rot_file_private *private)
@@ -163,6 +174,10 @@ static unsigned long mdss_rotator_clk_rate_calc(
 	list_for_each_entry(perf, &private->perf_list, list) {
 		bool rate_accounted_for = false;
 		mutex_lock(&perf->work_dis_lock);
+		/*
+		 * If there is one session that has two work items across
+		 * different hw blocks rate is accounted for in both blocks.
+		 */
 		for (i = 0; i < mgr->queue_count; i++) {
 			if (perf->work_distribution[i]) {
 				clk_rate[i] += perf->clk_rate;
@@ -170,6 +185,11 @@ static unsigned long mdss_rotator_clk_rate_calc(
 			}
 		}
 
+		/*
+		 * Sessions that are open but not distributed on any hw block
+		 * Still need to be accounted for. Rate is added to last known
+		 * wb idx.
+		 */
 		wb_idx = perf->last_wb_idx;
 		if ((!rate_accounted_for) && (wb_idx >= 0) &&
 				(wb_idx < mgr->queue_count))
@@ -280,13 +300,13 @@ static int mdss_rotator_clk_ctrl(struct mdss_rot_mgr *mgr, int enable)
 		}
 		mutex_lock(&mgr->bus_lock);
 		if (enable) {
-			
+			/* Active+Sleep */
 			msm_bus_scale_client_update_context(
 				mgr->data_bus.bus_hdl, false,
 				mgr->data_bus.curr_bw_uc_idx);
 			trace_rotator_bw_ao_as_context(0);
 		} else {
-			
+			/* Active Only */
 			msm_bus_scale_client_update_context(
 				mgr->data_bus.bus_hdl, true,
 				mgr->data_bus.curr_bw_uc_idx);
@@ -338,6 +358,7 @@ int mdss_rotator_resource_ctrl(struct mdss_rot_mgr *mgr, int enable)
 	return ret;
 }
 
+/* caller is expected to hold perf->work_dis_lock lock */
 static bool mdss_rotator_is_work_pending(struct mdss_rot_mgr *mgr,
 	struct mdss_rot_perf *perf)
 {
@@ -374,7 +395,7 @@ static int mdss_rotator_create_fence(struct mdss_rot_entry *entry)
 		goto sync_pt_create_err;
 	}
 
-	
+	/* create fence */
 	fence = sync_fence_create(rot_timeline->fence_name, sync_pt);
 	if (fence == NULL) {
 		pr_err("%s: cannot create fence\n", rot_timeline->fence_name);
@@ -418,7 +439,7 @@ static void mdss_rotator_clear_fence(struct mdss_rot_entry *entry)
 
 	rot_timeline = &entry->queue->timeline;
 
-	
+	/* fence failed to copy to user space */
 	if (entry->output_fence) {
 		sync_fence_put(entry->output_fence);
 		entry->output_fence = NULL;
@@ -514,7 +535,7 @@ static int mdss_rotator_map_and_check_data(struct mdss_rot_entry *entry)
 		return ret;
 	}
 
-	
+	/* if error during map, the caller will release the data */
 	entry->src_buf.state = MDP_BUF_STATE_ACTIVE;
 	ret = mdss_mdp_data_map(&entry->src_buf, true, DMA_TO_DEVICE);
 	if (ret) {
@@ -803,6 +824,10 @@ static void mdss_rotator_put_hw_resource(struct mdss_rot_queue *queue,
 	mutex_unlock(&queue->hw_lock);
 }
 
+/*
+ * caller will need to call mdss_rotator_deinit_queue when
+ * the function returns error
+ */
 static int mdss_rotator_init_queue(struct mdss_rot_mgr *mgr)
 {
 	int i, size, ret = 0;
@@ -865,6 +890,17 @@ static void mdss_rotator_deinit_queue(struct mdss_rot_mgr *mgr)
 	mgr->queue_count = 0;
 }
 
+/*
+ * mdss_rotator_assign_queue() - Function assign rotation work onto hw
+ * @mgr:	Rotator manager.
+ * @entry:	Contains details on rotator work item being requested
+ * @private:	Private struct used for access rot session performance struct
+ *
+ * This Function allocates hw required to complete rotation work item
+ * requested.
+ *
+ * Caller is responsible for calling cleanup function if error is returned
+ */
 static int mdss_rotator_assign_queue(struct mdss_rot_mgr *mgr,
 	struct mdss_rot_entry *entry,
 	struct mdss_rot_file_private *private)
@@ -877,6 +913,10 @@ static int mdss_rotator_assign_queue(struct mdss_rot_mgr *mgr,
 	u32 pipe_idx = item->pipe_idx;
 	int ret = 0;
 
+	/*
+	 * todo: instead of always assign writeback block 0, we can
+	 * apply some load balancing logic in the future
+	 */
 	if (wb_idx == MDSS_ROTATION_HW_ANY) {
 		wb_idx = 0;
 		pipe_idx = 0;
@@ -997,7 +1037,7 @@ static int mdss_rotator_calc_perf(struct mdss_rot_perf *perf)
 
 	perf->clk_rate = config->input.width * config->input.height;
 	perf->clk_rate *= config->frame_rate;
-	
+	/* rotator processes 4 pixels per clock */
 	perf->clk_rate /= 4;
 
 	read_bw = config->input.width * config->input.height *
@@ -1070,7 +1110,7 @@ static void mdss_rotator_release_from_work_distribution(
 
 		if (!entry->perf->work_distribution[wb_idx]
 				&& list_empty(&entry->perf->list)) {
-			
+			/* close session has offloaded perf free to us */
 			free_perf = true;
 		}
 		mutex_unlock(&entry->perf->work_dis_lock);
@@ -1157,7 +1197,7 @@ static int mdss_rotator_config_dnsc_factor(struct mdss_rot_mgr *mgr,
 
 dnsc_err:
 
-	
+	/* Downscaler does not support asymmetrical dnsc */
 	if (entry->dnsc_factor_w != entry->dnsc_factor_h)
 		ret = -EINVAL;
 
@@ -1193,9 +1233,9 @@ static bool mdss_rotator_verify_format(struct mdss_rot_mgr *mgr,
 		return false;
 	}
 
-	
+	/* Forcing same pixel depth */
 	if (memcmp(in_fmt->bits, out_fmt->bits, sizeof(in_fmt->bits))) {
-		
+		/* Exception is that RGB can drop alpha or add X */
 		if (in_fmt->is_yuv || out_fmt->alpha_enable ||
 			(in_fmt->bits[C2_R_Cr] != out_fmt->bits[C2_R_Cr]) ||
 			(in_fmt->bits[C0_G_Y] != out_fmt->bits[C0_G_Y]) ||
@@ -1205,7 +1245,7 @@ static bool mdss_rotator_verify_format(struct mdss_rot_mgr *mgr,
 		}
 	}
 
-	
+	/* Need to make sure that sub-sampling persists through rotation */
 	if (rotation) {
 		mdss_mdp_get_v_h_subsample_rate(in_fmt->chroma_sample,
 			&in_v_subsample, &in_h_subsample);
@@ -1259,7 +1299,7 @@ static int mdss_rotator_verify_config(struct mdss_rot_mgr *mgr,
 	mdss_mdp_get_v_h_subsample_rate(out_fmt->chroma_sample,
 		&out_v_subsample, &out_h_subsample);
 
-	
+	/* Dimension of image needs to be divisible by subsample rate  */
 	if ((config->input.height % in_v_subsample) ||
 			(config->input.width % in_h_subsample)) {
 		pr_err("In ROI, subsample mismatch, w=%d, h=%d, vss%d, hss%d\n",
@@ -1321,7 +1361,7 @@ static int mdss_rotator_validate_img_roi(struct mdp_rotation_item *item)
 		height /= 2;
 	}
 
-	
+	/* Check roi bounds */
 	if (ROT_CHECK_BOUNDS(item->src_rect.x, item->src_rect.w, width) ||
 			ROT_CHECK_BOUNDS(item->src_rect.y, item->src_rect.h,
 			height)) {
@@ -1420,6 +1460,10 @@ static int mdss_rotator_validate_entry(struct mdss_rot_mgr *mgr,
 	return ret;
 }
 
+/*
+ * Upon failure from the function, caller needs to make sure
+ * to call mdss_rotator_remove_request to clean up resources.
+ */
 static int mdss_rotator_add_request(struct mdss_rot_mgr *mgr,
 	struct mdss_rot_file_private *private,
 	struct mdss_rot_entry_container *req)
@@ -1503,12 +1547,18 @@ static void mdss_rotator_remove_request(struct mdss_rot_mgr *mgr,
 	mutex_unlock(&private->req_lock);
 }
 
+/* This function should be called with req_lock */
 static void mdss_rotator_cancel_request(struct mdss_rot_mgr *mgr,
 	struct mdss_rot_entry_container *req)
 {
 	struct mdss_rot_entry *entry;
 	int i;
 
+	/*
+	 * To avoid signal the rotation entry output fence in the wrong
+	 * order, all the entries in the same request needs to be cancelled
+	 * first, before signaling the output fence.
+	 */
 	for (i = req->count - 1; i >= 0; i--) {
 		entry = req->entries + i;
 		cancel_work_sync(&entry->commit_work);
@@ -1877,7 +1927,7 @@ static int mdss_rotator_open_session(struct mdss_rot_mgr *mgr,
 		return -ENOMEM;
 	}
 
-	ATRACE_BEGIN(__func__); 
+	ATRACE_BEGIN(__func__); /* Open session votes for bw */
 	perf->work_distribution = devm_kzalloc(&mgr->pdev->dev,
 		sizeof(u32) * mgr->queue_count, GFP_KERNEL);
 	if (!perf->work_distribution) {
@@ -2117,6 +2167,11 @@ static int mdss_rotator_handle_request(struct mdss_rot_mgr *mgr,
 		return -EINVAL;
 	}
 
+	/*
+	 * here, we make a copy of the items so that we can copy
+	 * all the output fences to the client in one call.   Otherwise,
+	 * we will have to call multiple copy_to_user
+	 */
 	size = sizeof(struct mdp_rotation_item) * req_count;
 	items = devm_kzalloc(&mgr->pdev->dev, size, GFP_KERNEL);
 	if (!items) {
@@ -2587,7 +2642,7 @@ static int mdss_rotator_get_dt_vreg_data(struct device *dev,
 		return -ENOMEM;
 	}
 
-	
+	/* vreg-name */
 	for (i = 0; i < dt_vreg_total; i++) {
 		rc = of_property_read_string_index(of_node,
 			"qcom,supply-names", i, &st);

@@ -89,6 +89,11 @@ static void msm_audio_ion_add_allocation(
 	struct msm_audio_ion_private *msm_audio_ion_data,
 	struct msm_audio_alloc_data *alloc_data)
 {
+	/*
+	 * Since these APIs can be invoked by multiple
+	 * clients, there is need to make sure the list
+	 * of allocations is always protected
+	 */
 	mutex_lock(&(msm_audio_ion_data->list_mutex));
 	list_add_tail(&(alloc_data->list),
 		      &(msm_audio_ion_data->alloc_list));
@@ -199,6 +204,9 @@ int msm_audio_ion_import(const char *name, struct ion_client **client,
 		goto err;
 	}
 
+	/* name should be audio_acdb_client or Audio_Dec_Client,
+	bufsz should be 0 and fd shouldn't be 0 as of now
+	*/
 	*handle = ion_import_dma_buf(*client, fd);
 	pr_debug("%s: DMA Buf name=%s, fd=%d handle=%pK\n", __func__,
 							name, fd, *handle);
@@ -287,9 +295,14 @@ int msm_audio_ion_mmap(struct audio_buffer *ab,
 		return -EINVAL;
 	}
 
-	
+	/* uncached */
 	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 
+	/* We need to check if a page is associated with this sg list because:
+	 * If the allocation came from a carveout we currently don't have
+	 * pages associated with carved out memory. This might change in the
+	 * future and we can remove this check and the else statement.
+	 */
 	page = sg_page(table->sgl);
 	if (page) {
 		pr_debug("%s: page is NOT null\n", __func__);
@@ -356,6 +369,7 @@ bool msm_audio_ion_is_smmu_available(void)
 	return msm_audio_ion_data.smmu_enabled;
 }
 
+/* move to static section again */
 struct ion_client *msm_audio_ion_client_create(const char *name)
 {
 	struct ion_client *pclient = NULL;
@@ -383,7 +397,10 @@ int msm_audio_ion_import_legacy(const char *name, struct ion_client *client,
 		rc = -EINVAL;
 		goto err;
 	}
-	
+	/* client is already created for legacy and given*/
+	/* name should be audio_acdb_client or Audio_Dec_Client,
+	bufsz should be 0 and fd shouldn't be 0 as of now
+	*/
 	*handle = ion_import_dma_buf(client, fd);
 	pr_debug("%s: DMA Buf name=%s, fd=%d handle=%pK\n", __func__,
 							name, fd, *handle);
@@ -412,7 +429,7 @@ int msm_audio_ion_import_legacy(const char *name, struct ion_client *client,
 		goto err_ion_handle;
 	}
 
-	
+	/*Need to add condition SMMU enable or not */
 	*vaddr = ion_map_kernel(client, *handle);
 	if (IS_ERR_OR_NULL((void *)*vaddr)) {
 		pr_err("%s: ION memory mapping for AUDIO failed\n", __func__);
@@ -440,7 +457,7 @@ int msm_audio_ion_free_legacy(struct ion_client *client,
 	ion_unmap_kernel(client, handle);
 
 	ion_free(client, handle);
-	
+	/* no client_destrody in legacy*/
 	return 0;
 }
 
@@ -461,9 +478,9 @@ int msm_audio_ion_cache_operations(struct audio_buffer *abuff, int cache_op)
 		goto cache_op_failed;
 	}
 
-	
+	/* has to be CACHED */
 	if (ION_IS_CACHED(ionflag)) {
-		
+		/* ION_IOC_INV_CACHES or ION_IOC_CLEAN_CACHES */
 		msm_cache_ops = cache_op;
 		rc = msm_ion_do_cache_op(abuff->client,
 				abuff->handle,
@@ -491,21 +508,21 @@ static int msm_audio_dma_buf_map(struct ion_client *client,
 
 	cb_dev = msm_audio_ion_data.cb_dev;
 
-	
+	/* Data required per buffer mapping */
 	alloc_data = kzalloc(sizeof(*alloc_data), GFP_KERNEL);
 	if (!alloc_data) {
 		pr_err("%s: No memory for alloc_data\n", __func__);
 		return -ENOMEM;
 	}
 
-	
+	/* Get the ION handle size */
 	ion_handle_get_size(client, handle, len);
 
 	alloc_data->client = client;
 	alloc_data->handle = handle;
 	alloc_data->len = *len;
 
-	
+	/* Get the dma_buf handle from ion_handle */
 	alloc_data->dma_buf = ion_share_dma_buf(client, handle);
 	if (IS_ERR(alloc_data->dma_buf)) {
 		rc = PTR_ERR(alloc_data->dma_buf);
@@ -515,7 +532,7 @@ static int msm_audio_dma_buf_map(struct ion_client *client,
 		goto err_dma_buf;
 	}
 
-	
+	/* Attach the dma_buf to context bank device */
 	alloc_data->attach = dma_buf_attach(alloc_data->dma_buf,
 					    cb_dev);
 	if (IS_ERR(alloc_data->attach)) {
@@ -526,6 +543,12 @@ static int msm_audio_dma_buf_map(struct ion_client *client,
 		goto err_attach;
 	}
 
+	/*
+	 * Get the scatter-gather list.
+	 * There is no info as this is a write buffer or
+	 * read buffer, hence the request is bi-directional
+	 * to accomodate both read and write mappings.
+	 */
 	alloc_data->table = dma_buf_map_attachment(alloc_data->attach,
 				DMA_BIDIRECTIONAL);
 	if (IS_ERR(alloc_data->table)) {
@@ -545,10 +568,10 @@ static int msm_audio_dma_buf_map(struct ion_client *client,
 			__func__, rc, alloc_data->table->nents);
 		goto err_map_sg;
 	}
-	
+	/* Make sure not to return rc from dma_map_sg, as it can be nonzero */
 	rc = 0;
 
-	
+	/* physical address from mapping */
 	*addr = MSM_AUDIO_ION_PHYS_ADDR(alloc_data);
 
 	msm_audio_ion_add_allocation(&msm_audio_ion_data,
@@ -580,6 +603,11 @@ static int msm_audio_dma_buf_unmap(struct ion_client *client,
 	struct device *cb_dev = msm_audio_ion_data.cb_dev;
 	bool found = false;
 
+	/*
+	 * Though list_for_each_safe is delete safe, lock
+	 * should be explicitly acquired to avoid race condition
+	 * on adding elements to the list.
+	 */
 	mutex_lock(&(msm_audio_ion_data.list_mutex));
 	list_for_each_safe(ptr, next,
 			    &(msm_audio_ion_data.alloc_list)) {
@@ -637,7 +665,7 @@ static int msm_audio_ion_get_phys(struct ion_client *client,
 				__func__, rc);
 			goto err;
 		}
-		
+		/* Append the SMMU SID information to the IOVA address */
 		*addr |= msm_audio_ion_data.smmu_sid_bits;
 	} else {
 		rc = ion_phys(client, handle, addr, len);
@@ -819,7 +847,7 @@ static int msm_audio_ion_probe(struct platform_device *pdev)
 		u64 smmu_sid = 0;
 		struct of_phandle_args iommuspec;
 
-		
+		/* Get SMMU SID information from Devicetree */
 		rc = of_parse_phandle_with_args(dev->of_node, "iommus",
 						"#iommu-cells", 0, &iommuspec);
 		if (rc)

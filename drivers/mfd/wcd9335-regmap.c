@@ -300,7 +300,7 @@ static const struct reg_default wcd9335_2_0_defaults[] = {
 };
 
 static const struct reg_default wcd9335_defaults[] = {
-	
+	/* Page #0 registers */
 	{ WCD9335_PAGE0_PAGE_REGISTER                   , 0x00 },
 	{ WCD9335_CODEC_RPM_CLK_BYPASS                  , 0x00 },
 	{ WCD9335_CODEC_RPM_CLK_MCLK_CFG                , 0x00 },
@@ -419,7 +419,7 @@ static const struct reg_default wcd9335_defaults[] = {
 	{ WCD9335_INTR_SET1                             , 0x00 },
 	{ WCD9335_INTR_SET2                             , 0x00 },
 	{ WCD9335_INTR_SET3                             , 0x00 },
-	
+	/* Page #1 registers */
 	{ WCD9335_PAGE1_PAGE_REGISTER                   , 0x00 },
 	{ WCD9335_CPE_FLL_USER_CTL_0                    , 0x71 },
 	{ WCD9335_CPE_FLL_USER_CTL_1                    , 0x34 },
@@ -541,7 +541,7 @@ static const struct reg_default wcd9335_defaults[] = {
 	{ WCD9335_SB_FLL_STATUS_1                       , 0x00 },
 	{ WCD9335_SB_FLL_STATUS_2                       , 0x00 },
 	{ WCD9335_SB_FLL_STATUS_3                       , 0x00 },
-	
+	/* Page #2 registers */
 	{ WCD9335_PAGE2_PAGE_REGISTER                   , 0x00 },
 	{ WCD9335_CPE_SS_MEM_PTR_0                      , 0x00 },
 	{ WCD9335_CPE_SS_MEM_PTR_1                      , 0x00 },
@@ -677,7 +677,7 @@ static const struct reg_default wcd9335_defaults[] = {
 	{ WCD9335_SOC_MAD_BEACON_IIR_CTL_PTR            , 0x00 },
 	{ WCD9335_SOC_MAD_BEACON_IIR_CTL_VAL            , 0x00 },
 	{ WCD9335_SOC_MAD_INP_SEL                       , 0x00 },
-	
+	/* Page #6 registers */
 	{ WCD9335_PAGE6_PAGE_REGISTER                   , 0x00 },
 	{ WCD9335_ANA_BIAS                              , 0x00 },
 	{ WCD9335_ANA_CLK_TOP                           , 0x00 },
@@ -903,7 +903,7 @@ static const struct reg_default wcd9335_defaults[] = {
 	{ WCD9335_SE_LO_LO4_CTRL                        , 0x04 },
 	{ WCD9335_SE_LO_LO3_STATUS                      , 0x00 },
 	{ WCD9335_SE_LO_LO4_STATUS                      , 0x00 },
-	
+	/* Page #10 registers */
 	{ WCD9335_PAGE10_PAGE_REGISTER                  , 0x00 },
 	{ WCD9335_CDC_ANC0_CLK_RESET_CTL                , 0x00 },
 	{ WCD9335_CDC_ANC0_MODE_1_CTL                   , 0x00 },
@@ -1026,7 +1026,7 @@ static const struct reg_default wcd9335_defaults[] = {
 	{ WCD9335_CDC_TX11_SPKR_PROT_PATH_CFG0          , 0x00 },
 	{ WCD9335_CDC_TX12_SPKR_PROT_PATH_CTL           , 0x02 },
 	{ WCD9335_CDC_TX12_SPKR_PROT_PATH_CFG0          , 0x00 },
-	
+	/* Page #11 registers */
 	{ WCD9335_PAGE11_PAGE_REGISTER                  , 0x00 },
 	{ WCD9335_CDC_COMPANDER1_CTL0                   , 0x60 },
 	{ WCD9335_CDC_COMPANDER1_CTL1                   , 0xdb },
@@ -1194,7 +1194,7 @@ static const struct reg_default wcd9335_defaults[] = {
 	{ WCD9335_CDC_RX8_RX_PATH_SEC6                  , 0x00 },
 	{ WCD9335_CDC_RX8_RX_PATH_SEC7                  , 0x00 },
 	{ WCD9335_CDC_RX8_RX_PATH_MIX_SEC1              , 0x00 },
-	
+	/* Page #12 registers */
 	{ WCD9335_PAGE12_PAGE_REGISTER                  , 0x00 },
 	{ WCD9335_CDC_CLSH_CRC                          , 0x00 },
 	{ WCD9335_CDC_CLSH_DLY_CTRL                     , 0x03 },
@@ -1264,7 +1264,7 @@ static const struct reg_default wcd9335_defaults[] = {
 	{ WCD9335_CDC_SIDETONE_SRC0_ST_SRC_PATH_CFG1    , 0x00 },
 	{ WCD9335_CDC_SIDETONE_SRC1_ST_SRC_PATH_CTL     , 0x04 },
 	{ WCD9335_CDC_SIDETONE_SRC1_ST_SRC_PATH_CFG1    , 0x00 },
-	
+	/* Page #13 registers */
 	{ WCD9335_PAGE13_PAGE_REGISTER                  , 0x00 },
 	{ WCD9335_CDC_RX_INP_MUX_RX_INT0_CFG0           , 0x00 },
 	{ WCD9335_CDC_RX_INP_MUX_RX_INT0_CFG1           , 0x00 },
@@ -1389,7 +1389,7 @@ static const struct reg_default wcd9335_defaults[] = {
 	{ WCD9335_CDC_TOP_DIFFR_COMP_LUT                , 0x00 },
 	{ WCD9335_CDC_TOP_DIFFR_COMP_RD_LSB             , 0x00 },
 	{ WCD9335_CDC_TOP_DIFFR_COMP_RD_MSB             , 0x00 },
-	
+	/* Page #0x80 registers */
 	{ WCD9335_PAGE80_PAGE_REGISTER                  , 0x00 },
 	{ WCD9335_TLMM_BIST_MODE_PINCFG                 , 0x00 },
 	{ WCD9335_TLMM_RF_PA_ON_PINCFG                  , 0x00 },
@@ -1437,6 +1437,13 @@ static const struct reg_default wcd9335_defaults[] = {
 	{ WCD9335_TEST_DEBUG_DEBUG_EN_3                 , 0x00 },
 };
 
+/*
+ * wcd9335_regmap_register_patch: Update register defaults based on version
+ * @regmap: handle to wcd9xxx regmap
+ * @version: wcd9335 version
+ *
+ * Returns error code in case of failure or 0 for success
+ */
 int wcd9335_regmap_register_patch(struct regmap *regmap, int version)
 {
 	int rc;
@@ -1475,6 +1482,10 @@ static bool wcd9335_is_readable_register(struct device *dev, unsigned int reg)
 	u8 pg_num, reg_offset;
 	const u8 *reg_tbl = NULL;
 
+	/*
+	 * Get the page number from MSB of codec register. If its 0x80, assign
+	 * the corresponding page index PAGE_0x80.
+	 */
 	pg_num = reg >> 0x8;
 	if (pg_num == 0x80)
 		pg_num = PAGE_0X80;
@@ -1492,10 +1503,15 @@ static bool wcd9335_is_readable_register(struct device *dev, unsigned int reg)
 
 static bool wcd9335_is_volatile_register(struct device *dev, unsigned int reg)
 {
+	/*
+	 * registers from 0x000 to 0x0FF are volatile because
+	 * this space contains registers related to interrupt
+	 * status, mask etc
+	 */
 	if (reg < 0x100)
 		return true;
 
-	
+	/* IIR Coeff registers are not cacheable */
 	if ((reg >= WCD9335_CDC_SIDETONE_IIR0_IIR_COEF_B1_CTL) &&
 	    (reg <= WCD9335_CDC_SIDETONE_IIR1_IIR_COEF_B2_CTL))
 		return true;
@@ -1507,6 +1523,11 @@ static bool wcd9335_is_volatile_register(struct device *dev, unsigned int reg)
 	if ((reg >= WCD9335_CDC_ANC1_IIR_COEFF_1_CTL) &&
 	    (reg <= WCD9335_CDC_ANC1_FB_GAIN_CTL))
 		return true;
+	/*
+	 * CPE inbox and outbox registers are volatile
+	 * since they can be updated in the codec hardware
+	 * to indicate CPE status
+	 */
 	if (reg >= WCD9335_CPE_SS_MEM_PTR_0 &&
 	    reg <= WCD9335_CPE_SS_OUTBOX2_ACK)
 		return true;

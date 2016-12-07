@@ -31,4 +31,4 @@ void gic_dist_config(void __iomem *base, int gic_irqs,
 		     void (*sync_access)(void));
 void gic_cpu_config(void __iomem *base, void (*sync_access)(void));
 
-#endif 
+#endif /* _IRQ_GIC_COMMON_H */

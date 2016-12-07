@@ -74,7 +74,7 @@ static bool msm_dcvs_check_codec_supported(int fourcc,
 	if (!codecs_supported || !session)
 		return false;
 
-	
+	/* ffs returns a 1 indexed, test_bit takes a 0 indexed...index */
 	codec_bit = ffs(session) - 1;
 	session_type_bit = codec_bit + 1;
 
@@ -267,7 +267,7 @@ void msm_dcvs_init_load(struct msm_vidc_inst *inst)
 
 	dcvs->transition_turbo = false;
 
-	
+	/* calculating the min and max threshold */
 	if (output_buf_req->buffer_count_actual) {
 		dcvs->min_threshold = output_buf_req->buffer_count_actual -
 			output_buf_req->buffer_count_min -
@@ -452,6 +452,12 @@ static int msm_dcvs_enc_scale_clocks(struct msm_vidc_inst *inst)
 }
 
 
+/*
+ * In DCVS scale_clocks will be done both in qbuf and FBD
+ * 1 indicates call made from fbd that lowers clock
+ * 0 indicates call made from qbuf that increases clock
+ * based on DCVS algorithm
+ */
 
 static int msm_dcvs_dec_scale_clocks(struct msm_vidc_inst *inst, bool fbd)
 {
@@ -482,10 +488,10 @@ static int msm_dcvs_dec_scale_clocks(struct msm_vidc_inst *inst, bool fbd)
 		return -EINVAL;
 	}
 
-	
+	/* Total number of output buffers */
 	total_output_buf = output_buf_req->buffer_count_actual;
 
-	
+	/* Buffers outside FW are with display */
 	buffers_outside_fw = total_output_buf - fw_pending_bufs;
 
 	if (buffers_outside_fw >= dcvs->threshold_disp_buf_high &&
@@ -629,6 +635,12 @@ static bool msm_dcvs_check_supported(struct msm_vidc_inst *inst)
 		if (!msm_dcvs_enc_check(inst))
 			return false;
 	} else {
+		/*
+		* For multiple instance use case with 4K, clocks will be scaled
+		* as per load in streamon, but the clocks may be scaled
+		* down as DCVS is running for first playback instance
+		* Rescaling the core clock for multiple instance use case
+		*/
 		if (!dcvs->is_clock_scaled) {
 			if (!msm_comm_scale_clocks(core)) {
 				dcvs->is_clock_scaled = true;
@@ -641,6 +653,10 @@ static bool msm_dcvs_check_supported(struct msm_vidc_inst *inst)
 					__func__);
 			}
 		}
+		/*
+		* For multiple instance use case turn OFF DCVS algorithm
+		* immediately
+		*/
 		if (instance_count > 1) {
 			mutex_lock(&core->lock);
 			list_for_each_entry(temp, &core->instances, list)

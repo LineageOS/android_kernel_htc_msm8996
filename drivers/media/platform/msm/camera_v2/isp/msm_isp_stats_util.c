@@ -168,8 +168,10 @@ static int32_t msm_isp_stats_buf_divert(struct vfe_device *vfe_dev,
 
 	if (sw_skip->stats_type_mask &
 		(1 << stream_info->stats_type)) {
+		/* Hw stream output of this src is requested
+		   for drop */
 		if (sw_skip->skip_mode == SKIP_ALL) {
-			
+			/* drop all buffers */
 			drop_buffer = 1;
 		} else if (sw_skip->skip_mode == SKIP_RANGE &&
 		(sw_skip->min_frame_id <= frame_id &&
@@ -212,7 +214,7 @@ static int32_t msm_isp_stats_buf_divert(struct vfe_device *vfe_dev,
 		return rc;
 	}
 
-	
+	/* Program next buffer */
 	rc = msm_isp_stats_cfg_ping_pong_address(vfe_dev, stream_info,
 						pingpong_status);
 	if (rc)
@@ -320,19 +322,19 @@ void msm_isp_process_stats_irq(struct vfe_device *vfe_dev,
 	ISP_DBG("%s: vfe %d status: 0x%x\n", __func__, vfe_dev->pdev->id,
 		irq_status0);
 
-	
+	/* Clear composite mask irq bits, they will be restored by comp mask */
 	for (j = 0; j < num_stats_comp_mask; j++) {
 		stats_irq_mask &= ~atomic_read(
 			&vfe_dev->stats_data.stats_comp_mask[j]);
 	}
 
-	
+	/* Process non-composite irq */
 	if (stats_irq_mask) {
 		rc = msm_isp_stats_configure(vfe_dev, stats_irq_mask, ts,
 			pingpong_status, comp_flag);
 	}
 
-	
+	/* Process composite irq */
 	if (stats_comp_mask) {
 		for (j = 0; j < num_stats_comp_mask; j++) {
 			if (!(stats_comp_mask & (1 << j)))
@@ -866,11 +868,11 @@ int msm_isp_update_stats_stream(struct vfe_device *vfe_dev, void *arg)
 	struct msm_vfe_axi_stream_cfg_update_info *update_info = NULL;
 	struct msm_isp_sw_framskip *sw_skip_info = NULL;
 
-	
+	/*validate request*/
 	for (i = 0; i < update_cmd->num_streams; i++) {
 		update_info = (struct msm_vfe_axi_stream_cfg_update_info *)
 				&update_cmd->update_info[i];
-		
+		/*check array reference bounds*/
 		if (STATS_IDX(update_info->stream_handle)
 			> vfe_dev->hw_info->stats_hw_info->num_stats_type) {
 			pr_err("%s: stats idx %d out of bound!", __func__,
@@ -916,7 +918,7 @@ int msm_isp_update_stats_stream(struct vfe_device *vfe_dev, void *arg)
 				stream_info->sw_skip = *sw_skip_info;
 
 			if (sw_skip_info->stats_type_mask != 0) {
-				
+				/* No image buffer skip, only stats skip */
 				pr_debug("%s:%x skip type %x mode %d min %d max %d\n",
 					__func__, stream_info->stream_id,
 					sw_skip_info->stats_type_mask,

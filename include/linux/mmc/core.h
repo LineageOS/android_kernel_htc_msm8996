@@ -23,9 +23,14 @@ struct mmc_command {
 #define MMC_CMD23_ARG_PACKED	((0 << 31) | (1 << 30))
 #define MMC_CMD23_ARG_TAG_REQ	(1 << 29)
 	u32			resp[4];
-	unsigned int		flags;		
+	unsigned int		flags;		/* expected response type */
 #define mmc_resp_type(cmd)	((cmd)->flags & (MMC_RSP_PRESENT|MMC_RSP_136|MMC_RSP_CRC|MMC_RSP_BUSY|MMC_RSP_OPCODE))
 
+/*
+ * These are the SPI response types for MMC, SD, and SDIO cards.
+ * Commands return R1, with maybe more info.  Zero is an error type;
+ * callers must always provide the appropriate MMC_RSP_SPI_Rx flags.
+ */
 #define MMC_RSP_SPI_R1	(MMC_RSP_SPI_S1)
 #define MMC_RSP_SPI_R1B	(MMC_RSP_SPI_S1|MMC_RSP_SPI_BUSY)
 #define MMC_RSP_SPI_R2	(MMC_RSP_SPI_S1|MMC_RSP_SPI_S2)
@@ -37,28 +42,44 @@ struct mmc_command {
 #define mmc_spi_resp_type(cmd)	((cmd)->flags & \
 		(MMC_RSP_SPI_S1|MMC_RSP_SPI_BUSY|MMC_RSP_SPI_S2|MMC_RSP_SPI_B4))
 
+/*
+ * These are the command types.
+ */
 #define mmc_cmd_type(cmd)	((cmd)->flags & MMC_CMD_MASK)
 
-	unsigned int		retries;	
-	unsigned int		error;		
+	unsigned int		retries;	/* max number of retries */
+	unsigned int		error;		/* command error */
 
+/*
+ * Standard errno values are used for errors, but some have specific
+ * meaning in the MMC layer:
+ *
+ * ETIMEDOUT    Card took too long to respond
+ * EILSEQ       Basic format problem with the received or sent data
+ *              (e.g. CRC check failed, incorrect opcode in response
+ *              or bad end bit)
+ * EINVAL       Request cannot be performed because of restrictions
+ *              in hardware and/or the driver
+ * ENOMEDIUM    Host can determine that the slot is empty and is
+ *              actively failing requests
+ */
 
-	unsigned int		busy_timeout;	
-	
+	unsigned int		busy_timeout;	/* busy detect timeout in ms */
+	/* Set this flag only for blocking sanitize request */
 	bool			sanitize_busy;
-	
+	/* Set this flag only for blocking bkops request */
 	bool			bkops_busy;
 
-	struct mmc_data		*data;		
-	struct mmc_request	*mrq;		
+	struct mmc_data		*data;		/* data segment associated with cmd */
+	struct mmc_request	*mrq;		/* associated request */
 };
 
 struct mmc_data {
-	unsigned int		timeout_ns;	
-	unsigned int		timeout_clks;	
-	unsigned int		blksz;		
-	unsigned int		blocks;		
-	unsigned int		error;		
+	unsigned int		timeout_ns;	/* data timeout (in ns, max 80ms) */
+	unsigned int		timeout_clks;	/* data timeout (in clocks) */
+	unsigned int		blksz;		/* data block size */
+	unsigned int		blocks;		/* number of blocks */
+	unsigned int		error;		/* data error */
 	unsigned int		flags;
 
 #define MMC_DATA_WRITE	(1 << 8)
@@ -67,24 +88,24 @@ struct mmc_data {
 
 	unsigned int		bytes_xfered;
 
-	struct mmc_command	*stop;		
-	struct mmc_request	*mrq;		
+	struct mmc_command	*stop;		/* stop command */
+	struct mmc_request	*mrq;		/* associated request */
 
-	unsigned int		sg_len;		
-	struct scatterlist	*sg;		
-	s32			host_cookie;	
-	bool			fault_injected; 
+	unsigned int		sg_len;		/* size of scatter list */
+	struct scatterlist	*sg;		/* I/O scatter list */
+	s32			host_cookie;	/* host private data */
+	bool			fault_injected; /* fault injected */
 };
 
 struct mmc_host;
 struct mmc_request {
-	struct mmc_command	*sbc;		
+	struct mmc_command	*sbc;		/* SET_BLOCK_COUNT for multiblock */
 	struct mmc_command	*cmd;
 	struct mmc_data		*data;
 	struct mmc_command	*stop;
 
 	struct completion	completion;
-	void			(*done)(struct mmc_request *);
+	void			(*done)(struct mmc_request *);/* completion function */
 	struct mmc_host		*host;
 	struct mmc_cmdq_req	*cmdq_req;
 	struct request *req;

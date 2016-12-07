@@ -39,6 +39,7 @@
 #include "a3xx_reg.h"
 #include "adreno_snapshot.h"
 
+/* Include the master list of GPU cores that are supported */
 #include "adreno-gpulist.h"
 
 #undef MODULE_PARAM_PREFIX
@@ -51,6 +52,7 @@ MODULE_PARM_DESC(nopreempt, "Disable GPU preemption");
 #define DRIVER_VERSION_MAJOR   3
 #define DRIVER_VERSION_MINOR   1
 
+/* Number of times to try hard reset */
 #define NUM_TIMES_RESET_RETRY 5
 
 #define KGSL_LOG_LEVEL_DEFAULT 3
@@ -102,9 +104,13 @@ static struct adreno_device device_3d0 = {
 	.active_list_lock = __SPIN_LOCK_UNLOCKED(device_3d0.active_list_lock),
 };
 
+/* Ptr to array for the current set of fault detect registers */
 unsigned int *adreno_ft_regs;
+/* Total number of fault detect registers */
 unsigned int adreno_ft_regs_num;
+/* Ptr to array for the current fault detect registers values */
 unsigned int *adreno_ft_regs_val;
+/* Array of default fault detect registers */
 static unsigned int adreno_ft_regs_default[] = {
 	ADRENO_REG_RBBM_STATUS,
 	ADRENO_REG_CP_RB_RPTR,
@@ -114,10 +120,20 @@ static unsigned int adreno_ft_regs_default[] = {
 	ADRENO_REG_CP_IB2_BUFSZ
 };
 
+/* Nice level for the higher priority GPU start thread */
 int adreno_wake_nice = -7;
 
+/* Number of milliseconds to stay active active after a wake on touch */
 unsigned int adreno_wake_timeout = 100;
 
+/**
+ * adreno_readreg64() - Read a 64bit register by getting its offset from the
+ * offset array defined in gpudev node
+ * @adreno_dev:		Pointer to the the adreno device
+ * @lo:	lower 32bit register enum that is to be read
+ * @hi:	higher 32bit register enum that is to be read
+ * @val: 64 bit Register value read is placed here
+ */
 void adreno_readreg64(struct adreno_device *adreno_dev,
 		enum adreno_regs lo, enum adreno_regs hi, uint64_t *val)
 {
@@ -154,6 +170,12 @@ void adreno_writereg64(struct adreno_device *adreno_dev,
 			gpudev->reg_offsets->offsets[hi], upper_32_bits(val));
 }
 
+/**
+ * adreno_get_rptr() - Get the current ringbuffer read pointer
+ * @rb: Pointer the ringbuffer to query
+ *
+ * Get the latest rptr
+ */
 unsigned int adreno_get_rptr(struct adreno_ringbuffer *rb)
 {
 	struct adreno_device *adreno_dev = ADRENO_RB_DEVICE(rb);
@@ -172,6 +194,12 @@ unsigned int adreno_get_rptr(struct adreno_ringbuffer *rb)
 	return rptr;
 }
 
+/**
+ * adreno_of_read_property() - Adreno read property
+ * @node: Device node
+ *
+ * Read a u32 property.
+ */
 static inline int adreno_of_read_property(struct device_node *node,
 	const char *prop, unsigned int *ptr)
 {
@@ -226,7 +254,7 @@ int adreno_efuse_read_u32(struct adreno_device *adreno_dev, unsigned int offset,
 
 	if (val != NULL) {
 		*val = readl_relaxed(efuse_base + offset);
-		
+		/* Make sure memory is updated before returning */
 		rmb();
 	}
 
@@ -268,6 +296,14 @@ static inline void _put_counter(struct adreno_device *adreno_dev,
 	*hi = 0;
 }
 
+/**
+ * adreno_fault_detect_start() - Allocate performance counters
+ * used for fast fault detection
+ * @adreno_dev: Pointer to an adreno_device structure
+ *
+ * Allocate the series of performance counters that should be periodically
+ * checked to verify that the GPU is still moving
+ */
 void adreno_fault_detect_start(struct adreno_device *adreno_dev)
 {
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
@@ -289,6 +325,13 @@ void adreno_fault_detect_start(struct adreno_device *adreno_dev)
 	adreno_dev->fast_hang_detect = 1;
 }
 
+/**
+ * adreno_fault_detect_stop() - Release performance counters
+ * used for fast fault detection
+ * @adreno_dev: Pointer to an adreno_device structure
+ *
+ * Release the counters allocated in adreno_fault_detect_start
+ */
 void adreno_fault_detect_stop(struct adreno_device *adreno_dev)
 {
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
@@ -311,6 +354,13 @@ void adreno_fault_detect_stop(struct adreno_device *adreno_dev)
 	adreno_dev->fast_hang_detect = 0;
 }
 
+/*
+ * A workqueue callback responsible for actually turning on the GPU after a
+ * touch event. kgsl_pwrctrl_change_state(ACTIVE) is used without any
+ * active_count protection to avoid the need to maintain state.  Either
+ * somebody will start using the GPU or the idle timer will fire and put the
+ * GPU back into slumber.
+ */
 static void adreno_input_work(struct work_struct *work)
 {
 	struct adreno_device *adreno_dev = container_of(work,
@@ -321,29 +371,56 @@ static void adreno_input_work(struct work_struct *work)
 
 	device->flags |= KGSL_FLAG_WAKE_ON_TOUCH;
 
+	/*
+	 * Don't schedule adreno_start in a high priority workqueue, we are
+	 * already in a workqueue which should be sufficient
+	 */
 	kgsl_pwrctrl_change_state(device, KGSL_STATE_ACTIVE);
 
+	/*
+	 * When waking up from a touch event we want to stay active long enough
+	 * for the user to send a draw command.  The default idle timer timeout
+	 * is shorter than we want so go ahead and push the idle timer out
+	 * further for this special case
+	 */
 	mod_timer(&device->idle_timer,
 		jiffies + msecs_to_jiffies(adreno_wake_timeout));
 	mutex_unlock(&device->mutex);
 }
 
+/*
+ * Process input events and schedule work if needed.  At this point we are only
+ * interested in groking EV_ABS touchscreen events
+ */
 static void adreno_input_event(struct input_handle *handle, unsigned int type,
 		unsigned int code, int value)
 {
 	struct kgsl_device *device = handle->handler->private;
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
-	
+	/* Only consider EV_ABS (touch) events */
 	if (type != EV_ABS)
 		return;
 
+	/*
+	 * Don't do anything if anything hasn't been rendered since we've been
+	 * here before
+	 */
 
 	if (device->flags & KGSL_FLAG_WAKE_ON_TOUCH)
 		return;
 
+	/*
+	 * If the device is in nap, kick the idle timer to make sure that we
+	 * don't go into slumber before the first render. If the device is
+	 * already in slumber schedule the wake.
+	 */
 
 	if (device->state == KGSL_STATE_NAP) {
+		/*
+		 * Set the wake on touch bit to keep from coming back here and
+		 * keeping the device in nap without rendering
+		 */
 
 		device->flags |= KGSL_FLAG_WAKE_ON_TOUCH;
 
@@ -399,11 +476,15 @@ static int adreno_input_connect(struct input_handler *handler,
 static void adreno_input_disconnect(struct input_handle *handle) {}
 #endif
 
+/*
+ * We are only interested in EV_ABS events so only register handlers for those
+ * input devices that have EV_ABS events
+ */
 static const struct input_device_id adreno_input_ids[] = {
 	{
 		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
 		.evbit = { BIT_MASK(EV_ABS) },
-		
+		/* assumption: MT_.._X & MT_.._Y are in the same long */
 		.absbit = { [BIT_WORD(ABS_MT_POSITION_X)] =
 				BIT_MASK(ABS_MT_POSITION_X) |
 				BIT_MASK(ABS_MT_POSITION_Y) },
@@ -421,11 +502,25 @@ static struct input_handler adreno_input_handler = {
 
 static int adreno_soft_reset(struct kgsl_device *device);
 
+/*
+ * _soft_reset() - Soft reset GPU
+ * @adreno_dev: Pointer to adreno device
+ *
+ * Soft reset the GPU by doing a AHB write of value 1 to RBBM_SW_RESET
+ * register. This is used when we want to reset the GPU without
+ * turning off GFX power rail. The reset when asserted resets
+ * all the HW logic, restores GPU registers to default state and
+ * flushes out pending VBIF transactions.
+ */
 static void _soft_reset(struct adreno_device *adreno_dev)
 {
 	struct adreno_gpudev *gpudev  = ADRENO_GPU_DEVICE(adreno_dev);
 	unsigned int reg;
 
+	/*
+	 * On a530 v1 RBBM cannot be reset in soft reset.
+	 * Reset all blocks except RBBM for a530v1.
+	 */
 	if (adreno_is_a530v1(adreno_dev)) {
 		adreno_writereg(adreno_dev, ADRENO_REG_RBBM_BLOCK_SW_RESET_CMD,
 						 0xFFDFFC0);
@@ -434,11 +529,15 @@ static void _soft_reset(struct adreno_device *adreno_dev)
 	} else {
 
 		adreno_writereg(adreno_dev, ADRENO_REG_RBBM_SW_RESET_CMD, 1);
+		/*
+		 * Do a dummy read to get a brief read cycle delay for the
+		 * reset to take effect
+		 */
 		adreno_readreg(adreno_dev, ADRENO_REG_RBBM_SW_RESET_CMD, &reg);
 		adreno_writereg(adreno_dev, ADRENO_REG_RBBM_SW_RESET_CMD, 0);
 	}
 
-	
+	/* The SP/TP regulator gets turned off after a soft reset */
 
 	if (gpudev->regulator_enable)
 		gpudev->regulator_enable(adreno_dev);
@@ -453,17 +552,29 @@ void adreno_irqctrl(struct adreno_device *adreno_dev, int state)
 	adreno_writereg(adreno_dev, ADRENO_REG_RBBM_INT_0_MASK, mask);
 }
 
+ /*
+ * adreno_hang_int_callback() - Isr for fatal interrupts that hang GPU
+ * @adreno_dev: Pointer to device
+ * @bit: Interrupt bit
+ */
 void adreno_hang_int_callback(struct adreno_device *adreno_dev, int bit)
 {
 	KGSL_DRV_CRIT_RATELIMIT(KGSL_DEVICE(adreno_dev),
 			"MISC: GPU hang detected\n");
 	adreno_irqctrl(adreno_dev, 0);
 
-	
+	/* Trigger a fault in the dispatcher - this will effect a restart */
 	adreno_set_gpu_fault(adreno_dev, ADRENO_HARD_FAULT);
 	adreno_dispatcher_schedule(KGSL_DEVICE(adreno_dev));
 }
 
+ /*
+ * adreno_cp_callback() - CP interrupt handler
+ * @adreno_dev: Adreno device pointer
+ * @irq: irq number
+ *
+ * Handle the cp interrupt generated by GPU.
+ */
 void adreno_cp_callback(struct adreno_device *adreno_dev, int bit)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
@@ -482,7 +593,7 @@ static irqreturn_t adreno_irq_handler(struct kgsl_device *device)
 
 	adreno_readreg(adreno_dev, ADRENO_REG_RBBM_INT_0_STATUS, &status);
 
-	
+	/* Loop through all set interrupts and call respective handlers */
 	for (tmp = status; tmp != 0;) {
 		i = fls(tmp) - 1;
 
@@ -549,9 +660,17 @@ adreno_identify_gpu(struct adreno_device *adreno_dev)
 		KGSL_DRV_FATAL(KGSL_DEVICE(adreno_dev),
 			"Unknown GPU chip ID %8.8X\n", adreno_dev->chipid);
 
+	/*
+	 * The gmem size might be dynamic when ocmem is involved so copy it out
+	 * of the gpu device
+	 */
 
 	adreno_dev->gmem_size = adreno_dev->gpucore->gmem_size;
 
+	/*
+	 * Initialize uninitialzed gpu registers, only needs to be done once
+	 * Make all offsets that are not initialized to ADRENO_REG_UNUSED
+	 */
 
 	gpudev = ADRENO_GPU_DEVICE(adreno_dev);
 	reg_offsets = gpudev->reg_offsets;
@@ -561,7 +680,7 @@ adreno_identify_gpu(struct adreno_device *adreno_dev)
 			reg_offsets->offsets[i] = ADRENO_REG_UNUSED;
 	}
 
-	
+	/* Do target specific identification */
 	if (gpudev->platform_setup != NULL)
 		gpudev->platform_setup(adreno_dev);
 }
@@ -726,7 +845,7 @@ static int adreno_of_get_power(struct adreno_device *adreno_dev,
 	if (adreno_of_read_property(node, "qcom,id", &pdev->id))
 		return -EINVAL;
 
-	
+	/* Set up quirks and other boolean options */
 	for (i = 0; i < ARRAY_SIZE(adreno_quirks); i++) {
 		if (of_property_read_bool(node, adreno_quirks[i].prop))
 			adreno_dev->quirks |= adreno_quirks[i].quirk;
@@ -735,17 +854,17 @@ static int adreno_of_get_power(struct adreno_device *adreno_dev,
 	if (adreno_of_get_pwrlevels(adreno_dev, node))
 		return -EINVAL;
 
-	
+	/* get pm-qos-active-latency, set it to default if not found */
 	if (of_property_read_u32(node, "qcom,pm-qos-active-latency",
 		&device->pwrctrl.pm_qos_active_latency))
 		device->pwrctrl.pm_qos_active_latency = 501;
 
-	
+	/* get pm-qos-cpu-mask-latency, set it to default if not found */
 	if (of_property_read_u32(node, "qcom,l2pc-cpu-mask-latency",
 		&device->pwrctrl.pm_qos_cpu_mask_latency))
 		device->pwrctrl.pm_qos_cpu_mask_latency = 501;
 
-	
+	/* get pm-qos-wakeup-latency, set it to default if not found */
 	if (of_property_read_u32(node, "qcom,pm-qos-wakeup-latency",
 		&device->pwrctrl.pm_qos_wakeup_latency))
 		device->pwrctrl.pm_qos_wakeup_latency = 101;
@@ -823,7 +942,7 @@ static int adreno_probe(struct platform_device *pdev)
 	device = KGSL_DEVICE(adreno_dev);
 	device->pdev = pdev;
 
-	
+	/* Get the chip ID from the DT and set up target specific parameters */
 	adreno_identify_gpu(adreno_dev);
 
 	status = adreno_of_get_power(adreno_dev, pdev);
@@ -832,6 +951,11 @@ static int adreno_probe(struct platform_device *pdev)
 		return status;
 	}
 
+	/*
+	* The SMMU APIs use unsigned long for virtual addresses which means
+	* that we cannot use 64 bit virtual addresses on a 32 bit kernel even
+	* though the hardware and the rest of the KGSL driver supports it.
+	*/
 	if (adreno_support_64bit(adreno_dev))
 		device->mmu.features |= KGSL_MMU_64BIT;
 
@@ -841,6 +965,13 @@ static int adreno_probe(struct platform_device *pdev)
 		return status;
 	}
 
+	/*
+	 * qcom,iommu-secure-id is used to identify MMUs that can handle secure
+	 * content but that is only part of the story - the GPU also has to be
+	 * able to handle secure content.  Unfortunately in a classic catch-22
+	 * we cannot identify the GPU until after the DT is parsed. tl;dr -
+	 * check the GPU capabilities here and modify mmu->secured accordingly
+	 */
 
 	if (!ADRENO_FEATURE(adreno_dev, ADRENO_CONTENT_PROTECTION))
 		device->mmu.secured = false;
@@ -860,12 +991,16 @@ static int adreno_probe(struct platform_device *pdev)
 
 	kgsl_pwrscale_init(&pdev->dev, CONFIG_MSM_ADRENO_DEFAULT_GOVERNOR);
 
-	
+	/* Initialize coresight for the target */
 	adreno_coresight_init(adreno_dev);
 
 	adreno_input_handler.private = device;
 
 #ifdef CONFIG_INPUT
+	/*
+	 * It isn't fatal if we cannot register the input handler.  Sad,
+	 * perhaps, but not fatal
+	 */
 	if (input_register_handler(&adreno_input_handler))
 		KGSL_DRV_ERR(device, "Unable to register the input handler\n");
 #endif
@@ -886,7 +1021,7 @@ static void _adreno_free_memories(struct adreno_device *adreno_dev)
 	if (test_bit(ADRENO_DEVICE_CMDBATCH_PROFILE, &adreno_dev->priv))
 		kgsl_free_global(device, &adreno_dev->cmdbatch_profile_buffer);
 
-	
+	/* Free local copies of firmware and other command streams */
 	kfree(adreno_dev->pfp_fw);
 	adreno_dev->pfp_fw = NULL;
 
@@ -915,7 +1050,7 @@ static int adreno_remove(struct platform_device *pdev)
 	if (gpudev->remove != NULL)
 		gpudev->remove(adreno_dev);
 
-	
+	/* The memory is fading */
 	_adreno_free_memories(adreno_dev);
 
 #ifdef CONFIG_INPUT
@@ -959,7 +1094,7 @@ static void adreno_fault_detect_init(struct adreno_device *adreno_dev)
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
 	int i, val = adreno_dev->fast_hang_detect;
 
-	
+	/* Disable the fast hang detect bit until we know its a go */
 	adreno_dev->fast_hang_detect = 0;
 
 	adreno_ft_regs_num = (ARRAY_SIZE(adreno_ft_regs_default) +
@@ -1000,15 +1135,24 @@ static int adreno_init(struct kgsl_device *device)
 	if (ret)
 		return ret;
 
+	/*
+	 * initialization only needs to be done once initially until
+	 * device is shutdown
+	 */
 	if (test_bit(ADRENO_DEVICE_INITIALIZED, &adreno_dev->priv))
 		return 0;
 
+	/*
+	 * Either the microcode read failed because the usermodehelper isn't
+	 * available or the microcode was corrupted. Fail the init and force
+	 * the user to try the open() again
+	 */
 
 	ret = gpudev->microcode_read(adreno_dev);
 	if (ret)
 		return ret;
 
-	
+	/* Put the GPU in a responsive state */
 	ret = kgsl_pwrctrl_change_state(device, KGSL_STATE_AWARE);
 	if (ret)
 		return ret;
@@ -1020,7 +1164,7 @@ static int adreno_init(struct kgsl_device *device)
 	adreno_perfcounter_init(adreno_dev);
 	adreno_fault_detect_init(adreno_dev);
 
-	
+	/* Power down the device */
 	kgsl_pwrctrl_change_state(device, KGSL_STATE_INIT);
 
 	if (gpudev->init != NULL)
@@ -1028,7 +1172,7 @@ static int adreno_init(struct kgsl_device *device)
 
 	set_bit(ADRENO_DEVICE_INITIALIZED, &adreno_dev->priv);
 
-	
+	/* Use shader offset and length defined in gpudev */
 	if (adreno_dev->gpucore->shader_offset &&
 					adreno_dev->gpucore->shader_size) {
 
@@ -1045,6 +1189,10 @@ static int adreno_init(struct kgsl_device *device)
 		}
 	}
 
+	/*
+	 * Allocate a small chunk of memory for precise cmdbatch profiling for
+	 * those targets that have the always on timer
+	 */
 
 	if (!adreno_is_a3xx(adreno_dev)) {
 		int r = kgsl_allocate_global(device,
@@ -1107,7 +1255,7 @@ static void _setup_throttling_counters(struct adreno_device *adreno_dev)
 		return;
 
 	for (i = 0; i < ADRENO_GPMU_THROTTLE_COUNTERS; i++) {
-		
+		/* reset throttled cycles ivalue */
 		adreno_dev->busy_data.throttle_cycles[i] = 0;
 
 		if (adreno_dev->gpmu_throttle_counters[i] != 0)
@@ -1123,9 +1271,13 @@ static void _setup_throttling_counters(struct adreno_device *adreno_dev)
 	}
 }
 
+/* FW driven idle 10% throttle */
 #define IDLE_10PCT 0
+/* number of cycles when clock is throttled by 50% (CRC) */
 #define CRC_50PCT  1
+/* number of cycles when clock is throttled by more than 50% (CRC) */
 #define CRC_MORE50PCT 2
+/* number of cycles when clock is throttle by less than 50% (CRC) */
 #define CRC_LESS50PCT 3
 
 static uint64_t _read_throttling_counters(struct adreno_device *adreno_dev)
@@ -1168,7 +1320,7 @@ static void _set_secvid(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
-	
+	/* Program GPU contect protection init values */
 	if (device->mmu.secured) {
 		if (adreno_is_a4xx(adreno_dev))
 			adreno_writereg(adreno_dev,
@@ -1186,6 +1338,13 @@ static void _set_secvid(struct kgsl_device *device)
 	}
 }
 
+/**
+ * _adreno_start - Power up the GPU and prepare to accept commands
+ * @adreno_dev: Pointer to an adreno_device structure
+ *
+ * The core function that powers up and initalizes the GPU.  This function is
+ * called at init and after coming out of SLUMBER
+ */
 static int _adreno_start(struct adreno_device *adreno_dev)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
@@ -1196,7 +1355,7 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 	unsigned int pmqos_wakeup_vote = device->pwrctrl.pm_qos_wakeup_latency;
 	unsigned int pmqos_active_vote = device->pwrctrl.pm_qos_active_latency;
 
-	
+	/* make sure ADRENO_DEVICE_STARTED is not set here */
 	BUG_ON(test_bit(ADRENO_DEVICE_STARTED, &adreno_dev->priv));
 
 	pm_qos_update_request(&device->pwrctrl.pm_qos_req_dma,
@@ -1206,18 +1365,18 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 
 	regulator_left_on = regulators_left_on(device);
 
-	
+	/* Clear any GPU faults that might have been left over */
 	adreno_clear_gpu_fault(adreno_dev);
 
-	
+	/* Put the GPU in a responsive state */
 	status = kgsl_pwrctrl_change_state(device, KGSL_STATE_AWARE);
 	if (status)
 		goto error_pwr_off;
 
-	
+	/* Set the bit to indicate that we've just powered on */
 	set_bit(ADRENO_DEVICE_PWRON, &adreno_dev->priv);
 
-	
+	/* Soft reset the GPU if a regulator is stuck on*/
 	if (regulator_left_on)
 		_soft_reset(adreno_dev);
 
@@ -1235,7 +1394,7 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 		goto error_mmu_off;
 	}
 
-	
+	/* Enable 64 bit gpu addr if feature is set */
 	if (gpudev->enable_64bit &&
 			adreno_support_64bit(adreno_dev))
 		gpudev->enable_64bit(adreno_dev);
@@ -1255,7 +1414,7 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 
 	if (device->pwrctrl.bus_control) {
 
-		
+		/* VBIF waiting for RAM */
 		if (adreno_dev->starved_ram_lo == 0) {
 			ret = adreno_perfcounter_get(adreno_dev,
 				KGSL_PERFCOUNTER_GROUP_VBIF_PWR, 0,
@@ -1269,7 +1428,7 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 			}
 		}
 
-		
+		/* VBIF DDR cycles */
 		if (adreno_dev->ram_cycles_lo == 0) {
 			ret = adreno_perfcounter_get(adreno_dev,
 				KGSL_PERFCOUNTER_GROUP_VBIF,
@@ -1285,7 +1444,7 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 		}
 	}
 
-	
+	/* Clear the busy_data stats - we're starting over from scratch */
 	adreno_dev->busy_data.gpu_busy = 0;
 	adreno_dev->busy_data.vbif_ram_cycles = 0;
 	adreno_dev->busy_data.vbif_starved_ram = 0;
@@ -1297,34 +1456,34 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 			KGSL_PERFCOUNTER_GROUP_GPMU_PWR, 27,
 			&adreno_dev->lm_threshold_count, NULL,
 			PERFCOUNTER_FLAG_KERNEL);
-		
+		/* Ignore noncritical ret - used for debugfs */
 		if (ret)
 			adreno_dev->lm_threshold_count = 0;
 	}
 
 	_setup_throttling_counters(adreno_dev);
 
-	
+	/* Restore performance counter registers with saved values */
 	adreno_perfcounter_restore(adreno_dev);
 
-	
+	/* Start the GPU */
 	gpudev->start(adreno_dev);
 
-	
+	/* Re-initialize the coresight registers if applicable */
 	adreno_coresight_start(adreno_dev);
 
 	adreno_irqctrl(adreno_dev, 1);
 
 	adreno_perfcounter_start(adreno_dev);
 
-	
+	/* Clear FSR here in case it is set from a previous pagefault */
 	kgsl_mmu_clear_fsr(&device->mmu);
 
 	status = adreno_ringbuffer_start(adreno_dev, ADRENO_START_COLD);
 	if (status)
 		goto error_mmu_off;
 
-	
+	/* Start the dispatcher */
 	adreno_dispatcher_start(device);
 
 	device->reset_counter++;
@@ -1341,7 +1500,7 @@ error_mmu_off:
 	kgsl_mmu_stop(&device->mmu);
 
 error_pwr_off:
-	
+	/* set the state back to original state */
 	kgsl_pwrctrl_change_state(device, state);
 
 	if (pmqos_active_vote != pmqos_wakeup_vote)
@@ -1351,6 +1510,15 @@ error_pwr_off:
 	return status;
 }
 
+/**
+ * adreno_start() - Power up and initialize the GPU
+ * @device: Pointer to the KGSL device to power up
+ * @priority:  Boolean flag to specify of the start should be scheduled in a low
+ * latency work queue
+ *
+ * Power up the GPU and initialize it.  If priority is specified then elevate
+ * the thread priority for the duration of the start operation
+ */
 static int adreno_start(struct kgsl_device *device, int priority)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
@@ -1368,6 +1536,10 @@ static int adreno_start(struct kgsl_device *device, int priority)
 	return ret;
 }
 
+/**
+ * adreno_vbif_clear_pending_transactions() - Clear transactions in VBIF pipe
+ * @device: Pointer to the device whose VBIF pipe is to be cleared
+ */
 static int adreno_vbif_clear_pending_transactions(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
@@ -1378,7 +1550,7 @@ static int adreno_vbif_clear_pending_transactions(struct kgsl_device *device)
 	int ret = 0;
 
 	adreno_writereg(adreno_dev, ADRENO_REG_VBIF_XIN_HALT_CTRL0, mask);
-	
+	/* wait for the transactions to clear */
 	wait_for_vbif = jiffies + msecs_to_jiffies(100);
 	while (1) {
 		adreno_readreg(adreno_dev,
@@ -1431,10 +1603,10 @@ static int adreno_stop(struct kgsl_device *device)
 
 	adreno_ocmem_free(adreno_dev);
 
-	
+	/* Save active coresight registers if applicable */
 	adreno_coresight_stop(adreno_dev);
 
-	
+	/* Save physical performance counter values before GPU power down*/
 	adreno_perfcounter_save(adreno_dev);
 
 	adreno_vbif_clear_pending_transactions(device);
@@ -1451,6 +1623,11 @@ static inline bool adreno_try_soft_reset(struct kgsl_device *device, int fault)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
+	/*
+	 * Do not do soft reset for a IOMMU fault (because the IOMMU hardware
+	 * needs a reset too) or for the A304 because it can't do SMMU
+	 * programming of any kind after a soft reset
+	 */
 
 	if ((fault & ADRENO_IOMMU_PAGE_FAULT) || adreno_is_a304(adreno_dev))
 		return false;
@@ -1458,6 +1635,15 @@ static inline bool adreno_try_soft_reset(struct kgsl_device *device, int fault)
 	return true;
 }
 
+/**
+ * adreno_reset() - Helper function to reset the GPU
+ * @device: Pointer to the KGSL device structure for the GPU
+ * @fault: Type of fault. Needed to skip soft reset for MMU fault
+ *
+ * Try to reset the GPU to recover from a fault.  First, try to do a low latency
+ * soft reset.  If the soft reset fails for some reason, then bring out the big
+ * guns and toggle the footswitch.
+ */
 int adreno_reset(struct kgsl_device *device, int fault)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
@@ -1465,13 +1651,13 @@ int adreno_reset(struct kgsl_device *device, int fault)
 	int ret = -EINVAL;
 	int i = 0;
 
-	
+	/* broadcast to HW - reset is coming */
 	if (gpudev->pre_reset)
 		gpudev->pre_reset(adreno_dev);
 
-	
+	/* Try soft reset first */
 	if (adreno_try_soft_reset(device, fault)) {
-		
+		/* Make sure VBIF is cleared before resetting */
 		ret = adreno_vbif_clear_pending_transactions(device);
 
 		if (ret == 0) {
@@ -1482,12 +1668,12 @@ int adreno_reset(struct kgsl_device *device, int fault)
 		}
 	}
 	if (ret) {
-		
+		/* If soft reset failed/skipped, then pull the power */
 		kgsl_pwrctrl_change_state(device, KGSL_STATE_INIT);
-		
+		/* since device is officially off now clear start bit */
 		clear_bit(ADRENO_DEVICE_STARTED, &adreno_dev->priv);
 
-		
+		/* Keep trying to start the device until it works */
 		for (i = 0; i < NUM_TIMES_RESET_RETRY; i++) {
 			ret = adreno_start(device, 0);
 			if (!ret)
@@ -1502,6 +1688,10 @@ int adreno_reset(struct kgsl_device *device, int fault)
 	if (0 != i)
 		KGSL_DRV_WARN(device, "Device hard reset tried %d tries\n", i);
 
+	/*
+	 * If active_cnt is non-zero then the system was active before
+	 * going into a reset - put it back in that state
+	 */
 
 	if (atomic_read(&device->active_cnt))
 		kgsl_pwrctrl_change_state(device, KGSL_STATE_ACTIVE);
@@ -1555,9 +1745,14 @@ static int adreno_getproperty(struct kgsl_device *device,
 			}
 			memset(&shadowprop, 0, sizeof(shadowprop));
 			if (device->memstore.hostptr) {
+				/*NOTE: with mmu enabled, gpuaddr doesn't mean
+				 * anything to mmap().
+				 */
 				shadowprop.gpuaddr =
 					(unsigned int) device->memstore.gpuaddr;
 				shadowprop.size = device->memstore.size;
+				/* GSL needs this to be set, even if it
+				   appears to be meaningless */
 				shadowprop.flags = KGSL_FLAGS_INITIALIZED |
 					KGSL_FLAGS_PER_CONTEXT_TIMESTAMPS;
 			}
@@ -1595,7 +1790,7 @@ static int adreno_getproperty(struct kgsl_device *device,
 		break;
 	case KGSL_PROP_MMU_ENABLE:
 		{
-			
+			/* Report MMU only if we can handle paged memory */
 			int mmu_prop = MMU_FEATURE(&device->mmu,
 				KGSL_MMU_PAGED);
 
@@ -1741,7 +1936,7 @@ static int adreno_getproperty(struct kgsl_device *device,
 			status = -EINVAL;
 			break;
 		}
-		
+		/* No of bits used by the GPU */
 		if (adreno_support_64bit(adreno_dev))
 			bitness = 48;
 
@@ -1810,7 +2005,7 @@ int adreno_set_constraint(struct kgsl_device *device,
 		break;
 	}
 
-	
+	/* If a new constraint has been set for a context, cancel the old one */
 	if ((status == 0) &&
 		(context->id == device->pwrctrl.constraint.owner_id)) {
 		trace_kgsl_constraint(device, device->pwrctrl.constraint.type,
@@ -1897,6 +2092,12 @@ static int adreno_setproperty(struct kgsl_device_private *dev_priv,
 	return status;
 }
 
+/*
+ * adreno_irq_pending() - Checks if interrupt is generated by h/w
+ * @adreno_dev: Pointer to device whose interrupts are checked
+ *
+ * Returns true if interrupts are pending from device else 0.
+ */
 inline unsigned int adreno_irq_pending(struct adreno_device *adreno_dev)
 {
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
@@ -1908,6 +2109,13 @@ inline unsigned int adreno_irq_pending(struct adreno_device *adreno_dev)
 }
 
 
+/**
+ * adreno_hw_isidle() - Check if the GPU core is idle
+ * @adreno_dev: Pointer to the Adreno device structure for the GPU
+ *
+ * Return true if the RBBM status register for the GPU type indicates that the
+ * hardware is idle
+ */
 bool adreno_hw_isidle(struct adreno_device *adreno_dev)
 {
 	const struct adreno_gpu_core *gpucore = adreno_dev->gpucore;
@@ -1919,13 +2127,21 @@ bool adreno_hw_isidle(struct adreno_device *adreno_dev)
 	if (reg_rbbm_status & gpucore->busy_mask)
 		return false;
 
-	
+	/* Don't consider ourselves idle if there is an IRQ pending */
 	if (adreno_irq_pending(adreno_dev))
 		return false;
 
 	return true;
 }
 
+/**
+ * adreno_soft_reset() -  Do a soft reset of the GPU hardware
+ * @device: KGSL device to soft reset
+ *
+ * "soft reset" the GPU hardware - this is a fast path GPU reset
+ * The GPU hardware is reset but we never pull power so we can skip
+ * a lot of the standard adreno_stop/adreno_start sequence
+ */
 static int adreno_soft_reset(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
@@ -1938,44 +2154,48 @@ static int adreno_soft_reset(struct kgsl_device *device)
 	adreno_irqctrl(adreno_dev, 0);
 
 	adreno_clear_gpu_fault(adreno_dev);
-	
+	/* since device is oficially off now clear start bit */
 	clear_bit(ADRENO_DEVICE_STARTED, &adreno_dev->priv);
 
-	
+	/* save physical performance counter values before GPU soft reset */
 	adreno_perfcounter_save(adreno_dev);
 
 	kgsl_cffdump_close(device);
-	
+	/* Reset the GPU */
 	_soft_reset(adreno_dev);
 
-	
+	/* Set the page table back to the default page table */
 	adreno_ringbuffer_set_global(adreno_dev, 0);
 	kgsl_mmu_set_pt(&device->mmu, device->mmu.defaultpagetable);
 
-	
+	/* start of new CFF after reset */
 	kgsl_cffdump_open(device);
 
 	_set_secvid(device);
 
-	
+	/* Enable 64 bit gpu addr if feature is set */
 	if (gpudev->enable_64bit &&
 			adreno_support_64bit(adreno_dev))
 		gpudev->enable_64bit(adreno_dev);
 
-	
+	/* Restore physical performance counter values after soft reset */
 	adreno_perfcounter_restore(adreno_dev);
 
-	
+	/* Reinitialize the GPU */
 	gpudev->start(adreno_dev);
 
-	
+	/* Re-initialize the coresight registers if applicable */
 	adreno_coresight_start(adreno_dev);
 
-	
+	/* Enable IRQ */
 	adreno_irqctrl(adreno_dev, 1);
 
-	
+	/* stop all ringbuffers to cancel RB events */
 	adreno_ringbuffer_stop(adreno_dev);
+	/*
+	 * If we have offsets for the jump tables we can try to do a warm start,
+	 * otherwise do a full ringbuffer restart
+	 */
 
 	if (ADRENO_FEATURE(adreno_dev, ADRENO_WARM_START))
 		ret = adreno_ringbuffer_start(adreno_dev, ADRENO_START_WARM);
@@ -1989,6 +2209,13 @@ static int adreno_soft_reset(struct kgsl_device *device)
 	return ret;
 }
 
+/*
+ * adreno_isidle() - return true if the GPU hardware is idle
+ * @device: Pointer to the KGSL device structure for the GPU
+ *
+ * Return true if the GPU hardware is idle and there are no commands pending in
+ * the ringbuffer
+ */
 bool adreno_isidle(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
@@ -1998,8 +2225,16 @@ bool adreno_isidle(struct kgsl_device *device)
 	if (!kgsl_state_is_awake(device))
 		return true;
 
+	/*
+	 * wptr is updated when we add commands to ringbuffer, add a barrier
+	 * to make sure updated wptr is compared to rptr
+	 */
 	smp_mb();
 
+	/*
+	 * ringbuffer is truly idle when all ringbuffers read and write
+	 * pointers are equal
+	 */
 
 	FOR_EACH_RINGBUFFER(adreno_dev, rb, i) {
 		if (!adreno_rb_empty(rb))
@@ -2009,6 +2244,13 @@ bool adreno_isidle(struct kgsl_device *device)
 	return adreno_hw_isidle(adreno_dev);
 }
 
+/**
+ * adreno_spin_idle() - Spin wait for the GPU to idle
+ * @adreno_dev: Pointer to an adreno device
+ * @timeout: milliseconds to wait before returning error
+ *
+ * Spin the CPU waiting for the RBBM status to return idle
+ */
 int adreno_spin_idle(struct adreno_device *adreno_dev, unsigned int timeout)
 {
 	unsigned long wait = jiffies + msecs_to_jiffies(timeout);
@@ -2018,6 +2260,12 @@ int adreno_spin_idle(struct adreno_device *adreno_dev, unsigned int timeout)
 		0x00000000, 0x80000000);
 
 	do {
+		/*
+		 * If we fault, stop waiting and return an error. The dispatcher
+		 * will clean up the fault from the work queue, but we need to
+		 * make sure we don't block it by waiting for an idle that
+		 * will never come.
+		 */
 
 		if (adreno_gpu_fault(adreno_dev) != 0)
 			return -EDEADLK;
@@ -2027,6 +2275,11 @@ int adreno_spin_idle(struct adreno_device *adreno_dev, unsigned int timeout)
 
 	} while (time_before(jiffies, wait));
 
+	/*
+	 * Under rare conditions, preemption can cause the while loop to exit
+	 * without checking if the gpu is idle. check one last time before we
+	 * return failure.
+	 */
 	if (adreno_gpu_fault(adreno_dev) != 0)
 		return -EDEADLK;
 
@@ -2036,18 +2289,32 @@ int adreno_spin_idle(struct adreno_device *adreno_dev, unsigned int timeout)
 	return -ETIMEDOUT;
 }
 
+/**
+ * adreno_idle() - wait for the GPU hardware to go idle
+ * @device: Pointer to the KGSL device structure for the GPU
+ *
+ * Wait up to ADRENO_IDLE_TIMEOUT milliseconds for the GPU hardware to go quiet.
+ */
 
 int adreno_idle(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	int ret;
 
+	/*
+	 * Make sure the device mutex is held so the dispatcher can't send any
+	 * more commands to the hardware
+	 */
 
 	BUG_ON(!mutex_is_locked(&device->mutex));
 
-	
+	/* Check if we are already idle before idling dispatcher */
 	if (adreno_isidle(device))
 		return 0;
+	/*
+	 * Wait for dispatcher to finish completing commands
+	 * already submitted
+	 */
 	ret = adreno_dispatcher_idle(adreno_dev);
 	if (ret)
 		return ret;
@@ -2055,6 +2322,13 @@ int adreno_idle(struct kgsl_device *device)
 	return adreno_spin_idle(adreno_dev, ADRENO_IDLE_TIMEOUT);
 }
 
+/**
+ * adreno_drain() - Drain the dispatch queue
+ * @device: Pointer to the KGSL device structure for the GPU
+ *
+ * Drain the dispatcher of existing command batches.  This halts
+ * additional commands from being issued until the gate is completed.
+ */
 static int adreno_drain(struct kgsl_device *device)
 {
 	reinit_completion(&device->cmdbatch_gate);
@@ -2062,15 +2336,25 @@ static int adreno_drain(struct kgsl_device *device)
 	return 0;
 }
 
+/* Caller must hold the device mutex. */
 static int adreno_suspend_context(struct kgsl_device *device)
 {
-	
+	/* process any profiling results that are available */
 	adreno_profile_process_results(ADRENO_DEVICE(device));
 
-	
+	/* Wait for the device to go idle */
 	return adreno_idle(device);
 }
 
+/**
+ * adreno_read - General read function to read adreno device memory
+ * @device - Pointer to the GPU device struct (for adreno device)
+ * @base - Base address (kernel virtual) where the device memory is mapped
+ * @offsetwords - Offset in words from the base address, of the memory that
+ * is to be read
+ * @value - Value read from the device memory
+ * @mem_len - Length of the device memory mapped to the kernel
+ */
 static void adreno_read(struct kgsl_device *device, void __iomem *base,
 		unsigned int offsetwords, unsigned int *value,
 		unsigned int mem_len)
@@ -2083,10 +2367,17 @@ static void adreno_read(struct kgsl_device *device, void __iomem *base,
 	if (!in_interrupt())
 		kgsl_pre_hwaccess(device);
 
+	/*ensure this read finishes before the next one.
+	 * i.e. act like normal readl() */
 	*value = __raw_readl(reg);
 	rmb();
 }
 
+/**
+ * adreno_regread - Used to read adreno device registers
+ * @offsetwords - Word (4 Bytes) offset to the register to be read
+ * @value - Value read from device register
+ */
 static void adreno_regread(struct kgsl_device *device, unsigned int offsetwords,
 	unsigned int *value)
 {
@@ -2094,6 +2385,12 @@ static void adreno_regread(struct kgsl_device *device, unsigned int offsetwords,
 						device->reg_len);
 }
 
+/**
+ * adreno_shadermem_regread - Used to read GPU (adreno) shader memory
+ * @device - GPU device whose shader memory is to be read
+ * @offsetwords - Offset in words, of the shader memory address to be read
+ * @value - Pointer to where the read shader mem value is to be stored
+ */
 void adreno_shadermem_regread(struct kgsl_device *device,
 	unsigned int offsetwords, unsigned int *value)
 {
@@ -2117,10 +2414,21 @@ static void adreno_regwrite(struct kgsl_device *device,
 	kgsl_cffdump_regwrite(device, offsetwords << 2, value);
 	reg = (unsigned int __iomem *)(device->reg_virt + (offsetwords << 2));
 
+	/*ensure previous writes post before this one,
+	 * i.e. act like normal writel() */
 	wmb();
 	__raw_writel(value, reg);
 }
 
+/**
+ * adreno_waittimestamp - sleep while waiting for the specified timestamp
+ * @device - pointer to a KGSL device structure
+ * @context - pointer to the active kgsl context
+ * @timestamp - GPU timestamp to wait for
+ * @msecs - amount of time to wait (in milliseconds)
+ *
+ * Wait up to 'msecs' milliseconds for the specified timestamp to expire.
+ */
 static int adreno_waittimestamp(struct kgsl_device *device,
 		struct kgsl_context *context,
 		unsigned int timestamp,
@@ -2129,23 +2437,28 @@ static int adreno_waittimestamp(struct kgsl_device *device,
 	int ret;
 
 	if (context == NULL) {
-		
+		/* If they are doing then complain once */
 		dev_WARN_ONCE(device->dev, 1,
 			"IOCTL_KGSL_DEVICE_WAITTIMESTAMP is deprecated\n");
 		return -ENOTTY;
 	}
 
-	
+	/* Return -ENOENT if the context has been detached */
 	if (kgsl_context_detached(context))
 		return -ENOENT;
 
 	ret = adreno_drawctxt_wait(ADRENO_DEVICE(device), context,
 		timestamp, msecs);
 
-	
+	/* If the context got invalidated then return a specific error */
 	if (kgsl_context_invalid(context))
 		ret = -EDEADLK;
 
+	/*
+	 * Return -EPROTO if the device has faulted since the last time we
+	 * checked.  Userspace uses this as a marker for performing post
+	 * fault activities
+	 */
 
 	if (!ret && test_and_clear_bit(ADRENO_CONTEXT_FAULT, &context->priv))
 		ret = -EPROTO;
@@ -2153,6 +2466,13 @@ static int adreno_waittimestamp(struct kgsl_device *device,
 	return ret;
 }
 
+/**
+ * __adreno_readtimestamp() - Reads the timestamp from memstore memory
+ * @adreno_dev: Pointer to an adreno device
+ * @index: Index into the memstore memory
+ * @type: Type of timestamp to read
+ * @timestamp: The out parameter where the timestamp is read
+ */
 static int __adreno_readtimestamp(struct adreno_device *adreno_dev, int index,
 				int type, unsigned int *timestamp)
 {
@@ -2252,10 +2572,10 @@ static unsigned int counter_delta(struct kgsl_device *device,
 	unsigned int val;
 	unsigned int ret = 0;
 
-	
+	/* Read the value */
 	kgsl_regread(device, reg, &val);
 
-	
+	/* Return 0 for the first read */
 	if (*counter != 0) {
 		if (val < *counter)
 			ret = (0xFFFFFFFF - *counter) + val;
@@ -2267,6 +2587,13 @@ static unsigned int counter_delta(struct kgsl_device *device,
 	return ret;
 }
 
+/**
+ * adreno_power_stats() - Reads the counters needed for freq decisions
+ * @device: Pointer to device whose counters are read
+ * @stats: Pointer to stats set that needs updating
+ * Power: The caller is expected to be in a clock enabled state as this
+ * function does reg reads
+ */
 static void adreno_power_stats(struct kgsl_device *device,
 				struct kgsl_power_stats *stats)
 {
@@ -2277,7 +2604,7 @@ static void adreno_power_stats(struct kgsl_device *device,
 
 	memset(stats, 0, sizeof(*stats));
 
-	
+	/* Get the busy cycles counted since the counter was last reset */
 	if (adreno_dev->perfctr_pwr_lo != 0) {
 		uint64_t gpu_busy;
 
@@ -2315,10 +2642,16 @@ static unsigned int adreno_gpuid(struct kgsl_device *device,
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
+	/* Some applications need to know the chip ID too, so pass
+	 * that as a parameter */
 
 	if (chipid != NULL)
 		*chipid = adreno_dev->chipid;
 
+	/* Standard KGSL gpuid format:
+	 * top word is 0x0002 for 2D or 0x0003 for 3D
+	 * Bottom word is core specific identifer
+	 */
 
 	return (0x0003 << 16) | ADRENO_GPUREV(adreno_dev);
 }
@@ -2344,6 +2677,11 @@ static bool adreno_is_hw_collapsible(struct kgsl_device *device)
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct adreno_gpudev *gpudev  = ADRENO_GPU_DEVICE(adreno_dev);
 
+	/*
+	 * Skip power collapse for A304, if power ctrl flag is set to
+	 * non zero. As A304 soft_reset will not work, power collapse
+	 * needs to disable to avoid soft_reset.
+	 */
 	if (adreno_is_a304(adreno_dev) &&
 			device->pwrctrl.ctrl_flags)
 		return false;
@@ -2424,7 +2762,7 @@ static void adreno_regulator_disable_poll(struct kgsl_device *device)
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	int i;
 
-	
+	/* Fast path - hopefully we don't need this quirk */
 	if (!ADRENO_QUIRK(adreno_dev, ADRENO_QUIRK_IOMMU_SYNC)) {
 		for (i = KGSL_MAX_REGULATORS - 1; i >= 0; i--)
 			_regulator_disable(&pwr->regulators[i], false);
@@ -2440,7 +2778,7 @@ static void adreno_regulator_disable_poll(struct kgsl_device *device)
 }
 
 static const struct kgsl_functable adreno_functable = {
-	
+	/* Mandatory functions */
 	.regread = adreno_regread,
 	.regwrite = adreno_regwrite,
 	.idle = adreno_idle,
@@ -2461,7 +2799,7 @@ static const struct kgsl_functable adreno_functable = {
 	.snapshot = adreno_snapshot,
 	.irq_handler = adreno_irq_handler,
 	.drain = adreno_drain,
-	
+	/* Optional functions */
 	.drawctxt_create = adreno_drawctxt_create,
 	.drawctxt_detach = adreno_drawctxt_detach,
 	.drawctxt_destroy = adreno_drawctxt_destroy,

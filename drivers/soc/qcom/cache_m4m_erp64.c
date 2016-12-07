@@ -27,6 +27,7 @@
 
 #include <soc/qcom/kryo-l2-accessors.h>
 
+/* Instruction cache */
 #define ICECR_EL1			S3_1_c11_c1_0
 #define	ICECR_IRQ_EN			(BIT(1) | BIT(3) | BIT(5) | BIT(7))
 #define ICESR_EL1			S3_1_c11_c1_1
@@ -40,6 +41,7 @@
 #define ICEAR1_EL1			S3_1_c11_c1_6
 #define ICESRS_EL1			S3_1_c11_c1_2
 
+/* Data cache */
 #define DCECR_EL1			S3_1_c11_c5_0
 #define	DCECR_IRQ_EN			(BIT(1) | BIT(3) | BIT(5) | BIT(7) | \
 					 BIT(9))
@@ -55,6 +57,7 @@
 #define DCEAR0_EL1			S3_1_c11_c5_5
 #define DCEAR1_EL1			S3_1_c11_c5_6
 
+/* L2 cache */
 #define L2CPUSRSELR_EL1I		S3_3_c15_c0_6
 #define L2CPUSRDR_EL1			S3_3_c15_c0_7
 #define L2ECR0_IA			0x200
@@ -149,7 +152,7 @@ static const char * const erp_irq_names[] = {
 static int erp_irqs[IRQ_MAX];
 
 struct msm_l1_err_stats {
-	
+	/* nothing */
 };
 
 static DEFINE_PER_CPU(struct msm_l1_err_stats, msm_l1_erp_stats);
@@ -183,6 +186,10 @@ static void msm_erp_show_icache_error(void)
 		 cpu, icesr, erp_mrs(ICESYNR0_EL1), erp_mrs(ICESYNR1_EL1),
 		 erp_mrs(ICEAR0_EL1), erp_mrs(ICEAR1_EL1));
 
+	/*
+	 * all detectable I-cache erros are recoverable as
+	 * corrupted lines are refetched
+	 */
 	if (panic_on_ce)
 		BUG_ON(1);
 	else
@@ -210,7 +217,7 @@ static void msm_erp_show_dcache_error(void)
 		cpu, dcesr, erp_mrs(DCESYNR0_EL1), erp_mrs(DCESYNR1_EL1),
 		erp_mrs(DCEAR0_EL1), erp_mrs(DCEAR1_EL1));
 
-	
+	/* all D-cache erros are correctable */
 	if (panic_on_ce)
 		BUG_ON(1);
 	else
@@ -265,7 +272,7 @@ static void msm_l2_erp_local_handler(void *force)
 			cpu, esr0, esr1);
 	}
 
-	
+	/* clear */
 	set_l2_indirect_reg(L2ESR0_IA, esr0);
 	set_l2_indirect_reg(L2ESR1_IA, esr1);
 
@@ -334,7 +341,7 @@ static irqreturn_t msm_l3_erp_irq(int irq, void *dev_id)
 		WARN_ON(parity_ce);
 
 	writel_relaxed(hml3_fira, hml3_base + L3_QLL_HML3_FIRAC);
-	
+	/* ensure of irq clear */
 	wmb();
 	return IRQ_HANDLED;
 }
@@ -355,12 +362,21 @@ static irqreturn_t msm_m4m_erp_irq(int irq, void *dev_id)
 			 readl_relaxed(m4m_base + M4M_ERR_CAP_2),
 			 readl_relaxed(m4m_base + M4M_ERR_CAP_3));
 	} else {
+		/*
+		 * M4M error-capture registers not valid when error detected
+		 * due to DEC_ERR or SLV_ERR. L2E registers are still valid.
+		 */
 		pr_alert("Omit dumping M4M_ERR_CAP\n");
 	}
 
+	/*
+	 * On QSB errors, the L2 captures the bad address and syndrome in
+	 * L2E error registers.  Therefore dump L2E always whenever M4M error
+	 * detected.
+	 */
 	on_each_cpu(msm_l2_erp_local_handler, (void *)1, 1);
 	writel_relaxed(1, m4m_base + M4M_ERR_CLR);
-	
+	/* ensure of irq clear */
 	wmb();
 
 	if (panic_on_ue)
@@ -384,9 +400,12 @@ static void disable_erp_irq_callback(void *info)
 static void msm_cache_erp_irq_init(void *param)
 {
 	u64 v;
-	
+	/* Enable L0/L1 I/D cache error reporting. */
 	erp_msr(ICECR_EL1, ICECR_IRQ_EN);
 	erp_msr(DCECR_EL1, DCECR_IRQ_EN);
+	/*
+	 * Enable L2 data, tag, QSB and possion error reporting.
+	 */
 	set_l2_indirect_reg(L2ECR0_IA, L2ECR0_IRQ_EN);
 	set_l2_indirect_reg(L2ECR1_IA, L2ECR1_IRQ_EN);
 	v = (get_l2_indirect_reg(L2ECR2_IA) & ~L2ECR2_IRQ_EN_MASK)
@@ -448,7 +467,7 @@ static int msm_cache_erp_probe(struct platform_device *pdev)
 
 	dev_dbg(&pdev->dev, "enter\n");
 
-	
+	/* L3 */
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	hml3_base = devm_ioremap_resource(&pdev->dev, r);
 	if (IS_ERR(hml3_base)) {
@@ -469,7 +488,7 @@ static int msm_cache_erp_probe(struct platform_device *pdev)
 
 	msm_cache_erp_l3_init();
 
-	
+	/* L0/L1 erp irq per cpu */
 	dev_info(&pdev->dev, "Registering for L1 error interrupts\n");
 	ret = request_percpu_irq(erp_irqs[IRQ_L1], msm_l1_erp_irq,
 				 erp_irq_names[IRQ_L1], &msm_l1_erp_stats);
@@ -486,13 +505,13 @@ static int msm_cache_erp_probe(struct platform_device *pdev)
 	register_hotcpu_notifier(&cache_erp_cpu_notifier);
 	cpu_pm_register_notifier(&cache_erp_cpu_pm_notifier);
 
-	
+	/* Perform L1/L2 cache error detection init on online cpus */
 	on_each_cpu(msm_cache_erp_irq_init, NULL, 1);
-	
+	/* Enable irqs */
 	on_each_cpu(enable_erp_irq_callback, NULL, 1);
 	put_online_cpus();
 
-	
+	/* L2 erp irq per cluster */
 	dev_info(&pdev->dev, "Registering for L2 error interrupts\n");
 	for (i = IRQ_L2_INFO0; i <= IRQ_L2_ERR1; i++) {
 		ret = devm_request_irq(&pdev->dev, erp_irqs[i],
@@ -507,7 +526,7 @@ static int msm_cache_erp_probe(struct platform_device *pdev)
 		}
 	}
 
-	
+	/* L3 erp irq */
 	dev_info(&pdev->dev, "Registering for L3 error interrupts\n");
 	ret = devm_request_irq(&pdev->dev, erp_irqs[IRQ_L3], msm_l3_erp_irq,
 			       IRQF_ONESHOT | IRQF_TRIGGER_HIGH,

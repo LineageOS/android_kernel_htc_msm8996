@@ -30,7 +30,7 @@
 	((uint32_t)((((o & 0x3f) << 24) | (s & 0xff) << 8) | (f & 0xff)))
 
 #define TZ_OWNER_QSEE_OS                 50
-#define TZ_SVC_KEYSTORE                  5     
+#define TZ_SVC_KEYSTORE                  5     /* Keystore management */
 
 #define TZ_OS_KS_RESTORE_KEY_ID \
 	TZ_SYSCALL_CREATE_SMC_ID(TZ_OWNER_QSEE_OS, TZ_SVC_KEYSTORE, 0x06)
@@ -67,6 +67,9 @@ struct qcom_ice_bus_vote {
 };
 
 static LIST_HEAD(ice_devices);
+/*
+ * ICE HW device structure.
+ */
 struct ice_device {
 	struct list_head	list;
 	struct device		*pdev;
@@ -79,7 +82,7 @@ struct ice_device {
 	bool			is_ice_enabled;
 	bool			is_ice_disable_fuse_blown;
 	ice_error_cb		error_cb;
-	void			*host_controller_data; 
+	void			*host_controller_data; /* UFS/EMMC/other? */
 	struct list_head	clk_list_head;
 	u32			ice_hw_version;
 	bool			is_ice_clk_available;
@@ -103,7 +106,7 @@ static int qti_ice_setting_config(struct request *req,
 	if (!ice_dev) {
 		pr_debug("%s no ICE device\n", __func__);
 
-		
+		/* make the caller finish peacfully */
 		return 0;
 	}
 
@@ -122,7 +125,7 @@ static int qti_ice_setting_config(struct request *req,
 		else if (rq_data_dir(req) == READ)
 			setting->decr_bypass = false;
 		else {
-			
+			/* Should I say BUG_ON */
 			setting->encr_bypass = true;
 			setting->decr_bypass = true;
 		}
@@ -211,7 +214,7 @@ static int qcom_ice_bus_register(struct ice_device *ice_dev)
 		goto out;
 	}
 
-	
+	/* cache the vote index for minimum and maximum bandwidth */
 	ice_dev->bus_vote.min_bw_vote = qcom_ice_get_bus_vote(ice_dev, "MIN");
 	ice_dev->bus_vote.max_bw_vote = qcom_ice_get_bus_vote(ice_dev, "MAX");
 out:
@@ -235,7 +238,7 @@ static int qcom_ice_bus_register(struct ice_device *ice_dev)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_MSM_BUS_SCALING */
 
 static int qcom_ice_get_vreg(struct ice_device *ice_dev)
 {
@@ -267,7 +270,7 @@ static void qcom_ice_config_proc_ignore(struct ice_device *ice_dev)
 		regval |= 0x800;
 		qcom_ice_writel(ice_dev, regval,
 				QCOM_ICE_REGS_ADVANCED_CONTROL);
-		
+		/* Ensure register is updated */
 		mb();
 	}
 }
@@ -276,13 +279,26 @@ static void qcom_ice_low_power_mode_enable(struct ice_device *ice_dev)
 {
 	u32 regval;
 	regval = qcom_ice_readl(ice_dev, QCOM_ICE_REGS_ADVANCED_CONTROL);
+	/*
+	 * Enable low power mode sequence
+	 * [0]-0, [1]-0, [2]-0, [3]-E, [4]-0, [5]-0, [6]-0, [7]-0
+	 */
 	regval |= 0x7000;
 	qcom_ice_writel(ice_dev, regval, QCOM_ICE_REGS_ADVANCED_CONTROL);
+	/*
+	 * Ensure previous instructions was completed before issuing next
+	 * ICE initialization/optimization instruction
+	 */
 	mb();
 }
 
 static void qcom_ice_enable_test_bus_config(struct ice_device *ice_dev)
 {
+	/*
+	 * Configure & enable ICE_TEST_BUS_REG to reflect ICE intr lines
+	 * MAIN_TEST_BUS_SELECTOR = 0 (ICE_CONFIG)
+	 * TEST_BUS_REG_EN = 1 (ENABLE)
+	 */
 	u32 regval;
 
 	if (ICE_REV(ice_dev->ice_hw_version, MAJOR) >= 2)
@@ -290,10 +306,14 @@ static void qcom_ice_enable_test_bus_config(struct ice_device *ice_dev)
 
 	regval = qcom_ice_readl(ice_dev, QCOM_ICE_REGS_TEST_BUS_CONTROL);
 	regval &= 0x0FFFFFFF;
-	
+	/* TBD: replace 0x2 with define in iceregs.h */
 	regval |= 0x2;
 	qcom_ice_writel(ice_dev, regval, QCOM_ICE_REGS_TEST_BUS_CONTROL);
 
+	/*
+	 * Ensure previous instructions was completed before issuing next
+	 * ICE initialization/optimization instruction
+	 */
 	mb();
 }
 
@@ -307,19 +327,27 @@ static void qcom_ice_optimization_enable(struct ice_device *ice_dev)
 	else if (ICE_REV(ice_dev->ice_hw_version, MAJOR) == 1)
 		regval |= 0x3F007100;
 
-	
+	/* ICE Optimizations Enable Sequence */
 	udelay(5);
-	
+	/* [0]-0, [1]-0, [2]-8, [3]-E, [4]-0, [5]-0, [6]-F, [7]-A */
 	qcom_ice_writel(ice_dev, regval, QCOM_ICE_REGS_ADVANCED_CONTROL);
+	/*
+	 * Ensure previous instructions was completed before issuing next
+	 * ICE initialization/optimization instruction
+	 */
 	mb();
 
-	
+	/* ICE HPG requires sleep before writing */
 	udelay(5);
 	if (ICE_REV(ice_dev->ice_hw_version, MAJOR) == 1) {
 		regval = 0;
 		regval = qcom_ice_readl(ice_dev, QCOM_ICE_REGS_ENDIAN_SWAP);
 		regval |= 0xF;
 		qcom_ice_writel(ice_dev, regval, QCOM_ICE_REGS_ENDIAN_SWAP);
+		/*
+		 * Ensure previous instructions were completed before issue
+		 * next ICE commands
+		 */
 		mb();
 	}
 }
@@ -329,7 +357,7 @@ static int qcom_ice_wait_bist_status(struct ice_device *ice_dev)
 	int count;
 	u32 reg;
 
-	
+	/* Poll until all BIST bits are reset */
 	for (count = 0; count < QCOM_ICE_MAX_BIST_CHECK_COUNT; count++) {
 		reg = qcom_ice_readl(ice_dev, QCOM_ICE_REGS_BIST_STATUS);
 		if (!(reg & ICE_BIST_STATUS_MASK))
@@ -357,10 +385,15 @@ static int qcom_ice_enable(struct ice_device *ice_dev)
 		return ret;
 	}
 
-	
+	/* Starting ICE v3 enabling is done at storage controller (UFS/SDCC) */
 	if (ICE_REV(ice_dev->ice_hw_version, MAJOR) >= 3)
 		return 0;
 
+	/*
+	 * To enable ICE, perform following
+	 * 1. Set IGNORE_CONTROLLER_RESET to USE in ICE_RESET register
+	 * 2. Disable GLOBAL_BYPASS bit in ICE_CONTROL register
+	 */
 	reg = qcom_ice_readl(ice_dev, QCOM_ICE_REGS_RESET);
 
 	if (ICE_REV(ice_dev->ice_hw_version, MAJOR) >= 2)
@@ -370,6 +403,10 @@ static int qcom_ice_enable(struct ice_device *ice_dev)
 
 	qcom_ice_writel(ice_dev, reg, QCOM_ICE_REGS_RESET);
 
+	/*
+	 * Ensure previous instructions was completed before issuing next
+	 * ICE initialization/optimization instruction
+	 */
 	mb();
 
 	reg = qcom_ice_readl(ice_dev, QCOM_ICE_REGS_CONTROL);
@@ -380,6 +417,10 @@ static int qcom_ice_enable(struct ice_device *ice_dev)
 		reg &= ~0x7;
 	qcom_ice_writel(ice_dev, reg, QCOM_ICE_REGS_CONTROL);
 
+	/*
+	 * Ensure previous instructions was completed before issuing next
+	 * ICE initialization/optimization instruction
+	 */
 	mb();
 
 	if ((ICE_REV(ice_dev->ice_hw_version, MAJOR) > 2) ||
@@ -426,6 +467,10 @@ static void qcom_ice_enable_intr(struct ice_device *ice_dev)
 
 	reg &= ~QCOM_ICE_NON_SEC_IRQ_MASK;
 	qcom_ice_writel(ice_dev, reg, QCOM_ICE_REGS_NON_SEC_IRQ_MASK);
+	/*
+	 * Ensure previous instructions was completed before issuing next
+	 * ICE initialization/optimization instruction
+	 */
 	mb();
 }
 
@@ -435,6 +480,10 @@ static void qcom_ice_disable_intr(struct ice_device *ice_dev)
 
 	reg |= QCOM_ICE_NON_SEC_IRQ_MASK;
 	qcom_ice_writel(ice_dev, reg, QCOM_ICE_REGS_NON_SEC_IRQ_MASK);
+	/*
+	 * Ensure previous instructions was completed before issuing next
+	 * ICE initialization/optimization instruction
+	 */
 	mb();
 }
 
@@ -448,9 +497,9 @@ static irqreturn_t qcom_ice_isr(int isr, void *data)
 	if (status) {
 		ice_dev->error_cb(ice_dev->host_controller_data, status);
 
-		
+		/* Interrupt has been handled. Clear the IRQ */
 		qcom_ice_writel(ice_dev, status, QCOM_ICE_REGS_NON_SEC_IRQ_CLR);
-		
+		/* Ensure instruction is completed */
 		mb();
 		retval = IRQ_HANDLED;
 	}
@@ -576,7 +625,7 @@ static int qcom_ice_get_device_tree_data(struct platform_device *pdev,
 		}
 	}
 
-	
+	/* ICE interrupts is only relevant for v2.x */
 	irq = platform_get_irq(pdev, 0);
 	if (irq >= 0) {
 		rc = devm_request_irq(dev, irq, qcom_ice_isr, 0, dev_name(dev),
@@ -602,6 +651,14 @@ out:
 	return rc;
 }
 
+/*
+ * ICE HW instance can exist in UFS or eMMC based storage HW
+ * Userspace does not know what kind of ICE it is dealing with.
+ * Though userspace can find which storage device it is booting
+ * from but all kind of storage types dont support ICE from
+ * beginning. So ICE device is created for user space to ping
+ * if ICE exist for that kind of storage
+ */
 static const struct file_operations qcom_ice_fops = {
 	.owner = THIS_MODULE,
 };
@@ -707,6 +764,11 @@ static int qcom_ice_probe(struct platform_device *pdev)
 		goto err_ice_dev;
 	}
 
+	/*
+	 * If ICE is enabled here, it would be waste of power.
+	 * We would enable ICE when first request for crypto
+	 * operation arrives.
+	 */
 	ice_dev->is_ice_enabled = false;
 
 	platform_set_drvdata(pdev, ice_dev);
@@ -751,6 +813,12 @@ static int qcom_ice_restore_config(void)
 	struct scm_desc desc = {0};
 	int ret;
 
+	/*
+	 * TZ would check KEYS_RAM_RESET_COMPLETED status bit before processing
+	 * restore config command. This would prevent two calls from HLOS to TZ
+	 * One to check KEYS_RAM_RESET_COMPLETED status bit second to restore
+	 * config
+	 */
 
 	desc.arginfo = TZ_OS_KS_RESTORE_KEY_ID_PARAM_ID;
 
@@ -786,7 +854,7 @@ static int qcom_ice_init_clocks(struct ice_device *ice)
 			goto out;
 		}
 
-		
+		/* Not all clocks would have a rate to be set */
 		ret = 0;
 		if (clki->max_freq) {
 			ret = clk_set_rate(clki->clk, clki->max_freq);
@@ -846,7 +914,7 @@ out:
 
 static int qcom_ice_secure_ice_init(struct ice_device *ice_dev)
 {
-	
+	/* We need to enable source for ICE secure interrupts */
 	int ret = 0;
 	u32 regval;
 
@@ -857,6 +925,10 @@ static int qcom_ice_secure_ice_init(struct ice_device *ice_dev)
 	ret = scm_io_write((unsigned long)ice_dev->res +
 			QCOM_ICE_LUT_KEYS_ICE_SEC_IRQ_MASK, regval);
 
+	/*
+	 * Ensure previous instructions was completed before issuing next
+	 * ICE initialization/optimization instruction
+	 */
 	mb();
 
 	if (!ret)
@@ -869,15 +941,24 @@ static int qcom_ice_update_sec_cfg(struct ice_device *ice_dev)
 {
 	int ret = 0, scm_ret = 0;
 
-	
+	/* scm command buffer structure */
 	struct qcom_scm_cmd_buf {
 		unsigned int device_id;
 		unsigned int spare;
 	} cbuf = {0};
 
+	/*
+	 * Ideally, we should check ICE version to decide whether to proceed or
+	 * or not. Since version wont be available when this function is called
+	 * we need to depend upon is_ice_clk_available to decide
+	 */
 	if (ice_dev->is_ice_clk_available)
 		goto out;
 
+	/*
+	 * Store dev_id in ice_device structure so that emmc/ufs cases can be
+	 * handled properly
+	 */
 	#define RESTORE_SEC_CFG_CMD	0x2
 	#define ICE_TZ_DEV_ID	20
 
@@ -915,6 +996,12 @@ static int qcom_ice_finish_init(struct ice_device *ice_dev)
 			goto out;
 	}
 
+	/*
+	 * It is possible that ICE device is not probed when host is probed
+	 * This would cause host probe to be deferred. When probe for host is
+	 * deferred, it can cause power collapse for host and that can wipe
+	 * configurations of host & ice. It is prudent to restore the config
+	 */
 	err = qcom_ice_update_sec_cfg(ice_dev);
 	if (err)
 		goto out;
@@ -923,6 +1010,11 @@ static int qcom_ice_finish_init(struct ice_device *ice_dev)
 	if (err)
 		goto out;
 
+	/* if ICE_DISABLE_FUSE is blown, return immediately
+	 * Currently, FORCE HW Keys are also disabled, since
+	 * there is no use case for their usage neither in FDE
+	 * nor in PFE
+	 */
 	reg = qcom_ice_readl(ice_dev, QCOM_ICE_REGS_FUSE_SETTING);
 	reg &= (ICE_FUSE_SETTING_MASK |
 		ICE_FORCE_HW_KEY0_SETTING_MASK |
@@ -936,7 +1028,7 @@ static int qcom_ice_finish_init(struct ice_device *ice_dev)
 		goto out;
 	}
 
-	
+	/* TZ side of ICE driver would handle secure init of ICE HW from v2 */
 	if (ICE_REV(ice_dev->ice_hw_version, MAJOR) == 1 &&
 		!qcom_ice_secure_ice_init(ice_dev)) {
 		pr_err("%s: Error: ICE_ERROR_ICE_TZ_INIT_FAILED\n", __func__);
@@ -960,6 +1052,13 @@ static int qcom_ice_init(struct platform_device *pdev,
 			void *host_controller_data,
 			ice_error_cb error_cb)
 {
+	/*
+	 * A completion event for host controller would be triggered upon
+	 * initialization completion
+	 * When ICE is initialized, it would put ICE into Global Bypass mode
+	 * When any request for data transfer is received, it would enable
+	 * the ICE for that particular request
+	 */
 	struct ice_device *ice_dev;
 
 	ice_dev = platform_get_drvdata(pdev);
@@ -984,6 +1083,10 @@ static int qcom_ice_finish_power_collapse(struct ice_device *ice_dev)
 	}
 
 	if (ice_dev->is_ice_enabled) {
+		/*
+		 * ICE resets into global bypass mode with optimization and
+		 * low power mode disabled. Hence we need to redo those seq's.
+		 */
 		qcom_ice_low_power_mode_enable(ice_dev);
 
 		qcom_ice_enable_test_bus_config(ice_dev);
@@ -992,6 +1095,10 @@ static int qcom_ice_finish_power_collapse(struct ice_device *ice_dev)
 		qcom_ice_enable(ice_dev);
 
 		if (ICE_REV(ice_dev->ice_hw_version, MAJOR) == 1) {
+			/*
+			 * When ICE resets, it wipes all of keys from LUTs
+			 * ICE driver should call TZ to restore keys
+			 */
 			if (qcom_ice_restore_config()) {
 				err = -EFAULT;
 				goto out;
@@ -1006,6 +1113,16 @@ out:
 
 static int qcom_ice_resume(struct platform_device *pdev)
 {
+	/*
+	 * ICE is power collapsed when storage controller is power collapsed
+	 * ICE resume function is responsible for:
+	 * ICE HW enabling sequence
+	 * Key restoration
+	 * A completion event should be triggered
+	 * upon resume completion
+	 * Storage driver will be fully operational only
+	 * after receiving this event
+	 */
 	struct ice_device *ice_dev;
 
 	ice_dev = platform_get_drvdata(pdev);
@@ -1014,6 +1131,11 @@ static int qcom_ice_resume(struct platform_device *pdev)
 		return -EINVAL;
 
 	if (ice_dev->is_ice_clk_available) {
+		/*
+		 * Storage is calling this function after power collapse which
+		 * would put ICE into GLOBAL_BYPASS mode. Make sure to enable
+		 * ICE
+		 */
 		qcom_ice_enable(ice_dev);
 	}
 
@@ -1030,7 +1152,7 @@ static void qcom_ice_dump_test_bus(struct ice_device *ice_dev)
 	pr_err("ICE TEST BUS DUMP:\n");
 
 	for (bus_selector = 0; bus_selector <= 0xF;  bus_selector++) {
-		reg = 0x1;	
+		reg = 0x1;	/* enable test bus */
 		reg |= bus_selector << 28;
 		if (bus_selector == 0xD)
 			continue;
@@ -1047,7 +1169,7 @@ static void qcom_ice_dump_test_bus(struct ice_device *ice_dev)
 
 	pr_err("ICE TEST BUS DUMP (ICE_STREAM1_DATAPATH_TEST_BUS):\n");
 	for (stream_selector = 0; stream_selector <= 0xF; stream_selector++) {
-		reg = 0xD0000001;	
+		reg = 0xD0000001;	/* enable stream test bus */
 		reg |= stream_selector << 16;
 		qcom_ice_writel(ice_dev, reg, QCOM_ICE_REGS_TEST_BUS_CONTROL);
 		/*
@@ -1256,13 +1378,18 @@ static int qcom_ice_config_start(struct platform_device *pdev,
 		return -EINVAL;
 	}
 
+	/*
+	 * It is not an error to have a request with no  bio
+	 * Such requests must bypass ICE. So first set bypass and then
+	 * return if bio is not available in request
+	 */
 	if (setting) {
 		setting->encr_bypass = true;
 		setting->decr_bypass = true;
 	}
 
 	if (!req->bio) {
-		
+		/* It is not an error to have a request with no  bio */
 		return 0;
 	}
 
@@ -1279,6 +1406,11 @@ static int qcom_ice_config_start(struct platform_device *pdev,
 				&pfk_crypto_data, setting);
 	}
 
+	/*
+	 * info field in req->end_io_data could be used by mulitple dm or
+	 * non-dm entities. To ensure that we are running operation on dm
+	 * based request, check BIO_DONT_FREE flag
+	 */
 	if (bio_flagged(req->bio, BIO_INLINECRYPT)) {
 		info = dm_get_rq_mapinfo(req);
 		if (!info) {
@@ -1298,6 +1430,11 @@ static int qcom_ice_config_start(struct platform_device *pdev,
 				crypto_data, setting);
 	}
 
+	/*
+	 * It is not an error. If target is not req-crypt based, all request
+	 * from storage driver would come here to check if there is any ICE
+	 * setting required
+	 */
 	return 0;
 }
 EXPORT_SYMBOL(qcom_ice_config_start);
@@ -1313,7 +1450,7 @@ static int qcom_ice_config_end(struct request *req)
 	}
 
 	if (!req->bio) {
-		
+		/* It is not an error to have a request with no  bio */
 		return 0;
 	}
 
@@ -1427,7 +1564,7 @@ static int enable_ice_setup(struct ice_device *ice_dev)
 {
 	int ret = -1, vote;
 
-	
+	/* Setup Regulator */
 	if (ice_dev->is_regulator_available) {
 		if (qcom_ice_get_vreg(ice_dev)) {
 			pr_err("%s: Could not get regulator\n", __func__);
@@ -1441,14 +1578,14 @@ static int enable_ice_setup(struct ice_device *ice_dev)
 		}
 	}
 
-	
+	/* Setup Clocks */
 	if (qcom_ice_enable_clocks(ice_dev, true)) {
 		pr_err("%s:%p:%s Could not enable clocks\n", __func__,
 				ice_dev, ice_dev->ice_instance_type);
 		goto out_reg;
 	}
 
-	
+	/* Setup Bus Vote */
 	vote = qcom_ice_get_bus_vote(ice_dev, "MAX");
 	if (vote < 0)
 		goto out_clocks;
@@ -1473,7 +1610,7 @@ static int disable_ice_setup(struct ice_device *ice_dev)
 {
 	int ret = -1, vote;
 
-	
+	/* Setup Bus Vote */
 	vote = qcom_ice_get_bus_vote(ice_dev, "MIN");
 	if (vote < 0) {
 		pr_err("%s:%p: Unable to get bus vote\n", __func__, ice_dev);
@@ -1486,12 +1623,12 @@ static int disable_ice_setup(struct ice_device *ice_dev)
 
 out_disable_clocks:
 
-	
+	/* Setup Clocks */
 	if (qcom_ice_enable_clocks(ice_dev, false))
 		pr_err("%s:%p:%s Could not disable clocks\n", __func__,
 				ice_dev, ice_dev->ice_instance_type);
 
-	
+	/* Setup Regulator */
 	if (ice_dev->is_regulator_available) {
 		if (qcom_ice_get_vreg(ice_dev)) {
 			pr_err("%s: Could not get regulator\n", __func__);
@@ -1529,6 +1666,7 @@ struct qcom_ice_variant_ops *qcom_ice_get_variant_ops(struct device_node *node)
 }
 EXPORT_SYMBOL(qcom_ice_get_variant_ops);
 
+/* Following struct is required to match device with driver from dts file */
 static struct of_device_id qcom_ice_match[] = {
 	{ .compatible = "qcom,ice" },
 	{},

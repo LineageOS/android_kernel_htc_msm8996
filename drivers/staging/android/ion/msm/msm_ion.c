@@ -132,6 +132,10 @@ static struct notifier_block msm_ion_nb = {
 
 struct ion_client *msm_ion_client_create(const char *name)
 {
+	/*
+	 * The assumption is that if there is a NULL device, the ion
+	 * driver has not yet probed.
+	 */
 	if (idev == NULL)
 		return ERR_PTR(-EPROBE_DEFER);
 
@@ -206,6 +210,10 @@ static int ion_no_pages_cache_ops(struct ion_client *client,
 	buff_phys = buff_phys_start;
 
 	if (!vaddr) {
+		/*
+		 * Split the vmalloc space into smaller regions in
+		 * order to clean and/or invalidate the cache.
+		 */
 		size_to_vmap = ((VMALLOC_END - VMALLOC_START)/8);
 		total_size = buf_length;
 
@@ -569,6 +577,11 @@ static struct ion_platform_data *msm_ion_parse_dt(struct platform_device *pdev)
 		}
 
 		pdata->heaps[idx].priv = &new_dev->dev;
+		/**
+		 * TODO: Replace this with of_get_address() when this patch
+		 * gets merged: http://
+		 * permalink.gmane.org/gmane.linux.drivers.devicetree/18614
+		*/
 		ret = of_property_read_u32(node, "reg", &val);
 		if (ret) {
 			pr_err("%s: Unable to find reg key", __func__);
@@ -674,6 +687,7 @@ int get_secure_vmid(unsigned long flags)
 		return VMID_CP_APP;
 	return -EINVAL;
 }
+/* fix up the cases where the ioctl direction bits are incorrect */
 static unsigned int msm_ion_ioctl_dir(unsigned int cmd)
 {
 	switch (cmd) {
@@ -799,11 +813,28 @@ long msm_ion_custom_ioctl(struct ion_client *client,
 
 #define MAX_VMAP_RETRIES 10
 
+/**
+ * An optimized page-zero'ing function. vmaps arrays of pages in large
+ * chunks to minimize the number of memsets and vmaps/vunmaps.
+ *
+ * Note that the `pages' array should be composed of all 4K pages.
+ *
+ * NOTE: This function does not guarantee synchronization of the caches
+ * and thus caller is responsible for handling any cache maintenance
+ * operations needed.
+ */
 int msm_ion_heap_pages_zero(struct page **pages, int num_pages)
 {
 	int i, j, npages_to_vmap;
 	void *ptr = NULL;
 
+	/*
+	 * As an optimization, we manually zero out all of the pages
+	 * in one fell swoop here. To safeguard against insufficient
+	 * vmalloc space, we only vmap `npages_to_vmap' at a time,
+	 * starting with a conservative estimate of 1/8 of the total
+	 * number of vmalloc pages available.
+	 */
 	npages_to_vmap = ((VMALLOC_END - VMALLOC_START)/8)
 			>> PAGE_SHIFT;
 	for (i = 0; i < num_pages; i += npages_to_vmap) {
@@ -835,6 +866,10 @@ int msm_ion_heap_alloc_pages_mem(struct pages_mem *pages_mem)
 	pages_mem->free_fn = kfree;
 	page_tbl_size = sizeof(struct page *) * (pages_mem->size >> PAGE_SHIFT);
 	if (page_tbl_size > SZ_8K) {
+		/*
+		 * Do fallback to ensure we have a balance between
+		 * performance and availability.
+		 */
 		pages = kmalloc(page_tbl_size,
 				__GFP_COMP | __GFP_NORETRY |
 				__GFP_NO_KSWAPD | __GFP_NOWARN);
@@ -892,7 +927,7 @@ int msm_ion_heap_sg_table_zero(struct sg_table *table, size_t size)
 	for_each_sg(table->sgl, sg, table->nents, i) {
 		struct page *page = sg_page(sg);
 		unsigned long len = sg->length;
-		
+		/* needed to make dma_sync_sg_for_device work: */
 		sg->dma_address = sg_phys(sg);
 
 		for (j = 0; j < len / PAGE_SIZE; j++)
@@ -1007,12 +1042,16 @@ static int msm_ion_probe(struct platform_device *pdev)
 
 	new_dev = ion_device_create(compat_msm_ion_ioctl);
 	if (IS_ERR_OR_NULL(new_dev)) {
+		/*
+		 * set this to the ERR to indicate to the clients
+		 * that Ion failed to probe.
+		 */
 		idev = new_dev;
 		err = PTR_ERR(new_dev);
 		goto freeheaps;
 	}
 
-	
+	/* create the heaps as specified in the board file */
 	for (i = 0; i < num_heaps; i++) {
 		struct ion_platform_heap *heap_data = &pdata->heaps[i];
 		msm_ion_allocate(heap_data);
@@ -1039,6 +1078,10 @@ static int msm_ion_probe(struct platform_device *pdev)
 		free_pdata(pdata);
 
 	platform_set_drvdata(pdev, new_dev);
+	/*
+	 * intentionally set this at the very end to allow probes to be deferred
+	 * completely until Ion is setup
+	 */
 	idev = new_dev;
 
 	show_mem_notifier_register(&msm_ion_nb);

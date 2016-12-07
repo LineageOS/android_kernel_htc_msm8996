@@ -376,7 +376,7 @@ static inline int ipa_plat_drv_probe(struct platform_device *pdev_p,
 {
 	return -ENODEV;
 }
-#endif 
+#endif /* (CONFIG_IPA) */
 
 #ifdef CONFIG_IPA3
 int ipa3_plat_drv_probe(struct platform_device *pdev_p,
@@ -387,6 +387,6 @@ static inline int ipa3_plat_drv_probe(struct platform_device *pdev_p,
 {
 	return -ENODEV;
 }
-#endif 
+#endif /* (CONFIG_IPA3) */
 
-#endif 
+#endif /* _IPA_API_H_ */

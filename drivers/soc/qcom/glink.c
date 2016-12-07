@@ -30,6 +30,7 @@
 #include "glink_private.h"
 #include "glink_xprt_if.h"
 
+/* Number of internal IPC Logging log pages */
 #define NUM_LOG_PAGES	10
 #define GLINK_PM_QOS_HOLDOFF_MS		10
 #define GLINK_QOS_DEF_NUM_TOKENS	10
@@ -37,6 +38,13 @@
 #define GLINK_QOS_DEF_MTU		2048
 
 #define GLINK_KTHREAD_PRIO 1
+/**
+ * struct glink_qos_priority_bin - Packet Scheduler's priority bucket
+ * @max_rate_kBps:	Maximum rate supported by the priority bucket.
+ * @power_state:	Transport power state for this priority bin.
+ * @tx_ready:		List of channels ready for tx in the priority bucket.
+ * @active_ch_cnt:	Active channels of this priority.
+ */
 struct glink_qos_priority_bin {
 	unsigned long max_rate_kBps;
 	uint32_t power_state;
@@ -44,6 +52,55 @@ struct glink_qos_priority_bin {
 	uint32_t active_ch_cnt;
 };
 
+/**
+ * struct glink_core_xprt_ctx - transport representation structure
+ * @xprt_state_lhb0:		controls read/write access to transport state
+ * @list_node:			used to chain this transport in a global
+ *				transport list
+ * @name:			name of this transport
+ * @edge:			what this transport connects to
+ * @id:				the id to use for channel migration
+ * @versions:			array of transport versions this implementation
+ *				supports
+ * @versions_entries:		number of entries in @versions
+ * @local_version_idx:		local version index into @versions this
+ *				transport is currently running
+ * @remote_version_idx:		remote version index into @versions this
+ *				transport is currently running
+ * @l_features:			Features negotiated by the local side
+ * @capabilities:		Capabilities of underlying transport
+ * @ops:			transport defined implementation of common
+ *				operations
+ * @local_state:		value from local_channel_state_e representing
+ *				the local state of this transport
+ * @remote_neg_completed:	is the version negotiation with the remote end
+ *				completed
+ * @xprt_ctx_lock_lhb1		lock to protect @next_lcid and @channels
+ * @next_lcid:			logical channel identifier to assign to the next
+ *				created channel
+ * @max_cid:			maximum number of channel identifiers supported
+ * @max_iid:			maximum number of intent identifiers supported
+ * @tx_kwork:			work item to process @tx_ready
+ * @tx_wq:				workqueue to run @tx_kwork
+ * @tx_task:		handle to the running kthread
+ * @channels:			list of all existing channels on this transport
+ * @dummy_in_use:		True when channels are being migrated to dummy.
+ * @notified:			list holds channels during dummy xprt cleanup.
+ * @mtu:			MTU supported by this transport.
+ * @token_count:		Number of tokens to be assigned per assignment.
+ * @curr_qos_rate_kBps:		Aggregate of currently supported QoS requests.
+ * @threshold_rate_kBps:	Maximum Rate allocated for QoS traffic.
+ * @num_priority:		Number of priority buckets in the transport.
+ * @tx_ready_lock_lhb3:	lock to protect @tx_ready
+ * @active_high_prio:		Highest priority of active channels.
+ * @prio_bin:			Pointer to priority buckets.
+ * @pm_qos_req:			power management QoS request for TX path
+ * @qos_req_active:		a vote is active with the PM QoS system
+ * @tx_path_activity:		transmit activity has occurred
+ * @pm_qos_work:		removes PM QoS vote due to inactivity
+ * @xprt_dbgfs_lock_lhb4:	debugfs channel structure lock
+ * @log_ctx:			IPC logging context for this transport.
+ */
 struct glink_core_xprt_ctx {
 	struct rwref_lock xprt_state_lhb0;
 	struct list_head list_node;
@@ -91,6 +148,13 @@ struct glink_core_xprt_ctx {
 	void *log_ctx;
 };
 
+/**
+ * Edge Context
+ * @list_node		edge list node used by edge list
+ * @name:		name of the edge
+ * @edge_migration_lock:mutex lock for migration over edge
+ * @edge_ref_lock:	lock for reference count
+ */
 struct glink_core_edge_ctx {
 	struct list_head list_node;
 	char name[GLINK_NAME_SIZE];
@@ -100,13 +164,78 @@ struct glink_core_edge_ctx {
 
 static LIST_HEAD(edge_list);
 static DEFINE_MUTEX(edge_list_lock_lhd0);
+/**
+ * Channel Context
+ * @xprt_state_lhb0:	controls read/write access to channel state
+ * @port_list_node:	channel list node used by transport "channels" list
+ * @tx_ready_list_node:	channels that have data ready to transmit
+ * @name:		name of the channel
+ *
+ * @user_priv:		user opaque data type passed into glink_open()
+ * @notify_rx:		RX notification function
+ * @notify_tx_done:	TX-done notification function (remote side is done)
+ * @notify_state:	Channel state (connected / disconnected) notifications
+ * @notify_rx_intent_req: Request from remote side for an intent
+ * @notify_rxv:		RX notification function (for io buffer chain)
+ * @notify_rx_sigs:	RX signal change notification
+ * @notify_rx_abort:	Channel close RX Intent aborted
+ * @notify_tx_abort:	Channel close TX aborted
+ * @notify_rx_tracer_pkt:	Receive notification for tracer packet
+ * @notify_remote_rx_intent:	Receive notification for remote-queued RX intent
+ *
+ * @transport_ptr:		Transport this channel uses
+ * @lcid:			Local channel ID
+ * @rcid:			Remote channel ID
+ * @local_open_state:		Local channel state
+ * @remote_opened:		Remote channel state (opened or closed)
+ * @int_req_ack:		Remote side intent request ACK state
+ * @int_req_ack_complete:	Intent tracking completion - received remote ACK
+ * @int_req_complete:		Intent tracking completion - received intent
+ * @rx_intent_req_timeout_jiffies:	Timeout for requesting an RX intent, in
+ *			jiffies; if set to 0, timeout is infinite
+ *
+ * @local_rx_intent_lst_lock_lhc1:	RX intent list lock
+ * @local_rx_intent_list:		Active RX Intents queued by client
+ * @local_rx_intent_ntfy_list:		Client notified, waiting for rx_done()
+ * @local_rx_intent_free_list:		Available intent container structure
+ *
+ * @rmt_rx_intent_lst_lock_lhc2:	Remote RX intent list lock
+ * @rmt_rx_intent_list:			Remote RX intent list
+ *
+ * @max_used_liid:			Maximum Local Intent ID used
+ * @dummy_riid:				Dummy remote intent ID
+ *
+ * @tx_lists_lock_lhc3:		TX list lock
+ * @tx_active:				Ready to transmit
+ *
+ * @tx_pending_rmt_done_lock_lhc4:	Remote-done list lock
+ * @tx_pending_remote_done:		Transmitted, waiting for remote done
+ * @lsigs:				Local signals
+ * @rsigs:				Remote signals
+ * @pending_delete:			waiting for channel to be deleted
+ * @no_migrate:				The local client does not want to
+ *					migrate transports
+ * @local_xprt_req:			The transport the local side requested
+ * @local_xprt_resp:			The response to @local_xprt_req
+ * @remote_xprt_req:			The transport the remote side requested
+ * @remote_xprt_resp:			The response to @remote_xprt_req
+ * @curr_priority:			Channel's current priority.
+ * @initial_priority:			Channel's initial priority.
+ * @token_count:			Tokens for consumption by packet.
+ * @txd_len:				Transmitted data size in the current
+ *					token assignment cycle.
+ * @token_start_time:			Time at which tokens are assigned.
+ * @req_rate_kBps:			Current QoS request by the channel.
+ * @tx_intent_cnt:			Intent count to transmit soon in future.
+ * @tx_cnt:				Packets to be picked by tx scheduler.
+ */
 struct channel_ctx {
 	struct rwref_lock ch_state_lhb2;
 	struct list_head port_list_node;
 	struct list_head tx_ready_list_node;
 	char name[GLINK_NAME_SIZE];
 
-	
+	/* user info */
 	void *user_priv;
 	void (*notify_rx)(void *handle, const void *priv, const void *pkt_priv,
 			const void *ptr, size_t size);
@@ -132,7 +261,7 @@ struct channel_ctx {
 	void (*notify_remote_rx_intent)(void *handle, const void *priv,
 					size_t size);
 
-	
+	/* internal port state */
 	struct glink_core_xprt_ctx *transport_ptr;
 	uint32_t lcid;
 	uint32_t rcid;
@@ -193,6 +322,12 @@ module_param_named(pm_qos_enable, glink_pm_qos,
 
 static LIST_HEAD(transport_list);
 
+/*
+ * Used while notifying the clients about link state events. Since the clients
+ * need to store the callback information temporarily and since all the
+ * existing accesses to transport list are in non-IRQ context, defining the
+ * transport_list_lock as a mutex.
+ */
 static DEFINE_MUTEX(transport_list_lock_lha0);
 
 struct link_state_notifier_info {
@@ -300,6 +435,16 @@ static void glink_core_deinit_xprt_qos_cfg(
 #define GLINK_GET_CH_TX_STATE(ctx) \
 		((ctx)->tx_intent_cnt || (ctx)->tx_cnt)
 
+/**
+ * glink_ssr() - Clean up locally for SSR by simulating remote close
+ * @subsystem:	The name of the subsystem being restarted
+ *
+ * Call into the transport using the ssr(if_ptr) function to allow it to
+ * clean up any necessary structures, then simulate a remote close from
+ * subsystem for all channels on that edge.
+ *
+ * Return: Standard error codes.
+ */
 int glink_ssr(const char *subsystem)
 {
 	int ret = 0;
@@ -338,6 +483,15 @@ int glink_ssr(const char *subsystem)
 }
 EXPORT_SYMBOL(glink_ssr);
 
+/**
+ * glink_core_ch_close_ack_common() - handles the common operations during
+ *                                    close ack.
+ * @ctx:	Pointer to channel instance.
+ * @is_safe:	Is function called while holding ctx lock
+ *
+ * Return: True if the channel is fully closed after the state change,
+ *	false otherwise.
+ */
 static bool glink_core_ch_close_ack_common(struct channel_ctx *ctx, bool safe)
 {
 	bool is_fully_closed;
@@ -369,6 +523,14 @@ static bool glink_core_ch_close_ack_common(struct channel_ctx *ctx, bool safe)
 	return is_fully_closed;
 }
 
+/**
+ * glink_core_remote_close_common() - Handles the common operations during
+ *                                    a remote close.
+ * @ctx:	Pointer to channel instance.
+ * @safe:       Is function called with ctx rwref lock already acquired.
+ * Return: True if the channel is fully closed after the state change,
+ *	false otherwise.
+ */
 static bool glink_core_remote_close_common(struct channel_ctx *ctx, bool safe)
 {
 	bool is_fully_closed;
@@ -408,6 +570,16 @@ static bool glink_core_remote_close_common(struct channel_ctx *ctx, bool safe)
 	return is_fully_closed;
 }
 
+/**
+ * glink_qos_calc_rate_kBps() - Calculate the transmit rate in kBps
+ * @pkt_size:		Worst case packet size per transmission.
+ * @interval_us:	Packet transmit interval in us.
+ *
+ * This function is used to calculate the rate of transmission rate of
+ * a channel in kBps.
+ *
+ * Return: Transmission rate in kBps.
+ */
 static unsigned long glink_qos_calc_rate_kBps(size_t pkt_size,
 				       unsigned long interval_us)
 {
@@ -418,6 +590,16 @@ static unsigned long glink_qos_calc_rate_kBps(size_t pkt_size,
 	return rate_kBps;
 }
 
+/**
+ * glink_qos_check_feasibility() - Feasibility test on a QoS Request
+ * @xprt_ctx:		Transport in which the QoS request is made.
+ * @req_rate_kBps:	QoS Request.
+ *
+ * This function is used to perform the schedulability test on a QoS request
+ * over a specific transport.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 static int glink_qos_check_feasibility(struct glink_core_xprt_ctx *xprt_ctx,
 				       unsigned long req_rate_kBps)
 {
@@ -437,6 +619,16 @@ static int glink_qos_check_feasibility(struct glink_core_xprt_ctx *xprt_ctx,
 	return 0;
 }
 
+/**
+ * glink_qos_update_ch_prio() - Update the channel priority
+ * @ctx:		Channel context whose priority is updated.
+ * @new_priority:	New priority of the channel.
+ *
+ * This function is called to update the channel priority during QoS request,
+ * QoS Cancel or Priority evaluation by packet scheduler. This function must
+ * be called with transport's tx_ready_lock_lhb3 lock and channel's
+ * tx_lists_lock_lhc3 locked.
+ */
 static void glink_qos_update_ch_prio(struct channel_ctx *ctx,
 				     uint32_t new_priority)
 {
@@ -455,6 +647,16 @@ static void glink_qos_update_ch_prio(struct channel_ctx *ctx,
 	ctx->curr_priority = new_priority;
 }
 
+/**
+ * glink_qos_assign_priority() - Assign priority to a channel
+ * @ctx:		Channel for which the priority has to be assigned.
+ * @req_rate_kBps:	QoS request by the channel.
+ *
+ * This function is used to assign a priority to the channel depending on its
+ * QoS Request.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 static int glink_qos_assign_priority(struct channel_ctx *ctx,
 				     unsigned long req_rate_kBps)
 {
@@ -497,6 +699,15 @@ static int glink_qos_assign_priority(struct channel_ctx *ctx,
 	return 0;
 }
 
+/**
+ * glink_qos_reset_priority() - Reset the channel priority
+ * @ctx:	Channel for which the priority is reset.
+ *
+ * This function is used to reset the channel priority when the QoS request
+ * is cancelled by the channel.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 static int glink_qos_reset_priority(struct channel_ctx *ctx)
 {
 	unsigned long flags;
@@ -515,6 +726,17 @@ static int glink_qos_reset_priority(struct channel_ctx *ctx)
 	return 0;
 }
 
+/**
+ * glink_qos_ch_vote_xprt() - Vote the transport that channel is active
+ * @ctx:	Channel context which is active.
+ *
+ * This function is called to vote for the transport either when the channel
+ * is transmitting or when it shows an intention to transmit sooner. This
+ * function must be called with transport's tx_ready_lock_lhb3 lock and
+ * channel's tx_lists_lock_lhc3 locked.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 static int glink_qos_ch_vote_xprt(struct channel_ctx *ctx)
 {
 	uint32_t prio;
@@ -527,6 +749,10 @@ static int glink_qos_ch_vote_xprt(struct channel_ctx *ctx)
 
 	if (ctx->transport_ptr->prio_bin[prio].active_ch_cnt == 1 &&
 	    ctx->transport_ptr->active_high_prio < prio) {
+		/*
+		 * One active channel in this priority and this is the
+		 * highest active priority bucket
+		 */
 		ctx->transport_ptr->active_high_prio = prio;
 		return ctx->transport_ptr->ops->power_vote(
 				ctx->transport_ptr->ops,
@@ -536,6 +762,17 @@ static int glink_qos_ch_vote_xprt(struct channel_ctx *ctx)
 	return 0;
 }
 
+/**
+ * glink_qos_ch_unvote_xprt() - Unvote the transport when channel is inactive
+ * @ctx:	Channel context which is inactive.
+ *
+ * This function is called to unvote for the transport either when all the
+ * packets queued by the channel are transmitted by the scheduler. This
+ * function must be called with transport's tx_ready_lock_lhb3 lock and
+ * channel's tx_lists_lock_lhc3 locked.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 static int glink_qos_ch_unvote_xprt(struct channel_ctx *ctx)
 {
 	uint32_t prio;
@@ -550,6 +787,10 @@ static int glink_qos_ch_unvote_xprt(struct channel_ctx *ctx)
 	    ctx->transport_ptr->active_high_prio > prio)
 		return 0;
 
+	/*
+	 * No active channel in this priority and this is the
+	 * highest active priority bucket
+	 */
 	while (prio > 0) {
 		prio--;
 		if (!ctx->transport_ptr->prio_bin[prio].active_ch_cnt)
@@ -564,6 +805,16 @@ static int glink_qos_ch_unvote_xprt(struct channel_ctx *ctx)
 	return ctx->transport_ptr->ops->power_unvote(ctx->transport_ptr->ops);
 }
 
+/**
+ * glink_qos_add_ch_tx_intent() - Add the channel's intention to transmit soon
+ * @ctx:	Channel context which is going to be active.
+ *
+ * This function is called to update the channel state when it is intending to
+ * transmit sooner. This function must be called with transport's
+ * tx_ready_lock_lhb3 lock and channel's tx_lists_lock_lhc3 locked.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 static int glink_qos_add_ch_tx_intent(struct channel_ctx *ctx)
 {
 	bool active_tx;
@@ -578,6 +829,16 @@ static int glink_qos_add_ch_tx_intent(struct channel_ctx *ctx)
 	return 0;
 }
 
+/**
+ * glink_qos_do_ch_tx() - Update the channel's state that it is transmitting
+ * @ctx:	Channel context which is transmitting.
+ *
+ * This function is called to update the channel state when it is queueing a
+ * packet to transmit. This function must be called with transport's
+ * tx_ready_lock_lhb3 lock and channel's tx_lists_lock_lhc3 locked.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 static int glink_qos_do_ch_tx(struct channel_ctx *ctx)
 {
 	bool active_tx;
@@ -594,6 +855,17 @@ static int glink_qos_do_ch_tx(struct channel_ctx *ctx)
 	return 0;
 }
 
+/**
+ * glink_qos_done_ch_tx() - Update the channel's state when transmission is done
+ * @ctx:	Channel context for which all packets are transmitted.
+ *
+ * This function is called to update the channel state when all packets in its
+ * transmit queue are successfully transmitted. This function must be called
+ * with transport's tx_ready_lock_lhb3 lock and channel's tx_lists_lock_lhc3
+ * locked.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 static int glink_qos_done_ch_tx(struct channel_ctx *ctx)
 {
 	bool active_tx;
@@ -609,6 +881,17 @@ static int glink_qos_done_ch_tx(struct channel_ctx *ctx)
 	return 0;
 }
 
+/**
+ * tx_linear_vbuf_provider() - Virtual Buffer Provider for linear buffers
+ * @iovec:	Pointer to the beginning of the linear buffer.
+ * @offset:	Offset into the buffer whose address is needed.
+ * @size:	Pointer to hold the length of the contiguous buffer space.
+ *
+ * This function is used when a linear buffer is transmitted.
+ *
+ * Return: Address of the buffer which is at offset "offset" from the beginning
+ *         of the buffer.
+ */
 static void *tx_linear_vbuf_provider(void *iovec, size_t offset, size_t *size)
 {
 	struct glink_core_tx_pkt *tx_info = (struct glink_core_tx_pkt *)iovec;
@@ -627,6 +910,19 @@ static void *tx_linear_vbuf_provider(void *iovec, size_t offset, size_t *size)
 	return (void *)tx_info->data + offset;
 }
 
+/**
+ * linearize_vector() - Linearize the vector buffer
+ * @iovec:	Pointer to the vector buffer.
+ * @size:	Size of data in the vector buffer.
+ * vbuf_provider:	Virtual address-space Buffer Provider for the vector.
+ * pbuf_provider:	Physical address-space Buffer Provider for the vector.
+ *
+ * This function is used to linearize the vector buffer provided by the
+ * transport when the client has registered to receive only the vector
+ * buffer.
+ *
+ * Return: address of the linear buffer on success, NULL on failure.
+ */
 static void *linearize_vector(void *iovec, size_t size,
 	void * (*vbuf_provider)(void *iovec, size_t offset, size_t *buf_size),
 	void * (*pbuf_provider)(void *iovec, size_t offset, size_t *buf_size))
@@ -674,6 +970,11 @@ err:
 	return NULL;
 }
 
+/**
+ * glink_core_migration_edge_lock() - gains a reference count for edge and
+ *					take muted lock
+ * @xprt_ctx:	transport of the edge
+ */
 static void glink_core_migration_edge_lock(struct glink_core_xprt_ctx *xprt_ctx)
 {
 	struct glink_core_edge_ctx *edge_ctx = xprt_ctx->edge_ctx;
@@ -682,6 +983,11 @@ static void glink_core_migration_edge_lock(struct glink_core_xprt_ctx *xprt_ctx)
 	mutex_lock(&edge_ctx->edge_migration_lock_lhd2);
 }
 
+/**
+ * glink_core_migration_edge_unlock() - release a reference count for edge
+ *					and release muted lock.
+ * @xprt_ctx:	transport of the edge
+ */
 static void glink_core_migration_edge_unlock(
 					struct glink_core_xprt_ctx *xprt_ctx)
 {
@@ -691,6 +997,13 @@ static void glink_core_migration_edge_unlock(
 	rwref_put(&edge_ctx->edge_ref_lock_lhd1);
 }
 
+/**
+ * glink_edge_ctx_release - Free the edge context
+ * @ch_st_lock:	handle to the rwref_lock associated with the edge
+ *
+ * This should only be called when the reference count associated with the
+ * edge goes to zero.
+ */
 static void glink_edge_ctx_release(struct rwref_lock *ch_st_lock)
 {
 	struct glink_core_edge_ctx *ctx = container_of(ch_st_lock,
@@ -704,6 +1017,13 @@ static void glink_edge_ctx_release(struct rwref_lock *ch_st_lock)
 }
 
 
+/**
+ * edge_name_to_ctx_create() - lookup a edge by name, create the edge ctx if
+ *                              it is not found.
+ * @xprt_ctx:	Transport to search for a matching edge.
+ *
+ * Return: The edge ctx corresponding to edge of @xprt_ctx.
+ */
 static struct glink_core_edge_ctx *edge_name_to_ctx_create(
 				struct glink_core_xprt_ctx *xprt_ctx)
 {
@@ -727,6 +1047,17 @@ static struct glink_core_edge_ctx *edge_name_to_ctx_create(
 	return edge_ctx;
 }
 
+/**
+ * xprt_lcid_to_ch_ctx_get() - lookup a channel by local id
+ * @xprt_ctx:	Transport to search for a matching channel.
+ * @lcid:	Local channel identifier corresponding to the desired channel.
+ *
+ * If the channel is found, the reference count is incremented to ensure the
+ * lifetime of the channel context.  The caller must call rwref_put() when done.
+ *
+ * Return: The channel corresponding to @lcid or NULL if a matching channel
+ *	is not found.
+ */
 static struct channel_ctx *xprt_lcid_to_ch_ctx_get(
 					struct glink_core_xprt_ctx *xprt_ctx,
 					uint32_t lcid)
@@ -747,6 +1078,17 @@ static struct channel_ctx *xprt_lcid_to_ch_ctx_get(
 	return NULL;
 }
 
+/**
+ * xprt_rcid_to_ch_ctx_get() - lookup a channel by remote id
+ * @xprt_ctx:	Transport to search for a matching channel.
+ * @rcid:	Remote channel identifier corresponding to the desired channel.
+ *
+ * If the channel is found, the reference count is incremented to ensure the
+ * lifetime of the channel context.  The caller must call rwref_put() when done.
+ *
+ * Return: The channel corresponding to @rcid or NULL if a matching channel
+ *	is not found.
+ */
 static struct channel_ctx *xprt_rcid_to_ch_ctx_get(
 					struct glink_core_xprt_ctx *xprt_ctx,
 					uint32_t rcid)
@@ -767,6 +1109,13 @@ static struct channel_ctx *xprt_rcid_to_ch_ctx_get(
 	return NULL;
 }
 
+/**
+ * ch_check_duplicate_riid() - Checks for duplicate riid
+ * @ctx:	Local channel context
+ * @riid:	Remote intent ID
+ *
+ * This functions check the riid is present in the remote_rx_list or not
+ */
 bool ch_check_duplicate_riid(struct channel_ctx *ctx, int riid)
 {
 	struct glink_core_rx_intent *intent;
@@ -784,6 +1133,14 @@ bool ch_check_duplicate_riid(struct channel_ctx *ctx, int riid)
 	return false;
 }
 
+/**
+ * ch_pop_remote_rx_intent() - Finds a matching RX intent
+ * @ctx:	Local channel context
+ * @size:	Size of Intent
+ * @riid_ptr:	Pointer to return value of remote intent ID
+ *
+ * This functions searches for an RX intent that is >= to the requested size.
+ */
 int ch_pop_remote_rx_intent(struct channel_ctx *ctx, size_t size,
 		uint32_t *riid_ptr, size_t *intent_size)
 {
@@ -829,6 +1186,14 @@ int ch_pop_remote_rx_intent(struct channel_ctx *ctx, size_t size,
 	return -EAGAIN;
 }
 
+/**
+ * ch_push_remote_rx_intent() - Registers a remote RX intent
+ * @ctx:	Local channel context
+ * @size:	Size of Intent
+ * @riid:	Remote intent ID
+ *
+ * This functions adds a remote RX intent to the remote RX intent list.
+ */
 void ch_push_remote_rx_intent(struct channel_ctx *ctx, size_t size,
 		uint32_t riid)
 {
@@ -873,6 +1238,15 @@ void ch_push_remote_rx_intent(struct channel_ctx *ctx, size_t size,
 			intent->intent_size);
 }
 
+/**
+ * ch_push_local_rx_intent() - Create an rx_intent
+ * @ctx:	Local channel context
+ * @pkt_priv:	Opaque private pointer provided by client to be returned later
+ * @size:	Size of intent
+ *
+ * This functions creates a local intent and adds it to the local
+ * intent list.
+ */
 struct glink_core_rx_intent *ch_push_local_rx_intent(struct channel_ctx *ctx,
 		const void *pkt_priv, size_t size)
 {
@@ -906,11 +1280,11 @@ struct glink_core_rx_intent *ch_push_local_rx_intent(struct channel_ctx *ctx,
 		intent->id = ++ctx->max_used_liid;
 	}
 
-	
+	/* transport is responsible for allocating/reserving for the intent */
 	ret = ctx->transport_ptr->ops->allocate_rx_intent(
 					ctx->transport_ptr->ops, size, intent);
 	if (ret < 0) {
-		
+		/* intent data allocation failure */
 		GLINK_ERR_CH(ctx, "%s: unable to allocate intent sz[%zu] %d",
 			__func__, size, ret);
 		spin_lock_irqsave(&ctx->local_rx_intent_lst_lock_lhc1, flags);
@@ -936,6 +1310,15 @@ struct glink_core_rx_intent *ch_push_local_rx_intent(struct channel_ctx *ctx,
 	return intent;
 }
 
+/**
+ * ch_remove_local_rx_intent() - Find and remove RX Intent from list
+ * @ctx:	Local channel context
+ * @liid:	Local channel Intent ID
+ *
+ * This functions parses the local intent list for a specific channel
+ * and checks for the intent using the intent ID. If found, the intent
+ * is deleted from the list.
+ */
 void ch_remove_local_rx_intent(struct channel_ctx *ctx, uint32_t liid)
 {
 	struct glink_core_rx_intent *intent, *tmp_intent;
@@ -970,6 +1353,17 @@ void ch_remove_local_rx_intent(struct channel_ctx *ctx, uint32_t liid)
 			liid);
 }
 
+/**
+ * ch_get_dummy_rx_intent() - Get a dummy rx_intent
+ * @ctx:	Local channel context
+ * @liid:	Local channel Intent ID
+ *
+ * This functions parses the local intent list for a specific channel and
+ * returns either a matching intent or allocates a dummy one if no matching
+ * intents can be found.
+ *
+ * Return: Pointer to the intent if intent is found else NULL
+ */
 struct glink_core_rx_intent *ch_get_dummy_rx_intent(struct channel_ctx *ctx,
 		uint32_t liid)
 {
@@ -1013,6 +1407,17 @@ struct glink_core_rx_intent *ch_get_dummy_rx_intent(struct channel_ctx *ctx,
 	return intent;
 }
 
+/**
+ * ch_get_local_rx_intent() - Search for an rx_intent
+ * @ctx:	Local channel context
+ * @liid:	Local channel Intent ID
+ *
+ * This functions parses the local intent list for a specific channel
+ * and checks for the intent using the intent ID. If found, pointer to
+ * the intent is returned.
+ *
+ * Return: Pointer to the intent if intent is found else NULL
+ */
 struct glink_core_rx_intent *ch_get_local_rx_intent(struct channel_ctx *ctx,
 		uint32_t liid)
 {
@@ -1042,6 +1447,16 @@ struct glink_core_rx_intent *ch_get_local_rx_intent(struct channel_ctx *ctx,
 	return NULL;
 }
 
+/**
+ * ch_set_local_rx_intent_notified() - Add a rx intent to local intent
+ *					notified list
+ * @ctx:	Local channel context
+ * @intent_ptr:	Pointer to the local intent
+ *
+ * This functions parses the local intent list for a specific channel
+ * and checks for the intent. If found, the function deletes the intent
+ * from local_rx_intent list and adds it to local_rx_intent_notified list.
+ */
 void ch_set_local_rx_intent_notified(struct channel_ctx *ctx,
 		struct glink_core_rx_intent *intent_ptr)
 {
@@ -1072,6 +1487,16 @@ void ch_set_local_rx_intent_notified(struct channel_ctx *ctx,
 			intent_ptr->id);
 }
 
+/**
+ * ch_get_local_rx_intent_notified() - Find rx intent in local notified list
+ * @ctx:	Local channel context
+ * @ptr:	Pointer to the rx intent
+ *
+ * This functions parses the local intent notify list for a specific channel
+ * and checks for the intent.
+ *
+ * Return: Pointer to the intent if intent is found else NULL.
+ */
 struct glink_core_rx_intent *ch_get_local_rx_intent_notified(
 	struct channel_ctx *ctx, const void *ptr)
 {
@@ -1094,6 +1519,17 @@ struct glink_core_rx_intent *ch_get_local_rx_intent_notified(
 	return NULL;
 }
 
+/**
+ * ch_remove_local_rx_intent_notified() - Remove a rx intent in local intent
+ *					notified list
+ * @ctx:	Local channel context
+ * @ptr:	Pointer to the rx intent
+ * @reuse:	Reuse the rx intent
+ *
+ * This functions parses the local intent notify list for a specific channel
+ * and checks for the intent. If found, the function deletes the intent
+ * from local_rx_intent_notified list and adds it to local_rx_intent_free list.
+ */
 void ch_remove_local_rx_intent_notified(struct channel_ctx *ctx,
 	struct glink_core_rx_intent *liid_ptr, bool reuse)
 {
@@ -1131,6 +1567,15 @@ void ch_remove_local_rx_intent_notified(struct channel_ctx *ctx,
 			liid_ptr->id);
 }
 
+/**
+ * ch_get_free_local_rx_intent() - Return a rx intent in local intent
+ *					free list
+ * @ctx:	Local channel context
+ *
+ * This functions parses the local_rx_intent_free list for a specific channel
+ * and checks for the free unused intent. If found, the function returns
+ * the free intent pointer else NULL pointer.
+ */
 struct glink_core_rx_intent *ch_get_free_local_rx_intent(
 	struct channel_ctx *ctx)
 {
@@ -1148,6 +1593,14 @@ struct glink_core_rx_intent *ch_get_free_local_rx_intent(
 	return ptr_intent;
 }
 
+/**
+ * ch_purge_intent_lists() - Remove all intents for a channel
+ *
+ * @ctx:	Local channel context
+ *
+ * This functions parses the local intent lists for a specific channel and
+ * removes and frees all intents.
+ */
 void ch_purge_intent_lists(struct channel_ctx *ctx)
 {
 	struct glink_core_rx_intent *ptr_intent, *tmp_intent;
@@ -1173,6 +1626,13 @@ void ch_purge_intent_lists(struct channel_ctx *ctx)
 	}
 
 	if (!list_empty(&ctx->local_rx_intent_ntfy_list))
+		/*
+		 * The client is still processing an rx_notify() call and has
+		 * not yet called glink_rx_done() to return the pointer to us.
+		 * glink_rx_done() will do the appropriate cleanup when this
+		 * call occurs, but log a message here just for internal state
+		 * tracking.
+		 */
 		GLINK_INFO_CH(ctx, "%s: waiting on glink_rx_done()\n",
 				__func__);
 
@@ -1193,6 +1653,18 @@ void ch_purge_intent_lists(struct channel_ctx *ctx)
 	spin_unlock_irqrestore(&ctx->rmt_rx_intent_lst_lock_lhc2, flags);
 }
 
+/**
+ * ch_get_tx_pending_remote_done() - Lookup for a packet that is waiting for
+ *                                   the remote-done notification.
+ * @ctx:	Pointer to the channel context
+ * @riid:	riid of transmit packet
+ *
+ * This function adds a packet to the tx_pending_remote_done list.
+ *
+ * The tx_lists_lock_lhc3 lock needs to be held while calling this function.
+ *
+ * Return: Pointer to the tx packet
+ */
 struct glink_core_tx_pkt *ch_get_tx_pending_remote_done(
 	struct channel_ctx *ctx, uint32_t riid)
 {
@@ -1224,6 +1696,15 @@ struct glink_core_tx_pkt *ch_get_tx_pending_remote_done(
 	return NULL;
 }
 
+/**
+ * ch_remove_tx_pending_remote_done() - Removes a packet transmit context for a
+ *                     packet that is waiting for the remote-done notification
+ * @ctx:	Pointer to the channel context
+ * @tx_pkt:	Pointer to the transmit packet
+ *
+ * This function parses through tx_pending_remote_done and removes a
+ * packet that matches with the tx_pkt.
+ */
 void ch_remove_tx_pending_remote_done(struct channel_ctx *ctx,
 	struct glink_core_tx_pkt *tx_pkt)
 {
@@ -1256,6 +1737,11 @@ void ch_remove_tx_pending_remote_done(struct channel_ctx *ctx,
 			tx_pkt->riid);
 }
 
+/**
+ * glink_add_free_lcid_list() - adds the lcid of a to be deleted channel to
+ *				available lcid list
+ * @ctx:	Pointer to channel context.
+ */
 static void glink_add_free_lcid_list(struct channel_ctx *ctx)
 {
 	struct channel_lcid *free_lcid;
@@ -1277,6 +1763,13 @@ static void glink_add_free_lcid_list(struct channel_ctx *ctx)
 					flags);
 }
 
+/**
+ * glink_ch_ctx_release - Free the channel context
+ * @ch_st_lock:	handle to the rwref_lock associated with the chanel
+ *
+ * This should only be called when the reference count associated with the
+ * channel goes to zero.
+ */
 static void glink_ch_ctx_release(struct rwref_lock *ch_st_lock)
 {
 	struct channel_ctx *ctx = container_of(ch_st_lock, struct channel_ctx,
@@ -1288,6 +1781,15 @@ static void glink_ch_ctx_release(struct rwref_lock *ch_st_lock)
 	ctx = NULL;
 }
 
+/**
+ * ch_name_to_ch_ctx_create() - lookup a channel by name, create the channel if
+ *                              it is not found.
+ * @xprt_ctx:	Transport to search for a matching channel.
+ * @name:	Name of the desired channel.
+ *
+ * Return: The channel corresponding to @name, NULL if a matching channel was
+ *         not found AND a new channel could not be created.
+ */
 static struct channel_ctx *ch_name_to_ch_ctx_create(
 					struct glink_core_xprt_ctx *xprt_ctx,
 					const char *name)
@@ -1344,7 +1846,7 @@ check_ctx:
 	if (ctx) {
 		if (list_empty(&xprt_ctx->free_lcid_list)) {
 			if (xprt_ctx->next_lcid > xprt_ctx->max_cid) {
-				
+				/* no more channels available */
 				GLINK_ERR_XPRT(xprt_ctx,
 					"%s: unable to exceed %u channels\n",
 					__func__, xprt_ctx->max_cid);
@@ -1380,6 +1882,12 @@ check_ctx:
 	return ctx;
 }
 
+/**
+ * ch_add_rcid() - add a remote channel identifier to an existing channel
+ * @xprt_ctx:	Transport the channel resides on.
+ * @ctx:	Channel receiving the identifier.
+ * @rcid:	The remote channel identifier.
+ */
 static void ch_add_rcid(struct glink_core_xprt_ctx *xprt_ctx,
 			struct channel_ctx *ctx,
 			uint32_t rcid)
@@ -1387,6 +1895,14 @@ static void ch_add_rcid(struct glink_core_xprt_ctx *xprt_ctx,
 	ctx->rcid = rcid;
 }
 
+/**
+ * ch_update_local_state() - Update the local channel state
+ * @ctx:	Pointer to channel context.
+ * @lstate:	Local channel state.
+ *
+ * Return: True if the channel is fully closed as a result of this update,
+ *	false otherwise.
+ */
 static bool ch_update_local_state(struct channel_ctx *ctx,
 					enum local_channel_state_e lstate)
 {
@@ -1400,6 +1916,14 @@ static bool ch_update_local_state(struct channel_ctx *ctx,
 	return is_fully_closed;
 }
 
+/**
+ * ch_update_local_state() - Update the local channel state
+ * @ctx:	Pointer to channel context.
+ * @rstate:	Remote Channel state.
+ *
+ * Return: True if the channel is fully closed as result of this update,
+ *	false otherwise.
+ */
 static bool ch_update_rmt_state(struct channel_ctx *ctx, bool rstate)
 {
 	bool is_fully_closed;
@@ -1412,6 +1936,12 @@ static bool ch_update_rmt_state(struct channel_ctx *ctx, bool rstate)
 	return is_fully_closed;
 }
 
+/*
+ * ch_is_fully_opened() - Verify if a channel is open
+ * ctx:	Pointer to channel context
+ *
+ * Return: True if open, else flase
+ */
 static bool ch_is_fully_opened(struct channel_ctx *ctx)
 {
 	if (ctx->remote_opened && ctx->local_open_state == GLINK_CHANNEL_OPENED)
@@ -1420,6 +1950,11 @@ static bool ch_is_fully_opened(struct channel_ctx *ctx)
 	return false;
 }
 
+/*
+ * ch_is_fully_closed() - Verify if a channel is closed on both sides
+ * @ctx: Pointer to channel context
+ * @returns: True if open, else flase
+ */
 static bool ch_is_fully_closed(struct channel_ctx *ctx)
 {
 	if (!ctx->remote_opened &&
@@ -1429,6 +1964,22 @@ static bool ch_is_fully_closed(struct channel_ctx *ctx)
 	return false;
 }
 
+/**
+ * find_open_transport() - find a specific open transport
+ * @edge:		Edge the transport is on.
+ * @name:		Name of the transport (or NULL if no preference)
+ * @initial_xprt:	The specified transport is the start for migration
+ * @best_id:		The best transport found for this connection
+ *
+ * Find an open transport corresponding to the specified @name and @edge.  @edge
+ * is expected to be valid.  @name is expected to be NULL (unspecified) or
+ * valid.  If @name is not specified, then the best transport found on the
+ * specified edge will be returned.
+ *
+ * Return: Transport with the specified name on the specified edge, if open.
+ *	NULL if the transport exists, but is not fully open.  ENODEV if no such
+ *	transport exists.
+ */
 static struct glink_core_xprt_ctx *find_open_transport(const char *edge,
 						       const char *name,
 						       bool initial_xprt,
@@ -1458,6 +2009,10 @@ static struct glink_core_xprt_ctx *find_open_transport(const char *edge,
 			best_xprt = xprt;
 		}
 
+		/*
+		 * Braces are required in this instacne because the else will
+		 * attach to the wrong if otherwise.
+		 */
 		if (name) {
 			if (!strcmp(name, xprt->name))
 				ret = xprt;
@@ -1476,6 +2031,12 @@ static struct glink_core_xprt_ctx *find_open_transport(const char *edge,
 	return ret;
 }
 
+/**
+ * xprt_is_fully_opened() - check the open status of a transport
+ * @xprt:	Transport being checked.
+ *
+ * Return: True if the transport is fully opened, false otherwise.
+ */
 static bool xprt_is_fully_opened(struct glink_core_xprt_ctx *xprt)
 {
 	if (xprt->remote_neg_completed &&
@@ -1485,58 +2046,152 @@ static bool xprt_is_fully_opened(struct glink_core_xprt_ctx *xprt)
 	return false;
 }
 
+/**
+ * glink_dummy_notify_rx_intent_req() - Dummy RX Request
+ *
+ * @handle:	Channel handle (ignored)
+ * @priv:	Private data pointer (ignored)
+ * @req_size:	Requested size (ignored)
+ *
+ * Dummy RX intent request if client does not implement the optional callback
+ * function.
+ *
+ * Return:  False
+ */
 static bool glink_dummy_notify_rx_intent_req(void *handle, const void *priv,
 	size_t req_size)
 {
 	return false;
 }
 
+/**
+ * glink_dummy_notify_rx_sigs() - Dummy signal callback
+ *
+ * @handle:	Channel handle (ignored)
+ * @priv:	Private data pointer (ignored)
+ * @req_size:	Requested size (ignored)
+ *
+ * Dummy signal callback if client does not implement the optional callback
+ * function.
+ *
+ * Return:  False
+ */
 static void glink_dummy_notify_rx_sigs(void *handle, const void *priv,
 				uint32_t old_sigs, uint32_t new_sigs)
 {
-	
+	/* intentionally left blank */
 }
 
+/**
+ * glink_dummy_rx_abort() - Dummy rx abort callback
+ *
+ * handle:	Channel handle (ignored)
+ * priv:	Private data pointer (ignored)
+ * pkt_priv:	Private intent data pointer (ignored)
+ *
+ * Dummy rx abort callback if client does not implement the optional callback
+ * function.
+ */
 static void glink_dummy_notify_rx_abort(void *handle, const void *priv,
 				const void *pkt_priv)
 {
-	
+	/* intentionally left blank */
 }
 
+/**
+ * glink_dummy_tx_abort() - Dummy tx abort callback
+ *
+ * @handle:	Channel handle (ignored)
+ * @priv:	Private data pointer (ignored)
+ * @pkt_priv:	Private intent data pointer (ignored)
+ *
+ * Dummy tx abort callback if client does not implement the optional callback
+ * function.
+ */
 static void glink_dummy_notify_tx_abort(void *handle, const void *priv,
 				const void *pkt_priv)
 {
-	
+	/* intentionally left blank */
 }
 
+/**
+ * dummy_poll() - a dummy poll() for transports that don't define one
+ * @if_ptr:	The transport interface handle for this transport.
+ * @lcid:	The channel to poll.
+ *
+ * Return: An error to indicate that this operation is unsupported.
+ */
 static int dummy_poll(struct glink_transport_if *if_ptr, uint32_t lcid)
 {
 	return -EOPNOTSUPP;
 }
 
+/**
+ * dummy_reuse_rx_intent() - a dummy reuse_rx_intent() for transports that
+ *			     don't define one
+ * @if_ptr:	The transport interface handle for this transport.
+ * @intent:	The intent to reuse.
+ *
+ * Return: Success.
+ */
 static int dummy_reuse_rx_intent(struct glink_transport_if *if_ptr,
 				 struct glink_core_rx_intent *intent)
 {
 	return 0;
 }
 
+/**
+ * dummy_mask_rx_irq() - a dummy mask_rx_irq() for transports that don't define
+ *			 one
+ * @if_ptr:	The transport interface handle for this transport.
+ * @lcid:	The local channel id for this channel.
+ * @mask:	True to mask the irq, false to unmask.
+ * @pstruct:	Platform defined structure with data necessary for masking.
+ *
+ * Return: An error to indicate that this operation is unsupported.
+ */
 static int dummy_mask_rx_irq(struct glink_transport_if *if_ptr, uint32_t lcid,
 			     bool mask, void *pstruct)
 {
 	return -EOPNOTSUPP;
 }
 
+/**
+ * dummy_wait_link_down() - a dummy wait_link_down() for transports that don't
+ *			define one
+ * @if_ptr:	The transport interface handle for this transport.
+ *
+ * Return: An error to indicate that this operation is unsupported.
+ */
 static int dummy_wait_link_down(struct glink_transport_if *if_ptr)
 {
 	return -EOPNOTSUPP;
 }
 
+/**
+ * dummy_allocate_rx_intent() - a dummy RX intent allocation function that does
+ *				not allocate anything
+ * @if_ptr:	The transport the intent is associated with.
+ * @size:	Size of intent.
+ * @intent:	Pointer to the intent structure.
+ *
+ * Return:	Success.
+ */
 static int dummy_allocate_rx_intent(struct glink_transport_if *if_ptr,
 			size_t size, struct glink_core_rx_intent *intent)
 {
 	return 0;
 }
 
+/**
+ * dummy_tx_cmd_tracer_pkt() - a dummy tracer packet tx cmd for transports
+ *                             that don't define one
+ * @if_ptr:	The transport interface handle for this transport.
+ * @lcid:	The channel in which the tracer packet is transmitted.
+ * @pctx:	Context of the packet to be transmitted.
+ *
+ * Return: 0.
+ */
 static int dummy_tx_cmd_tracer_pkt(struct glink_transport_if *if_ptr,
 		uint32_t lcid, struct glink_core_tx_pkt *pctx)
 {
@@ -1544,22 +2199,46 @@ static int dummy_tx_cmd_tracer_pkt(struct glink_transport_if *if_ptr,
 	return 0;
 }
 
+/**
+ * dummy_deallocate_rx_intent() - a dummy rx intent deallocation function that
+ *				does not deallocate anything
+ * @if_ptr:	The transport the intent is associated with.
+ * @intent:	Pointer to the intent structure.
+ *
+ * Return:	Success.
+ */
 static int dummy_deallocate_rx_intent(struct glink_transport_if *if_ptr,
 				struct glink_core_rx_intent *intent)
 {
 	return 0;
 }
 
+/**
+ * dummy_tx_cmd_local_rx_intent() - dummy local rx intent request
+ * @if_ptr:	The transport to transmit on.
+ * @lcid:	The local channel id to encode.
+ * @size:	The intent size to encode.
+ * @liid:	The local intent id to encode.
+ *
+ * Return:	Success.
+ */
 static int dummy_tx_cmd_local_rx_intent(struct glink_transport_if *if_ptr,
 				uint32_t lcid, size_t size, uint32_t liid)
 {
 	return 0;
 }
 
+/**
+ * dummy_tx_cmd_local_rx_done() - dummy rx done command
+ * @if_ptr:	The transport to transmit on.
+ * @lcid:	The local channel id to encode.
+ * @liid:	The local intent id to encode.
+ * @reuse:	Reuse the consumed intent.
+ */
 static void dummy_tx_cmd_local_rx_done(struct glink_transport_if *if_ptr,
 				uint32_t lcid, uint32_t liid, bool reuse)
 {
-	
+	/* intentionally left blank */
 }
 
 /**
@@ -1576,12 +2255,28 @@ static int dummy_tx(struct glink_transport_if *if_ptr, uint32_t lcid,
 	return 0;
 }
 
+/**
+ * dummy_tx_cmd_rx_intent_req() - dummy rx intent request functon
+ * @if_ptr:	The transport to transmit on.
+ * @lcid:	The local channel id to encode.
+ * @size:	The requested intent size to encode.
+ *
+ * Return:	Success.
+ */
 static int dummy_tx_cmd_rx_intent_req(struct glink_transport_if *if_ptr,
 				uint32_t lcid, size_t size)
 {
 	return 0;
 }
 
+/**
+ * dummy_tx_cmd_rx_intent_req_ack() - dummy rx intent request ack
+ * @if_ptr:	The transport to transmit on.
+ * @lcid:	The local channel id to encode.
+ * @granted:	The request response to encode.
+ *
+ * Return:	Success.
+ */
 static int dummy_tx_cmd_remote_rx_intent_req_ack(
 					struct glink_transport_if *if_ptr,
 					uint32_t lcid, bool granted)
@@ -1589,41 +2284,88 @@ static int dummy_tx_cmd_remote_rx_intent_req_ack(
 	return 0;
 }
 
+/**
+ * dummy_tx_cmd_set_sigs() - dummy signals ack transmit function
+ * @if_ptr:	The transport to transmit on.
+ * @lcid:	The local channel id to encode.
+ * @sigs:	The signals to encode.
+ *
+ * Return:	Success.
+ */
 static int dummy_tx_cmd_set_sigs(struct glink_transport_if *if_ptr,
 				uint32_t lcid, uint32_t sigs)
 {
 	return 0;
 }
 
+/**
+ * dummy_tx_cmd_ch_close() - dummy channel close transmit function
+ * @if_ptr:	The transport to transmit on.
+ * @lcid:	The local channel id to encode.
+ *
+ * Return:	Success.
+ */
 static int dummy_tx_cmd_ch_close(struct glink_transport_if *if_ptr,
 				uint32_t lcid)
 {
 	return 0;
 }
 
+/**
+ * dummy_tx_cmd_ch_remote_close_ack() - dummy channel close ack sending function
+ * @if_ptr:	The transport to transmit on.
+ * @rcid:	The remote channel id to encode.
+ */
 static void dummy_tx_cmd_ch_remote_close_ack(struct glink_transport_if *if_ptr,
 				       uint32_t rcid)
 {
-	
+	/* intentionally left blank */
 }
 
+/**
+ * dummy_get_power_vote_ramp_time() - Dummy Power vote ramp time
+ * @if_ptr:	The transport to transmit on.
+ * @state:	The power state being requested from the transport.
+ */
 static unsigned long dummy_get_power_vote_ramp_time(
 		struct glink_transport_if *if_ptr, uint32_t state)
 {
 	return (unsigned long)-EOPNOTSUPP;
 }
 
+/**
+ * dummy_power_vote() - Dummy Power vote operation
+ * @if_ptr:	The transport to transmit on.
+ * @state:	The power state being requested from the transport.
+ */
 static int dummy_power_vote(struct glink_transport_if *if_ptr,
 			    uint32_t state)
 {
 	return -EOPNOTSUPP;
 }
 
+/**
+ * dummy_power_unvote() - Dummy Power unvote operation
+ * @if_ptr:	The transport to transmit on.
+ */
 static int dummy_power_unvote(struct glink_transport_if *if_ptr)
 {
 	return -EOPNOTSUPP;
 }
 
+/**
+ * notif_if_up_all_xprts() - Check and notify existing transport state if up
+ * @notif_info:	Data structure containing transport information to be notified.
+ *
+ * This function is called when the client registers a notifier to know about
+ * the state of a transport. This function matches the existing transports with
+ * the transport in the "notif_info" parameter. When a matching transport is
+ * found, the callback function in the "notif_info" parameter is called with
+ * the state of the matching transport.
+ *
+ * If an edge or transport is not defined, then all edges and/or transports
+ * will be matched and will receive up notifications.
+ */
 static void notif_if_up_all_xprts(
 		struct link_state_notifier_info *notif_info)
 {
@@ -1652,6 +2394,17 @@ static void notif_if_up_all_xprts(
 	mutex_unlock(&transport_list_lock_lha0);
 }
 
+/**
+ * check_link_notifier_and_notify() - Check and notify clients about link state
+ * @xprt_ptr:	Transport whose state to be notified.
+ * @link_state:	State of the transport to be notified.
+ *
+ * This function is called when the state of the transport changes. This
+ * function matches the transport with the clients that have registered to
+ * be notified about the state changes. When a matching client notifier is
+ * found, the callback function in the client notifier is called with the
+ * new state of the transport.
+ */
 static void check_link_notifier_and_notify(struct glink_core_xprt_ctx *xprt_ptr,
 					   enum glink_link_state link_state)
 {
@@ -1677,6 +2430,19 @@ static void check_link_notifier_and_notify(struct glink_core_xprt_ctx *xprt_ptr,
 	mutex_unlock(&link_state_notifier_lock_lha1);
 }
 
+/**
+ * Open GLINK channel.
+ *
+ * @cfg_ptr:	Open configuration structure (the structure is copied before
+ *		glink_open returns).  All unused fields should be zero-filled.
+ *
+ * This should not be called from link state callback context by clients.
+ * It is recommended that client should invoke this function from their own
+ * thread.
+ *
+ * Return:  Pointer to channel on success, PTR_ERR() with standard Linux
+ * error code on failure.
+ */
 void *glink_open(const struct glink_open_config *cfg)
 {
 	struct channel_ctx *ctx = NULL;
@@ -1714,7 +2480,7 @@ void *glink_open(const struct glink_open_config *cfg)
 		}
 	}
 
-	
+	/* confirm required notification parameters */
 	if (!(cfg->notify_rx || cfg->notify_rxv) || !cfg->notify_tx_done
 		|| !cfg->notify_state
 		|| ((cfg->options & GLINK_OPT_RX_INTENT_NOTIF)
@@ -1723,7 +2489,7 @@ void *glink_open(const struct glink_open_config *cfg)
 		return ERR_PTR(-EINVAL);
 	}
 
-	
+	/* find transport */
 	transport_ptr = find_open_transport(cfg->edge, cfg->transport,
 					cfg->options & GLINK_OPT_INITIAL_XPORT,
 					&best_id);
@@ -1734,6 +2500,10 @@ void *glink_open(const struct glink_open_config *cfg)
 		return ERR_PTR(-ENODEV);
 	}
 
+	/*
+	 * look for an existing port structure which can occur in
+	 * reopen and remote-open-first cases
+	 */
 	ctx = ch_name_to_ch_ctx_create(transport_ptr, cfg->name);
 	if (ctx == NULL) {
 		GLINK_ERR("%s:%s %s: Error - unable to allocate new channel\n",
@@ -1741,16 +2511,16 @@ void *glink_open(const struct glink_open_config *cfg)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	
+	/* port already exists */
 	if (ctx->local_open_state != GLINK_CHANNEL_CLOSED) {
-		
+		/* not ready to be re-opened */
 		GLINK_INFO_CH_XPRT(ctx, transport_ptr,
 		"%s: Channel not ready to be re-opened. State: %u\n",
 		__func__, ctx->local_open_state);
 		return ERR_PTR(-EBUSY);
 	}
 
-	
+	/* initialize port structure */
 	ctx->user_priv = cfg->priv;
 	ctx->rx_intent_req_timeout_jiffies =
 		msecs_to_jiffies(cfg->rx_intent_req_timeout_ms);
@@ -1786,11 +2556,11 @@ void *glink_open(const struct glink_open_config *cfg)
 		"%s: local:GLINK_CHANNEL_CLOSED->GLINK_CHANNEL_OPENING\n",
 		__func__);
 
-	
+	/* start local-open sequence */
 	ret = ctx->transport_ptr->ops->tx_cmd_ch_open(ctx->transport_ptr->ops,
 		ctx->lcid, cfg->name, best_id);
 	if (ret) {
-		
+		/* failure to send open command (transport failure) */
 		ctx->local_open_state = GLINK_CHANNEL_CLOSED;
 		GLINK_ERR_CH(ctx, "%s: Unable to send open command %d\n",
 			__func__, ret);
@@ -1804,6 +2574,15 @@ void *glink_open(const struct glink_open_config *cfg)
 }
 EXPORT_SYMBOL(glink_open);
 
+/**
+ * glink_get_channel_id_for_handle() - Get logical channel ID
+ *
+ * @handle:	handle of channel
+ *
+ * Used internally by G-Link debugfs.
+ *
+ * Return:  Logical Channel ID or standard Linux error code
+ */
 int glink_get_channel_id_for_handle(void *handle)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -1814,6 +2593,15 @@ int glink_get_channel_id_for_handle(void *handle)
 }
 EXPORT_SYMBOL(glink_get_channel_id_for_handle);
 
+/**
+ * glink_get_channel_name_for_handle() - return channel name
+ *
+ * @handle:	handle of channel
+ *
+ * Used internally by G-Link debugfs.
+ *
+ * Return:  Channel name or NULL
+ */
 char *glink_get_channel_name_for_handle(void *handle)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -1824,6 +2612,18 @@ char *glink_get_channel_name_for_handle(void *handle)
 }
 EXPORT_SYMBOL(glink_get_channel_name_for_handle);
 
+/**
+ * glink_delete_ch_from_list() -  delete the channel from the list
+ * @ctx:	Pointer to channel context.
+ * @add_flcid:	Boolean value to decide whether the lcid should be added or not.
+ *
+ * This function deletes the channel from the list along with the debugfs
+ * information associated with it. It also adds the channel lcid to the free
+ * lcid list except if the channel is deleted in case of ssr/unregister case.
+ * It can only called when channel is fully closed.
+ *
+ * Return: true when transport_ptr->channels is empty.
+ */
 static bool glink_delete_ch_from_list(struct channel_ctx *ctx, bool add_flcid)
 {
 	unsigned long flags;
@@ -1848,6 +2648,17 @@ static bool glink_delete_ch_from_list(struct channel_ctx *ctx, bool add_flcid)
 	return ret;
 }
 
+/**
+ * glink_close() - Close a previously opened channel.
+ *
+ * @handle:	handle to close
+ *
+ * Once the closing process has been completed, the GLINK_LOCAL_DISCONNECTED
+ * state event will be sent and the channel can be reopened.
+ *
+ * Return:  0 on success; -EINVAL for invalid handle, -EBUSY is close is
+ * already in progress, standard Linux Error code otherwise.
+ */
 int glink_close(void *handle)
 {
 	struct glink_core_xprt_ctx *xprt_ctx = NULL;
@@ -1864,7 +2675,7 @@ int glink_close(void *handle)
 		return 0;
 
 	if (ctx->local_open_state == GLINK_CHANNEL_CLOSING) {
-		
+		/* close already pending */
 		return -EBUSY;
 	}
 
@@ -1878,7 +2689,7 @@ relock: xprt_ctx = ctx->transport_ptr;
 		goto relock;
 	}
 
-	
+	/* Set the channel state before removing it from xprt's list(s) */
 	GLINK_INFO_PERF_CH(ctx,
 		"%s: local:%u->GLINK_CHANNEL_CLOSING\n",
 		__func__, ctx->local_open_state);
@@ -1897,6 +2708,11 @@ relock: xprt_ctx = ctx->transport_ptr;
 		ret = xprt_ctx->ops->tx_cmd_ch_close(xprt_ctx->ops, ctx->lcid);
 		rwref_write_put(&ctx->ch_state_lhb2);
 	} else if (!strcmp(xprt_ctx->name, "dummy")) {
+		/*
+		 * This check will avoid any race condition when clients call
+		 * glink_close before the dummy xprt swapping happens in link
+		 * down scenario.
+		 */
 		ret = 0;
 		rwref_write_put(&ctx->ch_state_lhb2);
 		glink_core_ch_close_ack_common(ctx, false);
@@ -1904,7 +2720,7 @@ relock: xprt_ctx = ctx->transport_ptr;
 			is_empty = glink_delete_ch_from_list(ctx, false);
 			rwref_put(&xprt_ctx->xprt_state_lhb0);
 			if (is_empty && !xprt_ctx->dummy_in_use)
-				
+				/* For the xprt reference */
 				rwref_put(&xprt_ctx->xprt_state_lhb0);
 		} else {
 			GLINK_ERR_CH(ctx,
@@ -1912,6 +2728,11 @@ relock: xprt_ctx = ctx->transport_ptr;
 			ctx->local_open_state, ctx->remote_opened);
 		}
 	} else {
+		/*
+		 * This case handles the scenario where glink_core_link_down
+		 * changes the local_state to GLINK_XPRT_DOWN but glink_close
+		 * gets the channel write lock before glink_core_channel_cleanup
+		 */
 		rwref_write_put(&ctx->ch_state_lhb2);
 	}
 	complete_all(&ctx->int_req_ack_complete);
@@ -1923,6 +2744,13 @@ relock: xprt_ctx = ctx->transport_ptr;
 }
 EXPORT_SYMBOL(glink_close);
 
+/**
+ * glink_tx_pkt_release() - Release a packet's transmit information
+ * @tx_pkt_ref:	Packet information which needs to be released.
+ *
+ * This function is called when all the references to a packet information
+ * is dropped.
+ */
 static void glink_tx_pkt_release(struct rwref_lock *tx_pkt_ref)
 {
 	struct glink_core_tx_pkt *tx_info = container_of(tx_pkt_ref,
@@ -1935,6 +2763,22 @@ static void glink_tx_pkt_release(struct rwref_lock *tx_pkt_ref)
 	kfree(tx_info);
 }
 
+/**
+ * glink_tx_common() - Common TX implementation
+ *
+ * @handle:	handle returned by glink_open()
+ * @pkt_priv:	opaque data value that will be returned to client with
+ *		notify_tx_done notification
+ * @data:	pointer to the data
+ * @size:	size of data
+ * @vbuf_provider: Virtual Address-space Buffer Provider for the tx buffer.
+ * @vbuf_provider: Physical Address-space Buffer Provider for the tx buffer.
+ * @tx_flags:	Flags to indicate transmit options
+ *
+ * Return:	-EINVAL for invalid handle; -EBUSY if channel isn't ready for
+ *		transmit operation (not fully opened); -EAGAIN if remote side
+ *		has not provided a receive intent that is big enough.
+ */
 static int glink_tx_common(void *handle, void *pkt_priv,
 	void *data, void *iovec, size_t size,
 	void * (*vbuf_provider)(void *iovec, size_t offset, size_t *size),
@@ -1980,10 +2824,10 @@ static int glink_tx_common(void *handle, void *pkt_priv,
 		tracer_pkt_log_event(data, GLINK_CORE_TX);
 	}
 
-	
+	/* find matching rx intent (first-fit algorithm for now) */
 	if (ch_pop_remote_rx_intent(ctx, size, &riid, &intent_size)) {
 		if (!(tx_flags & GLINK_TX_REQ_INTENT)) {
-			
+			/* no rx intent available */
 			GLINK_ERR_CH(ctx,
 				"%s: R[%u]:%zu Intent not present for lcid\n",
 				__func__, riid, size);
@@ -1999,7 +2843,7 @@ static int glink_tx_common(void *handle, void *pkt_priv,
 			return -EINVAL;
 		}
 
-		
+		/* request intent of correct size */
 		reinit_completion(&ctx->int_req_ack_complete);
 		ret = ctx->transport_ptr->ops->tx_cmd_rx_intent_req(
 				ctx->transport_ptr->ops, ctx->lcid, size);
@@ -2031,7 +2875,7 @@ static int glink_tx_common(void *handle, void *pkt_priv,
 				return -EBUSY;
 			}
 
-			
+			/* wait for the remote intent req ack */
 			if (!wait_for_completion_timeout(
 					&ctx->int_req_ack_complete,
 					ctx->rx_intent_req_timeout_jiffies)) {
@@ -2051,7 +2895,7 @@ static int glink_tx_common(void *handle, void *pkt_priv,
 				return -EAGAIN;
 			}
 
-			
+			/* wait for the rx_intent from remote side */
 			if (!wait_for_completion_timeout(
 					&ctx->int_req_complete,
 					ctx->rx_intent_req_timeout_jiffies)) {
@@ -2102,7 +2946,7 @@ static int glink_tx_common(void *handle, void *pkt_priv,
 	tx_info->pprovider = pbuf_provider;
 	tx_info->intent_size = intent_size;
 
-	
+	/* schedule packet for transmit */
 	if ((tx_flags & GLINK_TX_SINGLE_THREADED) &&
 	    (ctx->transport_ptr->capabilities & GCAP_INTENTLESS))
 		ret = xprt_single_threaded_tx(ctx->transport_ptr,
@@ -2114,6 +2958,20 @@ static int glink_tx_common(void *handle, void *pkt_priv,
 	return ret;
 }
 
+/**
+ * glink_tx() - Transmit packet.
+ *
+ * @handle:	handle returned by glink_open()
+ * @pkt_priv:	opaque data value that will be returned to client with
+ *		notify_tx_done notification
+ * @data:	pointer to the data
+ * @size:	size of data
+ * @tx_flags:	Flags to specify transmit specific options
+ *
+ * Return:	-EINVAL for invalid handle; -EBUSY if channel isn't ready for
+ *		transmit operation (not fully opened); -EAGAIN if remote side
+ *		has not provided a receive intent that is big enough.
+ */
 int glink_tx(void *handle, void *pkt_priv, void *data, size_t size,
 							uint32_t tx_flags)
 {
@@ -2122,6 +2980,15 @@ int glink_tx(void *handle, void *pkt_priv, void *data, size_t size,
 }
 EXPORT_SYMBOL(glink_tx);
 
+/**
+ * glink_queue_rx_intent() - Register an intent to receive data.
+ *
+ * @handle:	handle returned by glink_open()
+ * @pkt_priv:	opaque data type that is returned when a packet is received
+ * size:	maximum size of data to receive
+ *
+ * Return: 0 for success; standard Linux error code for failure case
+ */
 int glink_queue_rx_intent(void *handle, const void *pkt_priv, size_t size)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2132,7 +2999,7 @@ int glink_queue_rx_intent(void *handle, const void *pkt_priv, size_t size)
 		return -EINVAL;
 
 	if (!ch_is_fully_opened(ctx)) {
-		
+		/* Can only queue rx intents if channel is fully opened */
 		GLINK_ERR_CH(ctx, "%s: Channel is not fully opened\n",
 			__func__);
 		return -EBUSY;
@@ -2151,17 +3018,26 @@ int glink_queue_rx_intent(void *handle, const void *pkt_priv, size_t size)
 	if (ctx->transport_ptr->capabilities & GCAP_INTENTLESS)
 		return ret;
 
-	
+	/* notify remote side of rx intent */
 	ret = ctx->transport_ptr->ops->tx_cmd_local_rx_intent(
 		ctx->transport_ptr->ops, ctx->lcid, size, intent_ptr->id);
 	if (ret)
-		
+		/* unable to transmit, dequeue intent */
 		ch_remove_local_rx_intent(ctx, intent_ptr->id);
 
 	return ret;
 }
 EXPORT_SYMBOL(glink_queue_rx_intent);
 
+/**
+ * glink_rx_intent_exists() - Check if an intent exists.
+ *
+ * @handle:	handle returned by glink_open()
+ * @size:	size of an intent to check or 0 for any intent
+ *
+ * Return:	TRUE if an intent exists with greater than or equal to the size
+ *		else FALSE
+ */
 bool glink_rx_intent_exists(void *handle, size_t size)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2185,6 +3061,15 @@ bool glink_rx_intent_exists(void *handle, size_t size)
 }
 EXPORT_SYMBOL(glink_rx_intent_exists);
 
+/**
+ * glink_rx_done() - Return receive buffer to remote side.
+ *
+ * @handle:	handle returned by glink_open()
+ * @ptr:	data pointer provided in the notify_rx() call
+ * @reuse:	if true, receive intent is re-used
+ *
+ * Return: 0 for success; standard Linux error code for failure case
+ */
 int glink_rx_done(void *handle, const void *ptr, bool reuse)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2195,7 +3080,7 @@ int glink_rx_done(void *handle, const void *ptr, bool reuse)
 	liid_ptr = ch_get_local_rx_intent_notified(ctx, ptr);
 
 	if (IS_ERR_OR_NULL(liid_ptr)) {
-		
+		/* invalid pointer */
 		GLINK_ERR_CH(ctx, "%s: Invalid pointer %p\n", __func__, ptr);
 		return -EINVAL;
 	}
@@ -2219,7 +3104,7 @@ int glink_rx_done(void *handle, const void *ptr, bool reuse)
 					ctx->transport_ptr->ops, liid_ptr);
 	}
 	ch_remove_local_rx_intent_notified(ctx, liid_ptr, reuse);
-	
+	/* send rx done */
 	ctx->transport_ptr->ops->tx_cmd_local_rx_done(ctx->transport_ptr->ops,
 			ctx->lcid, id, reuse);
 
@@ -2227,6 +3112,25 @@ int glink_rx_done(void *handle, const void *ptr, bool reuse)
 }
 EXPORT_SYMBOL(glink_rx_done);
 
+/**
+ * glink_txv() - Transmit a packet in vector form.
+ *
+ * @handle:	handle returned by glink_open()
+ * @pkt_priv:	opaque data value that will be returned to client with
+ *		notify_tx_done notification
+ * @iovec:	pointer to the vector (must remain valid until notify_tx_done
+ *		notification)
+ * @size:	size of data/vector
+ * @vbuf_provider: Client provided helper function to iterate the vector
+ *		in physical address space
+ * @pbuf_provider: Client provided helper function to iterate the vector
+ *		in virtual address space
+ * @tx_flags:	Flags to specify transmit specific options
+ *
+ * Return: -EINVAL for invalid handle; -EBUSY if channel isn't ready for
+ *           transmit operation (not fully opened); -EAGAIN if remote side has
+ *           not provided a receive intent that is big enough.
+ */
 int glink_txv(void *handle, void *pkt_priv,
 	void *iovec, size_t size,
 	void * (*vbuf_provider)(void *iovec, size_t offset, size_t *size),
@@ -2238,6 +3142,14 @@ int glink_txv(void *handle, void *pkt_priv,
 }
 EXPORT_SYMBOL(glink_txv);
 
+/**
+ * glink_sigs_set() - Set the local signals for the GLINK channel
+ *
+ * @handle:	handle returned by glink_open()
+ * @sigs:	modified signal value
+ *
+ * Return: 0 for success; standard Linux error code for failure case
+ */
 int glink_sigs_set(void *handle, uint32_t sigs)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2262,6 +3174,14 @@ int glink_sigs_set(void *handle, uint32_t sigs)
 }
 EXPORT_SYMBOL(glink_sigs_set);
 
+/**
+ * glink_sigs_local_get() - Get the local signals for the GLINK channel
+ *
+ * handle:	handle returned by glink_open()
+ * sigs:	Pointer to hold the signals
+ *
+ * Return: 0 for success; standard Linux error code for failure case
+ */
 int glink_sigs_local_get(void *handle, uint32_t *sigs)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2280,6 +3200,14 @@ int glink_sigs_local_get(void *handle, uint32_t *sigs)
 }
 EXPORT_SYMBOL(glink_sigs_local_get);
 
+/**
+ * glink_sigs_remote_get() - Get the Remote signals for the GLINK channel
+ *
+ * handle:	handle returned by glink_open()
+ * sigs:	Pointer to hold the signals
+ *
+ * Return: 0 for success; standard Linux error code for failure case
+ */
 int glink_sigs_remote_get(void *handle, uint32_t *sigs)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2298,6 +3226,17 @@ int glink_sigs_remote_get(void *handle, uint32_t *sigs)
 }
 EXPORT_SYMBOL(glink_sigs_remote_get);
 
+/**
+ * glink_register_link_state_cb() - Register for link state notification
+ * @link_info:	Data structure containing the link identification and callback.
+ * @priv:	Private information to be passed with the callback.
+ *
+ * This function is used to register a notifier to receive the updates about a
+ * link's/transport's state. This notifier needs to be registered first before
+ * an attempt to open a channel.
+ *
+ * Return: a reference to the notifier handle.
+ */
 void *glink_register_link_state_cb(struct glink_link_info *link_info,
 				   void *priv)
 {
@@ -2331,6 +3270,13 @@ void *glink_register_link_state_cb(struct glink_link_info *link_info,
 }
 EXPORT_SYMBOL(glink_register_link_state_cb);
 
+/**
+ * glink_unregister_link_state_cb() - Unregister the link state notification
+ * notif_handle:	Handle to be unregistered.
+ *
+ * This function is used to unregister a notifier to stop receiving the updates
+ * about a link's/ transport's state.
+ */
 void glink_unregister_link_state_cb(void *notif_handle)
 {
 	struct link_state_notifier_info *notif_info, *tmp_notif_info;
@@ -2353,6 +3299,18 @@ void glink_unregister_link_state_cb(void *notif_handle)
 }
 EXPORT_SYMBOL(glink_unregister_link_state_cb);
 
+/**
+ * glink_qos_latency() - Register the latency QoS requirement
+ * @handle:	Channel handle in which the latency is required.
+ * @latency_us:	Latency requirement in units of micro-seconds.
+ * @pkt_size:	Worst case packet size for which the latency is required.
+ *
+ * This function is used to register the latency requirement for a channel
+ * and ensures that the latency requirement for this channel is met without
+ * impacting the existing latency requirements of other channels.
+ *
+ * Return: 0 if QoS request is achievable, standard Linux error codes on error
+ */
 int glink_qos_latency(void *handle, unsigned long latency_us, size_t pkt_size)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2379,6 +3337,14 @@ int glink_qos_latency(void *handle, unsigned long latency_us, size_t pkt_size)
 }
 EXPORT_SYMBOL(glink_qos_latency);
 
+/**
+ * glink_qos_cancel() - Cancel or unregister the QoS request
+ * @handle:	Channel handle for which the QoS request is cancelled.
+ *
+ * This function is used to cancel/unregister the QoS requests for a channel.
+ *
+ * Return: 0 on success, standard Linux error codes on failure
+ */
 int glink_qos_cancel(void *handle)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2398,6 +3364,16 @@ int glink_qos_cancel(void *handle)
 }
 EXPORT_SYMBOL(glink_qos_cancel);
 
+/**
+ * glink_qos_start() - Start of the transmission requiring QoS
+ * @handle:	Channel handle in which the transmit activity is performed.
+ *
+ * This function is called by the clients to indicate G-Link regarding the
+ * start of the transmission which requires a certain QoS. The clients
+ * must account for the QoS ramp time to ensure meeting the QoS.
+ *
+ * Return: 0 on success, standard Linux error codes on failure
+ */
 int glink_qos_start(void *handle)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2422,6 +3398,17 @@ int glink_qos_start(void *handle)
 }
 EXPORT_SYMBOL(glink_qos_start);
 
+/**
+ * glink_qos_get_ramp_time() - Get the QoS ramp time
+ * @handle:	Channel handle for which the QoS ramp time is required.
+ * @pkt_size:	Worst case packet size.
+ *
+ * This function is called by the clients to obtain the ramp time required
+ * to meet the QoS requirements.
+ *
+ * Return: QoS ramp time is returned in units of micro-seconds on success,
+ *	   standard Linux error codes cast to unsigned long on error.
+ */
 unsigned long glink_qos_get_ramp_time(void *handle, size_t pkt_size)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2442,6 +3429,21 @@ unsigned long glink_qos_get_ramp_time(void *handle, size_t pkt_size)
 }
 EXPORT_SYMBOL(glink_qos_get_ramp_time);
 
+/**
+ * glink_rpm_rx_poll() - Poll and receive any available events
+ * @handle:	Channel handle in which this operation is performed.
+ *
+ * This function is used to poll and receive events and packets while the
+ * receive interrupt from RPM is disabled.
+ *
+ * Note that even if a return value > 0 is returned indicating that some events
+ * were processed, clients should only use the notification functions passed
+ * into glink_open() to determine if an entire packet has been received since
+ * some events may be internal details that are not visible to clients.
+ *
+ * Return: 0 for no packets available; > 0 for events available; standard
+ * Linux error codes on failure.
+ */
 int glink_rpm_rx_poll(void *handle)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2461,6 +3463,18 @@ int glink_rpm_rx_poll(void *handle)
 }
 EXPORT_SYMBOL(glink_rpm_rx_poll);
 
+/**
+ * glink_rpm_mask_rx_interrupt() - Mask or unmask the RPM receive interrupt
+ * @handle:	Channel handle in which this operation is performed.
+ * @mask:	Flag to mask or unmask the interrupt.
+ * @pstruct:	Pointer to any platform specific data.
+ *
+ * This function is used to mask or unmask the receive interrupt from RPM.
+ * "mask" set to true indicates masking the interrupt and when set to false
+ * indicates unmasking the interrupt.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 int glink_rpm_mask_rx_interrupt(void *handle, bool mask, void *pstruct)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2481,6 +3495,13 @@ int glink_rpm_mask_rx_interrupt(void *handle, bool mask, void *pstruct)
 }
 EXPORT_SYMBOL(glink_rpm_mask_rx_interrupt);
 
+/**
+ * glink_wait_link_down() - Get status of link
+ * @handle:	Channel handle in which this operation is performed
+ *
+ * This function will query the transport for its status, to allow clients to
+ * proceed in cleanup operations.
+ */
 int glink_wait_link_down(void *handle)
 {
 	struct channel_ctx *ctx = (struct channel_ctx *)handle;
@@ -2494,6 +3515,13 @@ int glink_wait_link_down(void *handle)
 }
 EXPORT_SYMBOL(glink_wait_link_down);
 
+/**
+ * glink_xprt_ctx_release - Free the transport context
+ * @ch_st_lock:	handle to the rwref_lock associated with the transport
+ *
+ * This should only be called when the reference count associated with the
+ * transport goes to zero.
+ */
 void glink_xprt_ctx_release(struct rwref_lock *xprt_st_lock)
 {
 	struct glink_dbgfs xprt_rm_dbgfs;
@@ -2514,6 +3542,13 @@ void glink_xprt_ctx_release(struct rwref_lock *xprt_st_lock)
 	xprt_ctx = NULL;
 }
 
+/**
+ * glink_dummy_xprt_ctx_release - free the dummy transport context
+ * @xprt_st_lock:	Handle to the rwref_lock associated with the transport.
+ *
+ * The release function is called when all the channels on this dummy
+ * transport are closed and the reference count goes to zero.
+ */
 static void glink_dummy_xprt_ctx_release(struct rwref_lock *xprt_st_lock)
 {
 	struct glink_core_xprt_ctx *xprt_ctx = container_of(xprt_st_lock,
@@ -2524,6 +3559,13 @@ static void glink_dummy_xprt_ctx_release(struct rwref_lock *xprt_st_lock)
 	kfree(xprt_ctx);
 }
 
+/**
+ * glink_xprt_name_to_id() - convert transport name to id
+ * @name:	Name of the transport.
+ * @id:		Assigned id.
+ *
+ * Return: 0 on success or standard Linux error code.
+ */
 int glink_xprt_name_to_id(const char *name, uint16_t *id)
 {
 	if (!strcmp(name, "smem")) {
@@ -2558,6 +3600,13 @@ int glink_xprt_name_to_id(const char *name, uint16_t *id)
 }
 EXPORT_SYMBOL(glink_xprt_name_to_id);
 
+/**
+ * of_get_glink_core_qos_cfg() - Parse the qos related dt entries
+ * @phandle:	The handle to the qos related node in DT.
+ * @cfg:	The transport configuration to be filled.
+ *
+ * Return: 0 on Success, standard Linux error otherwise.
+ */
 int of_get_glink_core_qos_cfg(struct device_node *phandle,
 				struct glink_core_transport_cfg *cfg)
 {
@@ -2641,6 +3690,16 @@ error:
 }
 EXPORT_SYMBOL(of_get_glink_core_qos_cfg);
 
+/**
+ * glink_core_init_xprt_qos_cfg() - Initialize a transport's QoS configuration
+ * @xprt_ptr:	Transport to be initialized with QoS configuration.
+ * @cfg:	Data structure containing QoS configuration.
+ *
+ * This function is used during the transport registration to initialize it
+ * with QoS configuration.
+ *
+ * Return: 0 on success, standard Linux error codes on failure.
+ */
 static int glink_core_init_xprt_qos_cfg(struct glink_core_xprt_ctx *xprt_ptr,
 					 struct glink_core_transport_cfg *cfg)
 {
@@ -2681,6 +3740,13 @@ static int glink_core_init_xprt_qos_cfg(struct glink_core_xprt_ctx *xprt_ptr,
 	return 0;
 }
 
+/**
+ * glink_core_deinit_xprt_qos_cfg() - Reset a transport's QoS configuration
+ * @xprt_ptr: Transport to be deinitialized.
+ *
+ * This function is used during the time of transport unregistration to
+ * de-initialize the QoS configuration from a transport.
+ */
 static void glink_core_deinit_xprt_qos_cfg(struct glink_core_xprt_ctx *xprt_ptr)
 {
 	kfree(xprt_ptr->prio_bin);
@@ -2691,6 +3757,13 @@ static void glink_core_deinit_xprt_qos_cfg(struct glink_core_xprt_ctx *xprt_ptr)
 	xprt_ptr->threshold_rate_kBps = 0;
 }
 
+/**
+ * glink_core_register_transport() - register a new transport
+ * @if_ptr:	The interface to the transport.
+ * @cfg:	Description and configuration of the transport.
+ *
+ * Return: 0 on success, EINVAL for invalid input.
+ */
 int glink_core_register_transport(struct glink_transport_if *if_ptr,
 				  struct glink_core_transport_cfg *cfg)
 {
@@ -2754,7 +3827,7 @@ int glink_core_register_transport(struct glink_transport_if *if_ptr,
 	xprt_ptr->capabilities = 0;
 	xprt_ptr->ops = if_ptr;
 	spin_lock_init(&xprt_ptr->xprt_ctx_lock_lhb1);
-	xprt_ptr->next_lcid = 1; 
+	xprt_ptr->next_lcid = 1; /* 0 reserved for default unconfigured */
 	INIT_LIST_HEAD(&xprt_ptr->free_lcid_list);
 	xprt_ptr->max_cid = cfg->max_cid;
 	xprt_ptr->max_iid = cfg->max_iid;
@@ -2804,6 +3877,11 @@ int glink_core_register_transport(struct glink_transport_if *if_ptr,
 }
 EXPORT_SYMBOL(glink_core_register_transport);
 
+/**
+ * glink_core_unregister_transport() - unregister a transport
+ *
+ * @if_ptr:	The interface to the transport.
+ */
 void glink_core_unregister_transport(struct glink_transport_if *if_ptr)
 {
 	struct glink_core_xprt_ctx *xprt_ptr = if_ptr->glink_core_priv;
@@ -2827,11 +3905,16 @@ void glink_core_unregister_transport(struct glink_transport_if *if_ptr)
 }
 EXPORT_SYMBOL(glink_core_unregister_transport);
 
+/**
+ * glink_core_link_up() - transport link-up notification
+ *
+ * @if_ptr:	pointer to transport interface
+ */
 static void glink_core_link_up(struct glink_transport_if *if_ptr)
 {
 	struct glink_core_xprt_ctx *xprt_ptr = if_ptr->glink_core_priv;
 
-	
+	/* start local negotiation */
 	xprt_ptr->local_state = GLINK_XPRT_NEGOTIATING;
 	xprt_ptr->local_version_idx = xprt_ptr->versions_entries - 1;
 	xprt_ptr->l_features =
@@ -2842,6 +3925,11 @@ static void glink_core_link_up(struct glink_transport_if *if_ptr)
 
 }
 
+/**
+ * glink_core_link_down() - transport link-down notification
+ *
+ * @if_ptr:	pointer to transport interface
+ */
 static void glink_core_link_down(struct glink_transport_if *if_ptr)
 {
 	struct glink_core_xprt_ctx *xprt_ptr = if_ptr->glink_core_priv;
@@ -2863,6 +3951,16 @@ static void glink_core_link_down(struct glink_transport_if *if_ptr)
 	check_link_notifier_and_notify(xprt_ptr, GLINK_LINK_STATE_DOWN);
 }
 
+/**
+ * glink_create_dummy_xprt_ctx() - create a dummy transport that replaces all
+ *				the transport interface functions with a dummy
+ * @orig_xprt_ctx:	Pointer to the original transport context.
+ *
+ * The dummy transport is used only when it is swapped with the actual transport
+ * pointer in ssr/unregister case.
+ *
+ * Return:	Pointer to dummy transport context.
+ */
 static struct glink_core_xprt_ctx *glink_create_dummy_xprt_ctx(
 				struct glink_core_xprt_ctx *orig_xprt_ctx)
 {
@@ -2913,6 +4011,13 @@ static struct glink_core_xprt_ctx *glink_create_dummy_xprt_ctx(
 	return xprt_ptr;
 }
 
+/**
+ * glink_core_channel_cleanup() - cleanup all channels for the transport
+ *
+ * @xprt_ptr:	pointer to transport context
+ *
+ * This function should be called either from link_down or ssr
+ */
 static void glink_core_channel_cleanup(struct glink_core_xprt_ctx *xprt_ptr)
 {
 	unsigned long flags, d_flags;
@@ -2942,7 +4047,7 @@ static void glink_core_channel_cleanup(struct glink_core_xprt_ctx *xprt_ptr)
 			ctx->transport_ptr = dummy_xprt_ctx;
 			rwref_write_put(&ctx->ch_state_lhb2);
 		} else {
-			
+			/* local state is in either CLOSED or CLOSING */
 			spin_unlock_irqrestore(&xprt_ptr->xprt_ctx_lock_lhb1,
 							flags);
 			spin_unlock_irqrestore(
@@ -2951,7 +4056,7 @@ static void glink_core_channel_cleanup(struct glink_core_xprt_ctx *xprt_ptr)
 			glink_core_remote_close_common(ctx, true);
 			if (ctx->local_open_state == GLINK_CHANNEL_CLOSING)
 				glink_core_ch_close_ack_common(ctx, true);
-			
+			/* Channel should be fully closed now. Delete here */
 			if (ch_is_fully_closed(ctx))
 				glink_delete_ch_from_list(ctx, false);
 			rwref_write_put(&ctx->ch_state_lhb2);
@@ -2988,6 +4093,16 @@ static void glink_core_channel_cleanup(struct glink_core_xprt_ctx *xprt_ptr)
 	spin_unlock_irqrestore(&dummy_xprt_ctx->xprt_ctx_lock_lhb1, d_flags);
 	rwref_read_put(&dummy_xprt_ctx->xprt_state_lhb0);
 }
+/**
+ * glink_core_rx_cmd_version() - receive version/features from remote system
+ *
+ * @if_ptr:	pointer to transport interface
+ * @r_version:	remote version
+ * @r_features:	remote features
+ *
+ * This function is called in response to a remote-initiated version/feature
+ * negotiation sequence.
+ */
 static void glink_core_rx_cmd_version(struct glink_transport_if *if_ptr,
 	uint32_t r_version, uint32_t r_features)
 {
@@ -3009,12 +4124,12 @@ static void glink_core_rx_cmd_version(struct glink_transport_if *if_ptr,
 		l_version, xprt_ptr->l_features, r_version, r_features);
 
 	if (l_version > r_version) {
-		
+		/* Find matching version */
 		while (true) {
 			uint32_t rver_idx;
 
 			if (xprt_ptr->remote_version_idx == 0) {
-				
+				/* version negotiation failed */
 				GLINK_ERR_XPRT(xprt_ptr,
 					"%s: Transport negotiation failed\n",
 					__func__);
@@ -3026,7 +4141,7 @@ static void glink_core_rx_cmd_version(struct glink_transport_if *if_ptr,
 			rver_idx = xprt_ptr->remote_version_idx;
 
 			if (versions[rver_idx].version <= r_version) {
-				
+				/* found a potential match */
 				l_version = versions[rver_idx].version;
 				xprt_ptr->l_features =
 					versions[rver_idx].features;
@@ -3071,6 +4186,17 @@ static void glink_core_rx_cmd_version(struct glink_transport_if *if_ptr,
 	}
 }
 
+/**
+ * glink_core_rx_cmd_version_ack() - receive negotiation ack from remote system
+ *
+ * @if_ptr:	pointer to transport interface
+ * @r_version:	remote version response
+ * @r_features:	remote features response
+ *
+ * This function is called in response to a local-initiated version/feature
+ * negotiation sequence and is the counter-offer from the remote side based
+ * upon the initial version and feature set requested.
+ */
 static void glink_core_rx_cmd_version_ack(struct glink_transport_if *if_ptr,
 	uint32_t r_version, uint32_t r_features)
 {
@@ -3092,12 +4218,12 @@ static void glink_core_rx_cmd_version_ack(struct glink_transport_if *if_ptr,
 		 l_version, xprt_ptr->l_features, r_version, r_features);
 
 	if (l_version > r_version) {
-		
+		/* find matching version */
 		while (true) {
 			uint32_t lver_idx = xprt_ptr->local_version_idx;
 
 			if (xprt_ptr->local_version_idx == 0) {
-				
+				/* version negotiation failed */
 				xprt_ptr->local_state = GLINK_XPRT_FAILED;
 				GLINK_ERR_XPRT(xprt_ptr,
 					"%s: Transport negotiation failed\n",
@@ -3110,7 +4236,7 @@ static void glink_core_rx_cmd_version_ack(struct glink_transport_if *if_ptr,
 			lver_idx = xprt_ptr->local_version_idx;
 
 			if (versions[lver_idx].version <= r_version) {
-				
+				/* found a potential match */
 				l_version = versions[lver_idx].version;
 				xprt_ptr->l_features =
 					versions[lver_idx].features;
@@ -3119,7 +4245,7 @@ static void glink_core_rx_cmd_version_ack(struct glink_transport_if *if_ptr,
 		}
 	} else if (l_version == r_version) {
 		if (xprt_ptr->l_features != r_features) {
-			
+			/* version matches, negotiate features */
 			uint32_t lver_idx = xprt_ptr->local_version_idx;
 
 			xprt_ptr->l_features = versions[lver_idx]
@@ -3133,6 +4259,13 @@ static void glink_core_rx_cmd_version_ack(struct glink_transport_if *if_ptr,
 			neg_complete = true;
 		}
 	} else {
+		/*
+		 * r_version > l_version
+		 *
+		 * Remote responded with a version greater than what we
+		 * requested which is invalid and is treated as failure of the
+		 * negotiation algorithm.
+		 */
 		GLINK_ERR_XPRT(xprt_ptr,
 			"%s: [local]%x:%08x [remote]%x:%08x neg failure\n",
 			__func__, l_version, xprt_ptr->l_features, r_version,
@@ -3143,7 +4276,7 @@ static void glink_core_rx_cmd_version_ack(struct glink_transport_if *if_ptr,
 	}
 
 	if (neg_complete) {
-		
+		/* negotiation complete */
 		GLINK_INFO_XPRT(xprt_ptr,
 			"%s: Local negotiation complete %x:%08x\n",
 			__func__, l_version, xprt_ptr->l_features);
@@ -3163,6 +4296,15 @@ static void glink_core_rx_cmd_version_ack(struct glink_transport_if *if_ptr,
 	}
 }
 
+/**
+ * find_l_ctx_get() - find a local channel context based on a remote one
+ * @r_ctx:	The remote channel to use as a lookup key.
+ *
+ * If the channel is found, the reference count is incremented to ensure the
+ * lifetime of the channel context.  The caller must call rwref_put() when done.
+ *
+ * Return: The corresponding local ctx or NULL is not found.
+ */
 static struct channel_ctx *find_l_ctx_get(struct channel_ctx *r_ctx)
 {
 	struct glink_core_xprt_ctx *xprt;
@@ -3196,6 +4338,15 @@ static struct channel_ctx *find_l_ctx_get(struct channel_ctx *r_ctx)
 	return l_ctx;
 }
 
+/**
+ * find_r_ctx_get() - find a remote channel context based on a local one
+ * @l_ctx:	The local channel to use as a lookup key.
+ *
+ * If the channel is found, the reference count is incremented to ensure the
+ * lifetime of the channel context.  The caller must call rwref_put() when done.
+ *
+ * Return: The corresponding remote ctx or NULL is not found.
+ */
 static struct channel_ctx *find_r_ctx_get(struct channel_ctx *l_ctx)
 {
 	struct glink_core_xprt_ctx *xprt;
@@ -3229,6 +4380,16 @@ static struct channel_ctx *find_r_ctx_get(struct channel_ctx *l_ctx)
 	return r_ctx;
 }
 
+/**
+ * will_migrate() - will a channel migrate to a different transport
+ * @l_ctx:	The local channel to migrate.
+ * @r_ctx:	The remote channel to migrate.
+ *
+ * One of the channel contexts can be NULL if not known, but at least one ctx
+ * must be provided.
+ *
+ * Return: Bool indicating if migration will occur.
+ */
 static bool will_migrate(struct channel_ctx *l_ctx, struct channel_ctx *r_ctx)
 {
 	uint16_t new_xprt;
@@ -3276,6 +4437,16 @@ exit:
 	return migrate;
 }
 
+/**
+ * ch_migrate() - migrate a channel to a different transport
+ * @l_ctx:	The local channel to migrate.
+ * @r_ctx:	The remote channel to migrate.
+ *
+ * One of the channel contexts can be NULL if not known, but at least one ctx
+ * must be provided.
+ *
+ * Return: Bool indicating if migration occurred.
+ */
 static bool ch_migrate(struct channel_ctx *l_ctx, struct channel_ctx *r_ctx)
 {
 	uint16_t new_xprt;
@@ -3436,6 +4607,12 @@ exit:
 	return migrated;
 }
 
+/**
+ * calculate_xprt_resp() - calculate the response to a remote xprt request
+ * @r_ctx:	The channel the remote xprt request is for.
+ *
+ * Return: The calculated response.
+ */
 static uint16_t calculate_xprt_resp(struct channel_ctx *r_ctx)
 {
 	struct channel_ctx *l_ctx;
@@ -3461,6 +4638,14 @@ static uint16_t calculate_xprt_resp(struct channel_ctx *r_ctx)
 	return r_ctx->remote_xprt_resp;
 }
 
+/**
+ * glink_core_rx_cmd_ch_remote_open() - Remote-initiated open command
+ *
+ * @if_ptr:	Pointer to transport instance
+ * @rcid:	Remote Channel ID
+ * @name:	Channel name
+ * @req_xprt:	Requested transport to migrate to
+ */
 static void glink_core_rx_cmd_ch_remote_open(struct glink_transport_if *if_ptr,
 	uint32_t rcid, const char *name, uint16_t req_xprt)
 {
@@ -3478,7 +4663,7 @@ static void glink_core_rx_cmd_ch_remote_open(struct glink_transport_if *if_ptr,
 		return;
 	}
 
-	
+	/* port already exists */
 	if (ctx->remote_opened) {
 		GLINK_ERR_CH(ctx,
 		       "%s: Duplicate remote open for rcid %u, name '%s'\n",
@@ -3508,6 +4693,13 @@ static void glink_core_rx_cmd_ch_remote_open(struct glink_transport_if *if_ptr,
 	glink_core_migration_edge_unlock(if_ptr->glink_core_priv);
 }
 
+/**
+ * glink_core_rx_cmd_ch_open_ack() - Receive ack to previously sent open request
+ *
+ * if_ptr:	Pointer to transport instance
+ * lcid:	Local Channel ID
+ * @xprt_resp:	Response to the transport migration request
+ */
 static void glink_core_rx_cmd_ch_open_ack(struct glink_transport_if *if_ptr,
 	uint32_t lcid, uint16_t xprt_resp)
 {
@@ -3515,7 +4707,7 @@ static void glink_core_rx_cmd_ch_open_ack(struct glink_transport_if *if_ptr,
 	glink_core_migration_edge_lock(if_ptr->glink_core_priv);
 	ctx = xprt_lcid_to_ch_ctx_get(if_ptr->glink_core_priv, lcid);
 	if (!ctx) {
-		
+		/* unknown LCID received - this shouldn't happen */
 		GLINK_ERR_XPRT(if_ptr->glink_core_priv,
 				"%s: invalid lcid %u received\n", __func__,
 				(unsigned)lcid);
@@ -3550,6 +4742,12 @@ static void glink_core_rx_cmd_ch_open_ack(struct glink_transport_if *if_ptr,
 	glink_core_migration_edge_unlock(if_ptr->glink_core_priv);
 }
 
+/**
+ * glink_core_rx_cmd_ch_remote_close() - Receive remote close command
+ *
+ * if_ptr:	Pointer to transport instance
+ * rcid:	Remote Channel ID
+ */
 static void glink_core_rx_cmd_ch_remote_close(
 		struct glink_transport_if *if_ptr, uint32_t rcid)
 {
@@ -3559,7 +4757,7 @@ static void glink_core_rx_cmd_ch_remote_close(
 
 	ctx = xprt_rcid_to_ch_ctx_get(if_ptr->glink_core_priv, rcid);
 	if (!ctx) {
-		
+		/* unknown LCID received - this shouldn't happen */
 		GLINK_ERR_XPRT(if_ptr->glink_core_priv,
 				"%s: invalid rcid %u received\n", __func__,
 				(unsigned)rcid);
@@ -3587,6 +4785,12 @@ static void glink_core_rx_cmd_ch_remote_close(
 	rwref_put(&ctx->ch_state_lhb2);
 }
 
+/**
+ * glink_core_rx_cmd_ch_close_ack() - Receive locally-request close ack
+ *
+ * if_ptr:	Pointer to transport instance
+ * lcid:	Local Channel ID
+ */
 static void glink_core_rx_cmd_ch_close_ack(struct glink_transport_if *if_ptr,
 	uint32_t lcid)
 {
@@ -3596,7 +4800,7 @@ static void glink_core_rx_cmd_ch_close_ack(struct glink_transport_if *if_ptr,
 
 	ctx = xprt_lcid_to_ch_ctx_get(if_ptr->glink_core_priv, lcid);
 	if (!ctx) {
-		
+		/* unknown LCID received - this shouldn't happen */
 		GLINK_ERR_XPRT(if_ptr->glink_core_priv,
 				"%s: invalid lcid %u received\n", __func__,
 				(unsigned)lcid);
@@ -3619,6 +4823,14 @@ static void glink_core_rx_cmd_ch_close_ack(struct glink_transport_if *if_ptr,
 	rwref_put(&ctx->ch_state_lhb2);
 }
 
+/**
+ * glink_core_remote_rx_intent_put() - Receive remove intent
+ *
+ * @if_ptr:	Pointer to transport instance
+ * @rcid:	Remote Channel ID
+ * @riid:	Remote Intent ID
+ * @size:	Size of the remote intent ID
+ */
 static void glink_core_remote_rx_intent_put(struct glink_transport_if *if_ptr,
 		uint32_t rcid, uint32_t riid, size_t size)
 {
@@ -3626,7 +4838,7 @@ static void glink_core_remote_rx_intent_put(struct glink_transport_if *if_ptr,
 
 	ctx = xprt_rcid_to_ch_ctx_get(if_ptr->glink_core_priv, rcid);
 	if (!ctx) {
-		
+		/* unknown rcid received - this shouldn't happen */
 		GLINK_ERR_XPRT(if_ptr->glink_core_priv,
 				"%s: invalid rcid received %u\n", __func__,
 				(unsigned)rcid);
@@ -3637,6 +4849,17 @@ static void glink_core_remote_rx_intent_put(struct glink_transport_if *if_ptr,
 	rwref_put(&ctx->ch_state_lhb2);
 }
 
+/**
+ * glink_core_rx_cmd_remote_rx_intent_req() - Receive a request for rx_intent
+ *                                            from remote side
+ * if_ptr:	Pointer to the transport interface
+ * rcid:	Remote channel ID
+ * size:	size of the intent
+ *
+ * The function searches for the local channel to which the request for
+ * rx_intent has arrived and informs this request to the local channel through
+ * notify_rx_intent_req callback registered by the local channel.
+ */
 static void glink_core_rx_cmd_remote_rx_intent_req(
 	struct glink_transport_if *if_ptr, uint32_t rcid, size_t size)
 {
@@ -3663,6 +4886,15 @@ static void glink_core_rx_cmd_remote_rx_intent_req(
 	rwref_put(&ctx->ch_state_lhb2);
 }
 
+/**
+ * glink_core_rx_cmd_remote_rx_intent_req_ack()- Receive ack from remote side
+ *						for a local rx_intent request
+ * if_ptr:	Pointer to the transport interface
+ * rcid:	Remote channel ID
+ * size:	size of the intent
+ *
+ * This function receives the ack for rx_intent request from local channel.
+ */
 static void glink_core_rx_cmd_rx_intent_req_ack(struct glink_transport_if
 					*if_ptr, uint32_t rcid, bool granted)
 {
@@ -3680,6 +4912,18 @@ static void glink_core_rx_cmd_rx_intent_req_ack(struct glink_transport_if
 	rwref_put(&ctx->ch_state_lhb2);
 }
 
+/**
+ * glink_core_rx_get_pkt_ctx() - lookup RX intent structure
+ *
+ * if_ptr:	Pointer to the transport interface
+ * rcid:	Remote channel ID
+ * liid:	Local RX Intent ID
+ *
+ * Note that this function is designed to always be followed by a call to
+ * glink_core_rx_put_pkt_ctx() to complete an RX operation by the transport.
+ *
+ * Return: Pointer to RX intent structure (or NULL if none found)
+ */
 static struct glink_core_rx_intent *glink_core_rx_get_pkt_ctx(
 		struct glink_transport_if *if_ptr, uint32_t rcid, uint32_t liid)
 {
@@ -3688,14 +4932,14 @@ static struct glink_core_rx_intent *glink_core_rx_get_pkt_ctx(
 
 	ctx = xprt_rcid_to_ch_ctx_get(if_ptr->glink_core_priv, rcid);
 	if (!ctx) {
-		
+		/* unknown LCID received - this shouldn't happen */
 		GLINK_ERR_XPRT(if_ptr->glink_core_priv,
 				"%s: invalid rcid received %u\n", __func__,
 				(unsigned)rcid);
 		return NULL;
 	}
 
-	
+	/* match pending intent */
 	intent_ptr = ch_get_local_rx_intent(ctx, liid);
 	if (intent_ptr == NULL) {
 		GLINK_ERR_CH(ctx,
@@ -3709,6 +4953,17 @@ static struct glink_core_rx_intent *glink_core_rx_get_pkt_ctx(
 	return intent_ptr;
 }
 
+/**
+ * glink_core_rx_put_pkt_ctx() - lookup RX intent structure
+ *
+ * if_ptr:	Pointer to the transport interface
+ * rcid:	Remote channel ID
+ * intent_ptr:	Pointer to the RX intent
+ * complete:	Packet has been completely received
+ *
+ * Note that this function should always be preceded by a call to
+ * glink_core_rx_get_pkt_ctx().
+ */
 void glink_core_rx_put_pkt_ctx(struct glink_transport_if *if_ptr,
 	uint32_t rcid, struct glink_core_rx_intent *intent_ptr, bool complete)
 {
@@ -3723,10 +4978,10 @@ void glink_core_rx_put_pkt_ctx(struct glink_transport_if *if_ptr,
 		return;
 	}
 
-	
+	/* packet complete */
 	ctx = xprt_rcid_to_ch_ctx_get(if_ptr->glink_core_priv, rcid);
 	if (!ctx) {
-		
+		/* unknown LCID received - this shouldn't happen */
 		GLINK_ERR_XPRT(if_ptr->glink_core_priv,
 			       "%s: invalid rcid received %u\n", __func__,
 			       (unsigned)rcid);
@@ -3749,7 +5004,7 @@ void glink_core_rx_put_pkt_ctx(struct glink_transport_if *if_ptr,
 		intent_ptr->data ? intent_ptr->data : intent_ptr->iovec,
 		intent_ptr->write_offset);
 	if (!intent_ptr->data && !ctx->notify_rxv) {
-		
+		/* Received a vector, but client can't handle a vector */
 		intent_ptr->bounce_buf = linearize_vector(intent_ptr->iovec,
 						intent_ptr->pkt_size,
 						intent_ptr->vprovider,
@@ -3782,6 +5037,13 @@ void glink_core_rx_put_pkt_ctx(struct glink_transport_if *if_ptr,
 	rwref_put(&ctx->ch_state_lhb2);
 }
 
+/**
+ * glink_core_rx_cmd_tx_done() - Receive Transmit Done Command
+ * @xprt_ptr:	Transport to send packet on.
+ * @rcid:	Remote channel ID
+ * @riid:	Remote intent ID
+ * @reuse:	Reuse the consumed intent
+ */
 void glink_core_rx_cmd_tx_done(struct glink_transport_if *if_ptr,
 			       uint32_t rcid, uint32_t riid, bool reuse)
 {
@@ -3792,7 +5054,7 @@ void glink_core_rx_cmd_tx_done(struct glink_transport_if *if_ptr,
 
 	ctx = xprt_rcid_to_ch_ctx_get(if_ptr->glink_core_priv, rcid);
 	if (!ctx) {
-		
+		/* unknown RCID received - this shouldn't happen */
 		GLINK_ERR_XPRT(if_ptr->glink_core_priv,
 				"%s: invalid rcid %u received\n", __func__,
 				rcid);
@@ -3802,6 +5064,13 @@ void glink_core_rx_cmd_tx_done(struct glink_transport_if *if_ptr,
 	spin_lock_irqsave(&ctx->tx_lists_lock_lhc3, flags);
 	tx_pkt = ch_get_tx_pending_remote_done(ctx, riid);
 	if (IS_ERR_OR_NULL(tx_pkt)) {
+		/*
+		 * FUTURE - in the case of a zero-copy transport, this is a
+		 * fatal protocol failure since memory corruption could occur
+		 * in this case.  Prevent this by adding code in glink_close()
+		 * to recall any buffers in flight / wait for them to be
+		 * returned.
+		 */
 		GLINK_ERR_CH(ctx, "%s: R[%u]: No matching tx\n",
 				__func__,
 				(unsigned)riid);
@@ -3810,7 +5079,7 @@ void glink_core_rx_cmd_tx_done(struct glink_transport_if *if_ptr,
 		return;
 	}
 
-	
+	/* notify client */
 	ctx->notify_tx_done(ctx, ctx->user_priv, tx_pkt->pkt_priv,
 			    tx_pkt->data ? tx_pkt->data : tx_pkt->iovec);
 	intent_size = tx_pkt->intent_size;
@@ -3822,6 +5091,12 @@ void glink_core_rx_cmd_tx_done(struct glink_transport_if *if_ptr,
 	rwref_put(&ctx->ch_state_lhb2);
 }
 
+/**
+ * xprt_schedule_tx() - Schedules packet for transmit.
+ * @xprt_ptr:	Transport to send packet on.
+ * @ch_ptr:	Channel to send packet on.
+ * @tx_info:	Packet to transmit.
+ */
 static void xprt_schedule_tx(struct glink_core_xprt_ctx *xprt_ptr,
 			     struct channel_ctx *ch_ptr,
 			     struct glink_core_tx_pkt *tx_info)
@@ -3858,6 +5133,12 @@ static void xprt_schedule_tx(struct glink_core_xprt_ctx *xprt_ptr,
 	queue_kthread_work(&xprt_ptr->tx_wq, &xprt_ptr->tx_kwork);
 }
 
+/**
+ * xprt_single_threaded_tx() - Transmit in the context of sender.
+ * @xprt_ptr:	Transport to send packet on.
+ * @ch_ptr:	Channel to send packet on.
+ * @tx_info:	Packet to transmit.
+ */
 static int xprt_single_threaded_tx(struct glink_core_xprt_ctx *xprt_ptr,
 			     struct channel_ctx *ch_ptr,
 			     struct glink_core_tx_pkt *tx_info)
@@ -3883,6 +5164,16 @@ static int xprt_single_threaded_tx(struct glink_core_xprt_ctx *xprt_ptr,
 	return ret;
 }
 
+/**
+ * glink_scheduler_eval_prio() - Evaluate the channel priority
+ * @ctx:	Channel whose priority is evaluated.
+ * @xprt_ctx:	Transport in which the channel is part of.
+ *
+ * This function is called by the packet scheduler to measure the traffic
+ * rate observed in the channel and compare it against the traffic rate
+ * requested by the channel. The comparison result is used to evaluate the
+ * priority of the channel.
+ */
 static void glink_scheduler_eval_prio(struct channel_ctx *ctx,
 			struct glink_core_xprt_ctx *xprt_ctx)
 {
@@ -3918,6 +5209,17 @@ static void glink_scheduler_eval_prio(struct channel_ctx *ctx,
 	ctx->token_start_time = arch_counter_get_cntpct();
 }
 
+/**
+ * glink_scheduler_tx() - Transmit operation by the scheduler
+ * @ctx:	Channel which is scheduled for transmission.
+ * @xprt_ctx:	Transport context in which the transmission is performed.
+ *
+ * This function is called by the scheduler after scheduling a channel for
+ * transmission over the transport.
+ *
+ * Return: return value as returned by the transport on success,
+ *         standard Linux error codes on failure.
+ */
 static int glink_scheduler_tx(struct channel_ctx *ctx,
 			struct glink_core_xprt_ctx *xprt_ctx)
 {
@@ -3958,15 +5260,31 @@ static int glink_scheduler_tx(struct channel_ctx *ctx,
 		}
 		spin_lock_irqsave(&ctx->tx_lists_lock_lhc3, flags);
 		if (ret == -EAGAIN) {
+			/*
+			 * transport unable to send at the moment and will call
+			 * tx_resume() when it can send again.
+			 */
 			rwref_put(&tx_info->pkt_ref);
 			break;
 		} else if (ret < 0) {
+			/*
+			 * General failure code that indicates that the
+			 * transport is unable to recover.  In this case, the
+			 * communication failure will be detected at a higher
+			 * level and a subsystem restart of the affected system
+			 * will be triggered.
+			 */
 			GLINK_ERR_XPRT(xprt_ctx,
 					"%s: unrecoverable xprt failure %d\n",
 					__func__, ret);
 			rwref_put(&tx_info->pkt_ref);
 			break;
 		} else if (!ret && tx_info->size_remaining) {
+			/*
+			 * Transport unable to send any data on this channel.
+			 * Break out of the loop so that the scheduler can
+			 * continue with the next channel.
+			 */
 			break;
 		} else {
 			txd_len += tx_len;
@@ -3994,6 +5312,8 @@ static int glink_scheduler_tx(struct channel_ctx *ctx,
 }
 
 
+/**Actual Transmit function
+**/
 static void tx_func(struct kthread_work *work)
 {
 	struct channel_ctx *ch_ptr;
@@ -4039,13 +5359,29 @@ static void tx_func(struct kthread_work *work)
 
 		ret = glink_scheduler_tx(ch_ptr, xprt_ptr);
 		if (ret == -EAGAIN) {
+			/*
+			 * transport unable to send at the moment and will call
+			 * tx_resume() when it can send again.
+			 */
 			break;
 		} else if (ret < 0) {
+			/*
+			 * General failure code that indicates that the
+			 * transport is unable to recover.  In this case, the
+			 * communication failure will be detected at a higher
+			 * level and a subsystem restart of the affected system
+			 * will be triggered.
+			 */
 			GLINK_ERR_XPRT(xprt_ptr,
 					"%s: unrecoverable xprt failure %d\n",
 					__func__, ret);
 			break;
 		} else if (!ret) {
+			/*
+			 * Transport unable to send any data on this channel,
+			 * but didn't return an error. Move to the next channel
+			 * and continue.
+			 */
 			spin_lock_irqsave(&xprt_ptr->tx_ready_lock_lhb3, flags);
 			list_rotate_left(&xprt_ptr->prio_bin[prio].tx_ready);
 			spin_unlock_irqrestore(&xprt_ptr->tx_ready_lock_lhb3,
@@ -4079,6 +5415,12 @@ static void glink_core_tx_resume(struct glink_transport_if *if_ptr)
 	queue_kthread_work(&xprt_ptr->tx_wq, &xprt_ptr->tx_kwork);
 }
 
+/**
+ * glink_pm_qos_vote() - Add Power Management QoS Vote
+ * @xprt_ptr:	Transport for power vote
+ *
+ * Note - must be called with tx_ready_lock_lhb3 locked.
+ */
 static void glink_pm_qos_vote(struct glink_core_xprt_ctx *xprt_ptr)
 {
 	if (glink_pm_qos && !xprt_ptr->qos_req_active) {
@@ -4089,6 +5431,12 @@ static void glink_pm_qos_vote(struct glink_core_xprt_ctx *xprt_ptr)
 	xprt_ptr->tx_path_activity = true;
 }
 
+/**
+ * glink_pm_qos_unvote() - Schedule Power Management QoS Vote Removal
+ * @xprt_ptr:	Transport for power vote removal
+ *
+ * Note - must be called with tx_ready_lock_lhb3 locked.
+ */
 static void glink_pm_qos_unvote(struct glink_core_xprt_ctx *xprt_ptr)
 {
 	xprt_ptr->tx_path_activity = false;
@@ -4099,6 +5447,13 @@ static void glink_pm_qos_unvote(struct glink_core_xprt_ctx *xprt_ptr)
 	}
 }
 
+/**
+ * glink_pm_qos_cancel_worker() - Remove Power Management QoS Vote
+ * @work:	Delayed work structure
+ *
+ * Removes PM QoS vote if no additional transmit activity has occurred between
+ * the unvote and when this worker runs.
+ */
 static void glink_pm_qos_cancel_worker(struct work_struct *work)
 {
 	struct glink_core_xprt_ctx *xprt_ptr;
@@ -4109,7 +5464,7 @@ static void glink_pm_qos_cancel_worker(struct work_struct *work)
 
 	spin_lock_irqsave(&xprt_ptr->tx_ready_lock_lhb3, flags);
 	if (!xprt_ptr->tx_path_activity) {
-		
+		/* no more tx activity */
 		GLINK_PERF("%s: qos off\n", __func__);
 		pm_qos_update_request(&xprt_ptr->pm_qos_req,
 				PM_QOS_DEFAULT_VALUE);
@@ -4119,6 +5474,12 @@ static void glink_pm_qos_cancel_worker(struct work_struct *work)
 	spin_unlock_irqrestore(&xprt_ptr->tx_ready_lock_lhb3, flags);
 }
 
+/**
+ * glink_core_rx_cmd_remote_sigs() - Receive remote channel signal command
+ *
+ * if_ptr:	Pointer to transport instance
+ * rcid:	Remote Channel ID
+ */
 static void glink_core_rx_cmd_remote_sigs(struct glink_transport_if *if_ptr,
 					uint32_t rcid, uint32_t sigs)
 {
@@ -4127,7 +5488,7 @@ static void glink_core_rx_cmd_remote_sigs(struct glink_transport_if *if_ptr,
 
 	ctx = xprt_rcid_to_ch_ctx_get(if_ptr->glink_core_priv, rcid);
 	if (!ctx) {
-		
+		/* unknown LCID received - this shouldn't happen */
 		GLINK_ERR_XPRT(if_ptr->glink_core_priv,
 				"%s: invalid rcid %u received\n", __func__,
 				(unsigned)rcid);
@@ -4170,6 +5531,13 @@ static struct glink_core_if core_impl = {
 	.rx_cmd_remote_sigs = glink_core_rx_cmd_remote_sigs,
 };
 
+/**
+ * glink_xprt_ctx_iterator_init() - Initializes the transport context list iterator
+ * @xprt_i:	pointer to the transport context iterator.
+ *
+ * This function acquires the transport context lock which must then be
+ * released by glink_xprt_ctx_iterator_end()
+ */
 void glink_xprt_ctx_iterator_init(struct xprt_ctx_iterator *xprt_i)
 {
 	if (xprt_i == NULL)
@@ -4182,6 +5550,10 @@ void glink_xprt_ctx_iterator_init(struct xprt_ctx_iterator *xprt_i)
 }
 EXPORT_SYMBOL(glink_xprt_ctx_iterator_init);
 
+/**
+ * glink_xprt_ctx_iterator_end() - Ends the transport context list iteration
+ * @xprt_i:	pointer to the transport context iterator.
+ */
 void glink_xprt_ctx_iterator_end(struct xprt_ctx_iterator *xprt_i)
 {
 	if (xprt_i == NULL)
@@ -4193,6 +5565,12 @@ void glink_xprt_ctx_iterator_end(struct xprt_ctx_iterator *xprt_i)
 }
 EXPORT_SYMBOL(glink_xprt_ctx_iterator_end);
 
+/**
+ * glink_xprt_ctx_iterator_next() - iterates element by element in transport context list
+ * @xprt_i:	pointer to the transport context iterator.
+ *
+ * Return: pointer to the transport context structure
+ */
 struct glink_core_xprt_ctx *glink_xprt_ctx_iterator_next(
 			struct xprt_ctx_iterator *xprt_i)
 {
@@ -4213,6 +5591,12 @@ struct glink_core_xprt_ctx *glink_xprt_ctx_iterator_next(
 }
 EXPORT_SYMBOL(glink_xprt_ctx_iterator_next);
 
+/**
+ * glink_get_xprt_name() - get the transport name
+ * @xprt_ctx:	pointer to the transport context.
+ *
+ * Return: name of the transport
+ */
 char *glink_get_xprt_name(struct glink_core_xprt_ctx *xprt_ctx)
 {
 	if (xprt_ctx == NULL)
@@ -4222,6 +5606,13 @@ char *glink_get_xprt_name(struct glink_core_xprt_ctx *xprt_ctx)
 }
 EXPORT_SYMBOL(glink_get_xprt_name);
 
+/**
+ * glink_get_xprt_name() - get the name of the remote processor/edge
+ *				of the transport
+ * @xprt_ctx:	pointer to the transport context.
+ *
+ * Return: Name of the remote processor/edge
+ */
 char *glink_get_xprt_edge_name(struct glink_core_xprt_ctx *xprt_ctx)
 {
 	if (xprt_ctx == NULL)
@@ -4230,6 +5621,12 @@ char *glink_get_xprt_edge_name(struct glink_core_xprt_ctx *xprt_ctx)
 }
 EXPORT_SYMBOL(glink_get_xprt_edge_name);
 
+/**
+ * glink_get_xprt_state() - get the state of the transport
+ * @xprt_ctx:	pointer to the transport context.
+ *
+ * Return: Name of the transport state, NULL in case of invalid input
+ */
 const char *glink_get_xprt_state(struct glink_core_xprt_ctx *xprt_ctx)
 {
 	if (xprt_ctx == NULL)
@@ -4239,6 +5636,13 @@ const char *glink_get_xprt_state(struct glink_core_xprt_ctx *xprt_ctx)
 }
 EXPORT_SYMBOL(glink_get_xprt_state);
 
+/**
+ * glink_get_xprt_version_features() - get the version and feature set
+ *					of local transport in glink
+ * @xprt_ctx:	pointer to the transport context.
+ *
+ * Return: pointer to the glink_core_version
+ */
 const struct glink_core_version *glink_get_xprt_version_features(
 		struct glink_core_xprt_ctx *xprt_ctx)
 {
@@ -4251,6 +5655,14 @@ const struct glink_core_version *glink_get_xprt_version_features(
 }
 EXPORT_SYMBOL(glink_get_xprt_version_features);
 
+/**
+ * glink_ch_ctx_iterator_init() - Initializes the channel context list iterator
+ * @ch_iter:	pointer to the channel context iterator.
+ * xprt:	pointer to the transport context that holds the channel list
+ *
+ * This function acquires the channel context lock which must then be
+ * released by glink_ch_ctx_iterator_end()
+ */
 void glink_ch_ctx_iterator_init(struct ch_ctx_iterator *ch_iter,
 		struct glink_core_xprt_ctx *xprt)
 {
@@ -4267,6 +5679,10 @@ void glink_ch_ctx_iterator_init(struct ch_ctx_iterator *ch_iter,
 }
 EXPORT_SYMBOL(glink_ch_ctx_iterator_init);
 
+/**
+ * glink_ch_ctx_iterator_end() - Ends the channel context list iteration
+ * @ch_iter:	pointer to the channel context iterator.
+ */
 void glink_ch_ctx_iterator_end(struct ch_ctx_iterator *ch_iter,
 				struct glink_core_xprt_ctx *xprt)
 {
@@ -4280,6 +5696,12 @@ void glink_ch_ctx_iterator_end(struct ch_ctx_iterator *ch_iter,
 }
 EXPORT_SYMBOL(glink_ch_ctx_iterator_end);
 
+/**
+ * glink_ch_ctx_iterator_next() - iterates element by element in channel context list
+ * @c_i:	pointer to the channel context iterator.
+ *
+ * Return: pointer to the channel context structure
+ */
 struct channel_ctx *glink_ch_ctx_iterator_next(struct ch_ctx_iterator *c_i)
 {
 	struct channel_ctx *ch_ctx = NULL;
@@ -4299,6 +5721,12 @@ struct channel_ctx *glink_ch_ctx_iterator_next(struct ch_ctx_iterator *c_i)
 }
 EXPORT_SYMBOL(glink_ch_ctx_iterator_next);
 
+/**
+ * glink_get_ch_name() - get the channel name
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: name of the channel, NULL in case of invalid input
+ */
 char *glink_get_ch_name(struct channel_ctx *ch_ctx)
 {
 	if (ch_ctx == NULL)
@@ -4308,6 +5736,12 @@ char *glink_get_ch_name(struct channel_ctx *ch_ctx)
 }
 EXPORT_SYMBOL(glink_get_ch_name);
 
+/**
+ * glink_get_ch_edge_name() - get the edge on whcih channel is created
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: name of the edge, NULL in case of invalid input
+ */
 char *glink_get_ch_edge_name(struct channel_ctx *ch_ctx)
 {
 	if (ch_ctx == NULL)
@@ -4317,6 +5751,12 @@ char *glink_get_ch_edge_name(struct channel_ctx *ch_ctx)
 }
 EXPORT_SYMBOL(glink_get_ch_edge_name);
 
+/**
+ * glink_get_ch_lcid() - get the local channel ID
+ * @c_i:	pointer to the channel context.
+ *
+ * Return: local channel id, -EINVAL in case of invalid input
+ */
 int glink_get_ch_lcid(struct channel_ctx *ch_ctx)
 {
 	if (ch_ctx == NULL)
@@ -4326,6 +5766,12 @@ int glink_get_ch_lcid(struct channel_ctx *ch_ctx)
 }
 EXPORT_SYMBOL(glink_get_ch_lcid);
 
+/**
+ * glink_get_ch_rcid() - get the remote channel ID
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: remote channel id, -EINVAL in case of invalid input
+ */
 int glink_get_ch_rcid(struct channel_ctx *ch_ctx)
 {
 	if (ch_ctx == NULL)
@@ -4335,6 +5781,12 @@ int glink_get_ch_rcid(struct channel_ctx *ch_ctx)
 }
 EXPORT_SYMBOL(glink_get_ch_rcid);
 
+/**
+ * glink_get_ch_lstate() - get the local channel state
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: Name of the local channel state, NUll in case of invalid input
+ */
 const char *glink_get_ch_lstate(struct channel_ctx *ch_ctx)
 {
 	if (ch_ctx == NULL)
@@ -4344,6 +5796,12 @@ const char *glink_get_ch_lstate(struct channel_ctx *ch_ctx)
 }
 EXPORT_SYMBOL(glink_get_ch_lstate);
 
+/**
+ * glink_get_ch_rstate() - get the remote channel state
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: true if remote side is opened false otherwise
+ */
 bool glink_get_ch_rstate(struct channel_ctx *ch_ctx)
 {
 	if (ch_ctx == NULL)
@@ -4353,6 +5811,13 @@ bool glink_get_ch_rstate(struct channel_ctx *ch_ctx)
 }
 EXPORT_SYMBOL(glink_get_ch_rstate);
 
+/**
+ * glink_get_ch_xprt_name() - get the name of the transport to which
+ *				the channel belongs
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: name of the export, NULL in case of invalid input
+ */
 char *glink_get_ch_xprt_name(struct channel_ctx *ch_ctx)
 {
 	if (ch_ctx == NULL)
@@ -4362,28 +5827,49 @@ char *glink_get_ch_xprt_name(struct channel_ctx *ch_ctx)
 }
 EXPORT_SYMBOL(glink_get_ch_xprt_name);
 
+/**
+ * glink_get_tx_pkt_count() - get the total number of packets sent
+ *				through this channel
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: number of packets transmitted, -EINVAL in case of invalid input
+ */
 int glink_get_ch_tx_pkt_count(struct channel_ctx *ch_ctx)
 {
 	if (ch_ctx == NULL)
 		return -EINVAL;
 
-	
+	/* FUTURE: packet stats not yet implemented */
 
 	return -ENOSYS;
 }
 EXPORT_SYMBOL(glink_get_ch_tx_pkt_count);
 
+/**
+ * glink_get_ch_rx_pkt_count() - get the total number of packets
+ *				recieved at this channel
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: number of packets recieved, -EINVAL in case of invalid input
+ */
 int glink_get_ch_rx_pkt_count(struct channel_ctx *ch_ctx)
 {
 	if (ch_ctx == NULL)
 		return -EINVAL;
 
-	
+	/* FUTURE: packet stats not yet implemented */
 
 	return -ENOSYS;
 }
 EXPORT_SYMBOL(glink_get_ch_rx_pkt_count);
 
+/**
+ * glink_get_ch_lintents_queued() - get the total number of intents queued
+ *				at local side
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: number of intents queued, -EINVAL in case of invalid input
+ */
 int glink_get_ch_lintents_queued(struct channel_ctx *ch_ctx)
 {
 	struct glink_core_rx_intent *intent;
@@ -4399,6 +5885,13 @@ int glink_get_ch_lintents_queued(struct channel_ctx *ch_ctx)
 }
 EXPORT_SYMBOL(glink_get_ch_lintents_queued);
 
+/**
+ * glink_get_ch_rintents_queued() - get the total number of intents queued
+ *				from remote side
+ * @ch_ctx:	pointer to the channel context.
+ *
+ * Return: number of intents queued, -EINVAL in case of invalid input
+ */
 int glink_get_ch_rintents_queued(struct channel_ctx *ch_ctx)
 {
 	struct glink_core_rx_intent *intent;
@@ -4414,6 +5907,13 @@ int glink_get_ch_rintents_queued(struct channel_ctx *ch_ctx)
 }
 EXPORT_SYMBOL(glink_get_ch_rintents_queued);
 
+/**
+ * glink_get_ch_intent_info() - get the intent details of a channel
+ * @ch_ctx:	pointer to the channel context.
+ * ch_ctx_i:	pointer to a structure that will contain intent details
+ *
+ * This function is used to get all the channel intent details including locks.
+ */
 void glink_get_ch_intent_info(struct channel_ctx *ch_ctx,
 			struct glink_ch_intent_info *ch_ctx_i)
 {
@@ -4428,18 +5928,33 @@ void glink_get_ch_intent_info(struct channel_ctx *ch_ctx,
 }
 EXPORT_SYMBOL(glink_get_ch_intent_info);
 
+/**
+ * glink_get_debug_mask() - Return debug mask attribute
+ *
+ * Return: debug mask attribute
+ */
 unsigned glink_get_debug_mask(void)
 {
 	return glink_debug_mask;
 }
 EXPORT_SYMBOL(glink_get_debug_mask);
 
+/**
+ * glink_get_log_ctx() - Return log context for other GLINK modules.
+ *
+ * Return: Log context or NULL if none.
+ */
 void *glink_get_log_ctx(void)
 {
 	return log_ctx;
 }
 EXPORT_SYMBOL(glink_get_log_ctx);
 
+/**
+ * glink_get_xprt_log_ctx() - Return log context for GLINK xprts.
+ *
+ * Return: Log context or NULL if none.
+ */
 void *glink_get_xprt_log_ctx(struct glink_core_xprt_ctx *xprt)
 {
 	if (xprt)

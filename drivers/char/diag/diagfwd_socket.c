@@ -448,7 +448,7 @@ static void __socket_close_channel(struct diag_socket_info *info)
 
 	atomic_set(&info->opened, 0);
 
-	
+	/* Don't close the server. Server should always remain open */
 	if (info->port_type != PORT_TYPE_SERVER) {
 		write_lock_bh(&info->hdl->sk->sk_callback_lock);
 		info->hdl->sk->sk_user_data = NULL;
@@ -831,7 +831,7 @@ static int socket_ready_notify(struct notifier_block *nb,
 		return 0;
 	}
 
-	
+	/* Initialize only the servers */
 	for (peripheral = 0; peripheral < NUM_PERIPHERALS; peripheral++) {
 		info = &socket_cntl[peripheral];
 		queue_work(info->wq, &(info->init_work));
@@ -935,6 +935,10 @@ static int diag_socket_read(void *ctxt, unsigned char *buf, int buf_len)
 		return -ERESTARTSYS;
 	}
 
+	/*
+	 * There is no need to continue reading over peripheral in this case.
+	 * Release the wake source hold earlier.
+	 */
 	if (atomic_read(&info->diag_state) == 0) {
 		DIAG_LOG(DIAG_DEBUG_PERIPHERALS,
 			 "%s closing read thread. diag state is closed\n",
@@ -979,6 +983,11 @@ static int diag_socket_read(void *ctxt, unsigned char *buf, int buf_len)
 
 		if (!atomic_read(&info->opened) &&
 		    info->port_type == PORT_TYPE_SERVER) {
+			/*
+			 * This is the first packet from the client. Copy its
+			 * address to the connection object. Consider this
+			 * channel open for communication.
+			 */
 			memcpy(&info->remote_addr, &src_addr, sizeof(src_addr));
 			if (info->ins_id == INST_ID_DCI)
 				atomic_set(&info->opened, 1);
@@ -1048,6 +1057,10 @@ static int diag_socket_write(void *ctxt, unsigned char *buf, int len)
 	write_len = kernel_sendmsg(info->hdl, &write_msg, &iov, 1, len);
 	if (write_len < 0) {
 		err = write_len;
+		/*
+		 * -EAGAIN means that the number of packets in flight is at
+		 * max capactity and the peripheral hasn't read the data.
+		 */
 		if (err != -EAGAIN) {
 			pr_err_ratelimited("diag: In %s, error sending data, err: %d, ch: %s\n",
 					   __func__, err, info->name);

@@ -97,6 +97,9 @@ static int mdss_mdp_splash_alloc_memory(struct msm_fb_data_type *mfd,
 		goto kmap_err;
 	}
 
+	/**
+	 * dma_buf has the reference
+	 */
 	ion_free(mdata->iclient, handle);
 
 	return rc;
@@ -150,6 +153,12 @@ static int mdss_mdp_splash_iommu_attach(struct msm_fb_data_type *mfd)
 	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
 	int rc, ret;
 
+	/*
+	 * iommu dynamic attach for following conditions.
+	 * 1. it is still not attached
+	 * 2. MDP hardware version supports the feature
+	 * 3. configuration is with valid splash buffer
+	 */
 	if (mdata->mdss_util->iommu_attached() ||
 		!mfd->panel_info->cont_splash_enabled ||
 		!mdss_mdp_iommu_dyn_attach_supported(mdp5_data->mdata) ||
@@ -212,6 +221,13 @@ void mdss_mdp_release_splash_pipe(struct msm_fb_data_type *mfd)
 	sinfo->splash_pipe_allocated = false;
 }
 
+/*
+ * In order to free reseved memory from bootup we are not
+ * able to call the __init free functions, as we could be
+ * passed the init boot sequence. As a reult we need to
+ * free this memory ourselves using the
+ * free_reeserved_page() function.
+ */
 void mdss_free_bootmem(u32 mem_addr, u32 size)
 {
 	unsigned long pfn_start, pfn_end, pfn_idx;
@@ -263,16 +279,31 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 		goto end;
 	}
 
-	
+	/* 1-to-1 mapping */
 	mdss_mdp_splash_iommu_attach(mfd);
 
 	if (use_borderfill && mdp5_data->handoff &&
 		!mfd->splash_info.iommu_dynamic_attached) {
+		/*
+		 * Set up border-fill on the handed off pipes.
+		 * This is needed to ensure that there are no memory
+		 * accesses prior to attaching iommu during continuous
+		 * splash screen case. However, for command mode
+		 * displays, this is not necessary since the panels can
+		 * refresh from their internal memory if no data is sent
+		 * out on the dsi lanes.
+		 */
 		if (mdp5_data->handoff && ctl && ctl->is_video_mode) {
 			rc = mdss_mdp_display_commit(ctl, NULL, NULL);
 			if (!IS_ERR_VALUE(rc)) {
 				mdss_mdp_display_wait4comp(ctl);
 			} else {
+				/*
+				 * Since border-fill setup failed, we
+				 * need to ensure that we turn off the
+				 * MDP timing generator before attaching
+				 * iommu
+				 */
 				pr_err("failed to set BF at handoff\n");
 				mdp5_data->handoff = false;
 			}
@@ -280,7 +311,7 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 	}
 
 	if (rc || mdp5_data->handoff) {
-		
+		/* Add all the handed off pipes to the cleanup list */
 		mdss_mdp_handoff_cleanup_pipes(mfd, MDSS_MDP_PIPE_TYPE_RGB);
 		mdss_mdp_handoff_cleanup_pipes(mfd, MDSS_MDP_PIPE_TYPE_VIG);
 		mdss_mdp_handoff_cleanup_pipes(mfd, MDSS_MDP_PIPE_TYPE_DMA);
@@ -394,6 +425,13 @@ static int mdss_mdp_splash_kickoff(struct msm_fb_data_type *mfd,
 	if (!req)
 		return -ENOMEM;
 
+	/*
+	 * use single pipe for
+	 * 1. split display disabled
+	 * 2. splash image is only on one side of panel
+	 * 3. source split is enabled and splash image is within line
+	 *    buffer boundry
+	 */
 	use_single_pipe =
 		!is_split_lm(mfd) ||
 		(is_split_lm(mfd) &&
@@ -541,14 +579,14 @@ static int mdss_mdp_splash_ctl_cb(struct notifier_block *self,
 	if (!sinfo->frame_done_count) {
 		mdss_mdp_splash_unmap_splash_mem(mfd);
 		mdss_mdp_splash_cleanup(mfd, false);
-	
+	/* wait for 2 frame done events before releasing memory */
 	} else if (sinfo->frame_done_count > MAX_FRAME_DONE_COUNT_WAIT &&
 			sinfo->splash_thread) {
 		complete(&sinfo->frame_done);
 		sinfo->splash_thread = NULL;
 	}
 
-	
+	/* increase frame done count after pipes are staged from other client */
 	if (!sinfo->splash_pipe_allocated)
 		sinfo->frame_done_count++;
 done:
@@ -588,10 +626,14 @@ static int mdss_mdp_splash_thread(void *data)
 
 	ret = mdss_mdp_display_splash_image(mfd);
 	if (ret) {
+		/*
+		 * keep thread alive to release dynamically allocated
+		 * resources
+		 */
 		pr_err("splash image display failed\n");
 	}
 
-	
+	/* wait for second display complete to release splash resources */
 	ret = wait_for_completion_killable(&mfd->splash_info.frame_done);
 
 	mdss_mdp_splash_free_memory(mfd);

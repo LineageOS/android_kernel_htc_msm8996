@@ -67,7 +67,7 @@ static int get_device_address(struct smem_client *smem_client,
 			goto mem_map_failed;
 		}
 
-		
+		/* Convert an Ion handle to a dma buf */
 		buf = ion_share_dma_buf(clnt, hndl);
 		if (IS_ERR_OR_NULL(buf)) {
 			rc = PTR_ERR(buf) ?: -ENOMEM;
@@ -75,7 +75,7 @@ static int get_device_address(struct smem_client *smem_client,
 			goto mem_map_failed;
 		}
 
-		
+		/* Prepare a dma buf for dma on the given device */
 		attach = dma_buf_attach(buf, cb->dev);
 		if (IS_ERR_OR_NULL(attach)) {
 			rc = PTR_ERR(attach) ?: -ENOMEM;
@@ -83,7 +83,7 @@ static int get_device_address(struct smem_client *smem_client,
 			goto mem_buf_attach_failed;
 		}
 
-		
+		/* Get the scatterlist for the given attachment */
 		table = dma_buf_map_attachment(attach, DMA_BIDIRECTIONAL);
 		if (IS_ERR_OR_NULL(table)) {
 			rc = PTR_ERR(table) ?: -ENOMEM;
@@ -91,11 +91,11 @@ static int get_device_address(struct smem_client *smem_client,
 			goto mem_map_table_failed;
 		}
 
-		
+		/* debug trace's need to be updated later */
 		trace_msm_smem_buffer_iommu_op_start("MAP", 0, 0,
 			align, *iova, *buffer_size);
 
-		
+		/* Map a scatterlist into an SMMU */
 		rc = msm_dma_map_sg_lazy(cb->dev, table->sgl, table->nents,
 				DMA_BIDIRECTIONAL, buf);
 		if (rc != table->nents) {
@@ -671,6 +671,12 @@ struct context_bank_info *msm_smem_get_context_bank(void *clt,
 		return NULL;
 	}
 
+	/*
+	 * HAL_BUFFER_INPUT is directly mapped to bitstream CB in DT
+	 * as the buffer type structure was initially designed
+	 * just for decoder. For Encoder, input should be mapped to
+	 * pixel CB. So swap the buffer types just in this local scope.
+	 */
 	if (is_secure && client->session_type == MSM_VIDC_ENCODER) {
 		if (buffer_type == HAL_BUFFER_INPUT)
 			buffer_type = HAL_BUFFER_OUTPUT;

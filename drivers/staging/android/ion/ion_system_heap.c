@@ -107,6 +107,10 @@ static struct page *alloc_buffer_page(struct ion_system_heap *heap,
 	return page;
 }
 
+/*
+ * For secure pages that need to be freed and not added back to the pool; the
+ *  hyp_unassign should be called before calling this function
+ */
 static void free_buffer_page(struct ion_system_heap *heap,
 			     struct ion_buffer *buffer, struct page *page,
 			     unsigned int order)
@@ -181,6 +185,11 @@ static unsigned int process_info(struct page_info *info,
 		sg_dma_address(sg_sync) = page_to_phys(page);
 	}
 	sg_set_page(sg, page, (1 << info->order) * PAGE_SIZE, 0);
+	/*
+	 * This is not correct - sg_dma_address needs a dma_addr_t
+	 * that is valid for the the targeted device, but this works
+	 * on the currently targeted hardware.
+	 */
 	sg_dma_address(sg) = page_to_phys(page);
 	if (data) {
 		for (j = 0; j < (1 << info->order); ++j)
@@ -269,6 +278,12 @@ static int ion_system_heap_allocate(struct ion_heap *heap,
 	sg = table->sgl;
 	sg_sync = table_sync.sgl;
 
+	/*
+	 * We now have two separate lists. One list contains pages from the
+	 * pool and the other pages from buddy. We want to merge these
+	 * together while preserving the ordering of the pages (higher order
+	 * first).
+	 */
 	do {
 		info = list_first_entry_or_null(&pages, struct page_info, list);
 		tmp_info = list_first_entry_or_null(&pages_from_pool,
@@ -317,7 +332,7 @@ static int ion_system_heap_allocate(struct ion_heap *heap,
 	return 0;
 
 err_free_sg2:
-	
+	/* We failed to zero buffers. Bypass pool */
 	buffer->flags |= ION_PRIV_FLAG_SHRINKER_FREE;
 
 	if (vmid > 0)
@@ -435,13 +450,17 @@ static int ion_secure_page_pool_shrink(
 	return freed;
 
 out1:
-	
+	/* Restore pages to secure pool */
 	list_for_each_entry_safe(page, tmp, &pages, lru) {
 		list_del(&page->lru);
 		ion_page_pool_free(pool, page, false);
 	}
 	return 0;
 out2:
+	/*
+	 * The security state of the pages is unknown after a failure;
+	 * They can neither be added back to the secure pool nor buddy system.
+	 */
 	sg_free_table(&sgt);
 	return 0;
 }
@@ -479,7 +498,7 @@ static int ion_system_heap_shrink(struct ion_heap *heap, gfp_t gfp_mask,
 
 		if (!only_scan) {
 			nr_to_scan -= nr_freed;
-			
+			/* shrink completed */
 			if (nr_to_scan <= 0)
 				break;
 		}
@@ -610,6 +629,13 @@ static void ion_system_heap_destroy_pools(struct ion_page_pool **pools)
 			ion_page_pool_destroy(pools[i]);
 }
 
+/**
+ * ion_system_heap_create_pools - Creates pools for all orders
+ *
+ * If this fails you don't need to destroy any pools. It's all or
+ * nothing. If it succeeds you'll eventually need to use
+ * ion_system_heap_destroy_pools to destroy the pools.
+ */
 static int ion_system_heap_create_pools(struct ion_page_pool **pools)
 {
 	int i;

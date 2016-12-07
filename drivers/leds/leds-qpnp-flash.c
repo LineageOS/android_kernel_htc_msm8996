@@ -147,6 +147,9 @@
 #define BACKLIGHT_ON						1
 #define BACKLIGHT_OFF						0
 
+/*
+ * ID represents physical LEDs for individual control purpose.
+ */
 enum flash_led_id {
 	FLASH_LED_0 = 0,
 	FLASH_LED_1,
@@ -214,6 +217,9 @@ struct flash_node_data {
 	bool				flash_on;
 };
 
+/*
+ * Flash LED configuration read from device tree
+ */
 struct flash_led_platform_data {
 	unsigned int			temp_threshold_num;
 	unsigned int			temp_derate_curr_num;
@@ -248,6 +254,9 @@ struct qpnp_flash_led_buffer {
 	char data[0];
 };
 
+/*
+ * Flash LED data structure containing flash LED attributes
+ */
 struct qpnp_flash_led {
 	struct pmic_revid_data		*revid_data;
 	struct spmi_device		*spmi_dev;
@@ -657,6 +666,11 @@ qpnp_flash_led_get_max_avail_current(struct flash_node_data *flash_node,
 			return -EINVAL;
 		}
 
+		/*
+		* When charging is enabled, enforce this new
+		* enabelment sequence to reduce fuel gauge
+		* resolution reading.
+		*/
 		if (led->charging_enabled) {
 			rc = qpnp_led_masked_write(led->spmi_dev,
 				FLASH_MODULE_ENABLE_CTRL(led->base),
@@ -682,6 +696,10 @@ qpnp_flash_led_get_max_avail_current(struct flash_node_data *flash_node,
 		max_curr_avail_ma = (prop.intval / FLASH_LED_UA_PER_MA);
 	}
 
+	/* When thermal mitigation is available, this logic
+	*  will execute, to derate current based on PMIC die
+	*  temperature.
+	*/
 	if (led->pdata->die_current_derate_en) {
 		chg_temp_milidegc = qpnp_flash_led_get_die_temp(led);
 		if (chg_temp_milidegc < 0)
@@ -718,7 +736,7 @@ static ssize_t qpnp_flash_led_die_temp_store(struct device *dev,
 	flash_node = container_of(led_cdev, struct flash_node_data, cdev);
 	led = dev_get_drvdata(&flash_node->spmi_dev->dev);
 
-	
+	/*'0' for disable die_temp feature; non-zero to enable feature*/
 	if (val == 0)
 		led->pdata->die_current_derate_en = false;
 	else
@@ -774,7 +792,7 @@ static ssize_t qpnp_led_strobe_type_store(struct device *dev,
 
 	flash_node = container_of(led_cdev, struct flash_node_data, cdev);
 
-	
+	/* '0' for sw strobe; '1' for hw strobe */
 	if (state == 1)
 		flash_node->trigger |= FLASH_LED_STROBE_TYPE_HW;
 	else
@@ -833,7 +851,7 @@ static ssize_t qpnp_flash_led_current_derate_store(struct device *dev,
 	flash_node = container_of(led_cdev, struct flash_node_data, cdev);
 	led = dev_get_drvdata(&flash_node->spmi_dev->dev);
 
-	
+	/*'0' for disable derate feature; non-zero to enable derate feature */
 	if (val == 0)
 		led->pdata->power_detect_en = false;
 	else
@@ -896,6 +914,10 @@ static struct device_attribute qpnp_flash_led_attrs[] = {
 
 static u32 qpnp_flash_led_get_thermal_derate_rate(const char *rate)
 {
+	/*
+	 * return 5% derate as default value if user specifies
+	 * a value un-supported
+	 */
 	if (strcmp(rate, "1_PERCENT") == 0)
 		return RATE_1_PERCENT;
 	else if (strcmp(rate, "1P25_PERCENT") == 0)
@@ -912,6 +934,10 @@ static u32 qpnp_flash_led_get_thermal_derate_rate(const char *rate)
 
 static u32 qpnp_flash_led_get_ramp_step(const char *step)
 {
+	/*
+	 * return 27 us as default value if user specifies
+	 * a value un-supported
+	 */
 	if (strcmp(step, "0P2_US") == 0)
 		return RAMP_STEP_0P2_US;
 	else if (strcmp(step, "0P4_US") == 0)
@@ -932,6 +958,10 @@ static u32 qpnp_flash_led_get_ramp_step(const char *step)
 
 static u8 qpnp_flash_led_get_droop_debounce_time(u8 val)
 {
+	/*
+	 * return 10 us as default value if user specifies
+	 * a value un-supported
+	 */
 	switch (val) {
 	case 0:
 		return 0;
@@ -948,6 +978,10 @@ static u8 qpnp_flash_led_get_droop_debounce_time(u8 val)
 
 static u8 qpnp_flash_led_get_startup_dly(u8 val)
 {
+	/*
+	 * return 128 us as default value if user specifies
+	 * a value un-supported
+	 */
 	switch (val) {
 	case 10:
 		return 0;
@@ -1257,9 +1291,9 @@ static void qpnp_flash_led_work(struct work_struct *work)
 	int i;
 	u8 val;
 
-	
+	/* Global lock is to synchronize between the flash leds and torch */
 	mutex_lock(&led->flash_led_lock);
-	
+	/* Local lock is to synchronize for one led instance */
 	mutex_lock(&flash_node->cdev.led_access);
 
 	brightness = flash_node->cdev.brightness;
@@ -1931,6 +1965,11 @@ unlock_mutex:
 
 turn_off:
 	if (flash_node->type == TORCH) {
+		/*
+		 * Checking LED fault status detects hardware open fault.
+		 * If fault occurs, all subsequent LED enablement requests
+		 * will be rejected to protect hardware.
+		 */
 		rc = spmi_ext_register_readl(led->spmi_dev->ctrl,
 			led->spmi_dev->sid,
 			FLASH_LED_FAULT_STATUS(led->base), &val, 1);

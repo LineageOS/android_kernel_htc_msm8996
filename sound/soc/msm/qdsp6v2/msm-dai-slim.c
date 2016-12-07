@@ -171,7 +171,7 @@ static int msm_dai_slim_ch_ctl(struct msm_slim_dma_data *dma_data,
 				__func__, rc);
 			goto err_done;
 		}
-		
+		/* Mark dai status as running */
 		SET_DAI_STATE(dai_data->status, DAI_STATE_RUNNING);
 		break;
 
@@ -204,7 +204,7 @@ static int msm_dai_slim_ch_ctl(struct msm_slim_dma_data *dma_data,
 				__func__, rc);
 			goto done;
 		}
-		
+		/* clear running state for dai*/
 		CLR_DAI_STATE(dai_data->status, DAI_STATE_RUNNING);
 		break;
 
@@ -375,7 +375,7 @@ static int msm_dai_slim_prepare(struct snd_pcm_substream *substream,
 		goto error_define_chan;
 	}
 
-	
+	/* Mark stream status as prepared */
 	SET_DAI_STATE(dai_data->status, DAI_STATE_PREPARED);
 
 	return rc;
@@ -422,7 +422,7 @@ static void msm_dai_slim_shutdown(struct snd_pcm_substream *stream,
 	}
 
 	snd_soc_dai_set_dma_data(dai, stream, NULL);
-	
+	/* clear prepared state for the dai */
 	CLR_DAI_STATE(dai_data->status, DAI_STATE_PREPARED);
 
 	return;
@@ -441,12 +441,22 @@ static struct snd_soc_dai_ops msm_dai_slim_ops = {
 
 static struct snd_soc_dai_driver msm_slim_dais[] = {
 	{
+		/*
+		 * The first dai name should be same as device name
+		 * to support registering single and multile dais.
+		 */
 		.name = SLIM_DEV_NAME,
 		.id = MSM_DAI_SLIM0,
 		.capture = {
 			.rates = SLIM_DAI_RATES,
 			.formats = SLIM_DAI_FORMATS,
 			.channels_min = 1,
+			/*
+			 * max channels allowed is
+			 * dependent on platform and
+			 * will be updated before this
+			 * dai driver is registered.
+			 */
 			.channels_max = 1,
 			.rate_min = 8000,
 			.rate_max = 384000,
@@ -454,6 +464,11 @@ static struct snd_soc_dai_driver msm_slim_dais[] = {
 		},
 		.ops = &msm_dai_slim_ops,
 	},
+	/*
+	 * If multiple dais are needed,
+	 * add dais here and update the
+	 * dai_id enum.
+	 */
 };
 
 static void msm_dai_slim_remove_dai_data(
@@ -658,5 +673,6 @@ static void __exit msm_dai_slim_exit(void)
 }
 module_exit(msm_dai_slim_exit);
 
+/* Module information */
 MODULE_DESCRIPTION("Slimbus apps-owned channel handling driver");
 MODULE_LICENSE("GPL v2");

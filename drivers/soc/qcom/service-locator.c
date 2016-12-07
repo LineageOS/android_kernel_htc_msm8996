@@ -68,6 +68,7 @@ struct pd_qmi_data {
 DEFINE_MUTEX(service_init_mutex);
 struct pd_qmi_data service_locator;
 
+/* Please refer soc/qcom/service-locator.h for use about APIs defined here */
 
 static ssize_t show_service_locator_status(struct class *cl,
 						struct class_attribute *attr,
@@ -143,7 +144,7 @@ static void service_locator_svc_arrive(struct work_struct *work)
 {
 	int rc = 0;
 
-	
+	/* Create a Local client port for QMI communication */
 	mutex_lock(&service_locator.service_mutex);
 	service_locator.clnt_handle =
 			qmi_handle_create(service_locator_clnt_notify, NULL);
@@ -154,7 +155,7 @@ static void service_locator_svc_arrive(struct work_struct *work)
 		return;
 	}
 
-	
+	/* Connect to service */
 	rc = qmi_connect_to_service(service_locator.clnt_handle,
 		SERVREG_LOC_SERVICE_ID_V01, SERVREG_LOC_SERVICE_VERS_V01,
 		SERVREG_LOC_SERVICE_INSTANCE_ID);
@@ -218,6 +219,11 @@ static int servreg_loc_send_msg(struct msg_desc *req_desc,
 {
 	int rc;
 
+	/*
+	 * Send msg and get response. There is a chance that the service went
+	 * away since the time we last checked for it to be available and
+	 * actually made this call. In that case the call just fails.
+	 */
 	rc = qmi_send_req_wait(service_locator.clnt_handle, req_desc, req,
 		sizeof(*req), resp_desc, resp, sizeof(*resp),
 		msecs_to_jiffies(QMI_SERVREG_LOC_SERVER_TIMEOUT));
@@ -227,7 +233,7 @@ static int servreg_loc_send_msg(struct msg_desc *req_desc,
 		return rc;
 	}
 
-	
+	/* Check the response */
 	if (QMI_RESP_BIT_SHIFT(resp->resp.result) != QMI_RESULT_SUCCESS_V01) {
 		pr_err("QMI request for client %s failed 0x%x\n",
 			pd->client_name, QMI_RESP_BIT_SHIFT(resp->resp.error));
@@ -265,7 +271,7 @@ static int service_locator_send_msg(struct pd_qmi_client_data *pd)
 		rc = -ENOMEM;
 		goto out;
 	}
-	
+	/* Prepare req and response message formats */
 	req_desc.msg_id = QMI_SERVREG_LOC_GET_DOMAIN_LIST_REQ_V01;
 	req_desc.max_msg_len =
 		QMI_SERVREG_LOC_GET_DOMAIN_LIST_REQ_MSG_V01_MAX_MSG_LEN;
@@ -276,7 +282,7 @@ static int service_locator_send_msg(struct pd_qmi_client_data *pd)
 		QMI_SERVREG_LOC_GET_DOMAIN_LIST_RESP_MSG_V01_MAX_MSG_LEN;
 	resp_desc.ei_array = qmi_servreg_loc_get_domain_list_resp_msg_v01_ei;
 
-	
+	/* Prepare req and response message */
 	strlcpy(req->service_name, pd->service_name,
 		QMI_SERVREG_LOC_NAME_LENGTH_V01 + 1);
 	req->domain_offset_valid = true;
@@ -314,7 +320,7 @@ static int service_locator_send_msg(struct pd_qmi_client_data *pd)
 			rc = -EAGAIN;
 			goto out;
 		}
-		
+		/* Copy the response*/
 		store_get_domain_list_response(pd, resp, domains_read);
 		domains_read += resp->domain_list_len;
 	} while (domains_read < resp->total_domains);

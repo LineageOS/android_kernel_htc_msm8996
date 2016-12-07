@@ -16,6 +16,11 @@
 #include <linux/device.h>
 #include <linux/types.h>
 
+/**
+ *  USB DBM  Hardware registers bitmask.
+ *
+ */
+/* DBM_EP_CFG */
 #define DBM_EN_EP		0x00000001
 #define USB3_EPNUM		0x0000003E
 #define DBM_BAM_PIPE_NUM	0x000000C0
@@ -23,12 +28,16 @@
 #define DBM_DISABLE_WB		0x00000200
 #define DBM_INT_RAM_ACC		0x00000400
 
+/* DBM_DATA_FIFO_SIZE */
 #define DBM_DATA_FIFO_SIZE_MASK	0x0000ffff
 
+/* DBM_GEVNTSIZ */
 #define DBM_GEVNTSIZ_MASK	0x0000ffff
 
+/* DBM_DBG_CNFG */
 #define DBM_ENABLE_IOC_MASK	0x0000000f
 
+/* DBM_SOFT_RESET */
 #define DBM_SFT_RST_EP0		0x00000001
 #define DBM_SFT_RST_EP1		0x00000002
 #define DBM_SFT_RST_EP2		0x00000004
@@ -37,6 +46,7 @@
 #define DBM_SFT_RST_MASK	0x80000000
 #define DBM_EN_MASK		0x00000002
 
+/* DBM TRB configurations */
 #define DBM_TRB_BIT		0x80000000
 #define DBM_TRB_DATA_SRC	0x40000000
 #define DBM_TRB_DMA		0x20000000
@@ -62,4 +72,4 @@ int dbm_ep_soft_reset(struct dbm *dbm, u8 usb_ep, bool enter_reset);
 bool dbm_reset_ep_after_lpm(struct dbm *dbm);
 bool dbm_l1_lpm_interrupt(struct dbm *dbm);
 
-#endif 
+#endif /* __DBM_H */

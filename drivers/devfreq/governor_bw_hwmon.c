@@ -174,6 +174,7 @@ static DEVICE_ATTR(__attr, 0644, show_list_##__attr, store_list_##__attr)
 #define MIN_MS	10U
 #define MAX_MS	500U
 
+/* Returns MBps of read/writes for the sampling window. */
 static unsigned int bytes_to_mbps(long long bytes, unsigned int us)
 {
 	bytes *= USEC_PER_SEC;
@@ -212,6 +213,13 @@ static int __bw_hwmon_sample_end(struct bw_hwmon *hwmon)
 	mbps = bytes_to_mbps(bytes, us);
 	node->max_mbps = max(node->max_mbps, mbps);
 
+	/*
+	 * If the measured bandwidth in a micro sample is greater than the
+	 * wake up threshold, it indicates an increase in load that's non
+	 * trivial. So, have the governor ignore historical idle time or low
+	 * bandwidth usage and do the bandwidth calculation based on just
+	 * this micro sample.
+	 */
 	if (mbps > node->up_wake_mbps) {
 		wake = UP_WAKE;
 	} else if (mbps < node->down_wake_mbps) {
@@ -281,20 +289,25 @@ static unsigned long get_bw_and_set_irq(struct hwmon_node *node,
 	node->max_mbps = 0;
 
 	hist_lo_tol = (node->hist_max_mbps * HIST_PEAK_TOL) / 100;
-	
+	/* Remember historic peak in the past hist_mem decision windows. */
 	if (meas_mbps > node->hist_max_mbps || !node->hist_mem) {
-		
+		/* If new max or no history */
 		node->hist_max_mbps = meas_mbps;
 		node->hist_mem = node->hist_memory;
 	} else if (meas_mbps >= hist_lo_tol) {
+		/*
+		 * If subsequent peaks come close (within tolerance) to but
+		 * less than the historic peak, then reset the history start,
+		 * but not the peak value.
+		 */
 		node->hist_mem = node->hist_memory;
 	} else {
-		
+		/* Count down history expiration. */
 		if (node->hist_mem)
 			node->hist_mem--;
 	}
 
-	
+	/* Keep track of whether we are in low power mode consistently. */
 	if (meas_mbps > node->low_power_ceil_mbps)
 		node->above_low_power = node->low_power_delay;
 	if (node->above_low_power)
@@ -305,14 +318,32 @@ static unsigned long get_bw_and_set_irq(struct hwmon_node *node,
 	else
 		io_percent = node->low_power_io_percent;
 
+	/*
+	 * The AB value that corresponds to the lowest mbps zone greater than
+	 * or equal to the "frequency" the current measurement will pick.
+	 * This upper limit is useful for balancing out any prediction
+	 * mechanisms to be power friendly.
+	 */
 	meas_mbps_zone = (meas_mbps * 100) / io_percent;
 	meas_mbps_zone = to_mbps_zone(node, meas_mbps_zone);
 	meas_mbps_zone = (meas_mbps_zone * io_percent) / 100;
 	meas_mbps_zone = max(meas_mbps, meas_mbps_zone);
 
+	/*
+	 * If this is a wake up due to BW increase, vote much higher BW than
+	 * what we measure to stay ahead of increasing traffic and then set
+	 * it up to vote for measured BW if we see down_count short sample
+	 * windows of low traffic.
+	 */
 	if (node->wake == UP_WAKE) {
 		req_mbps += ((meas_mbps - node->prev_req)
 				* node->up_scale) / 100;
+		/*
+		 * However if the measured load is less than the historic
+		 * peak, but the over request is higher than the historic
+		 * peak, then we could limit the over requesting to the
+		 * historic peak.
+		 */
 		if (req_mbps > node->hist_max_mbps
 		    && meas_mbps < node->hist_max_mbps)
 			req_mbps = node->hist_max_mbps;
@@ -328,6 +359,10 @@ static unsigned long get_bw_and_set_irq(struct hwmon_node *node,
 		node->hyst_mbps = meas_mbps;
 	}
 
+	/*
+	 * Check node->max_mbps to avoid double counting peaks that cause
+	 * early termination of a window.
+	 */
 	if (meas_mbps >= hyst_lo_tol && meas_mbps > MIN_MBPS
 	    && !node->max_mbps) {
 		node->hyst_peak++;
@@ -351,7 +386,7 @@ static unsigned long get_bw_and_set_irq(struct hwmon_node *node,
 			req_mbps = max(req_mbps, node->hyst_mbps);
 	}
 
-	
+	/* Stretch the short sample window size, if the traffic is too low */
 	if (meas_mbps < MIN_MBPS) {
 		node->up_wake_mbps = (max(MIN_MBPS, req_mbps)
 					* (100 + node->up_thres)) / 100;
@@ -359,6 +394,13 @@ static unsigned long get_bw_and_set_irq(struct hwmon_node *node,
 		thres = mbps_to_bytes(max(MIN_MBPS, req_mbps / 2),
 					node->sample_ms);
 	} else {
+		/*
+		 * Up wake vs down wake are intentionally a percentage of
+		 * req_mbps vs meas_mbps to make sure the over requesting
+		 * phase is handled properly. We only want to wake up and
+		 * reduce the vote based on the measured mbps being less than
+		 * the previous measurement that caused the "over request".
+		 */
 		node->up_wake_mbps = (req_mbps * (100 + node->up_thres)) / 100;
 		node->down_wake_mbps = (meas_mbps * node->down_thres) / 100;
 		thres = mbps_to_bytes(meas_mbps, node->sample_ms);
@@ -559,6 +601,12 @@ static void gov_stop(struct devfreq *df)
 	df->data = node->orig_data;
 	node->orig_data = NULL;
 	hw->df = NULL;
+	/*
+	 * Not all governors know about this additional extended device
+	 * configuration. To avoid leaving the extended configuration at a
+	 * stale state, set it to 0 and let the next governor take it from
+	 * there.
+	 */
 	if (node->dev_ab)
 		*node->dev_ab = 0;
 	node->dev_ab = NULL;
@@ -618,7 +666,7 @@ static int devfreq_bw_hwmon_get_freq(struct devfreq *df,
 {
 	struct hwmon_node *node = df->data;
 
-	
+	/* Suspend/resume sequence */
 	if (!node->mon_started) {
 		*freq = node->resume_freq;
 		*node->dev_ab = node->resume_ab;
@@ -749,6 +797,12 @@ static int devfreq_bw_hwmon_ev_handler(struct devfreq *df,
 		sample_ms = *(unsigned int *)data;
 		sample_ms = max(MIN_MS, sample_ms);
 		sample_ms = min(MAX_MS, sample_ms);
+		/*
+		 * Suspend/resume the HW monitor around the interval update
+		 * to prevent the HW monitor IRQ from trying to change
+		 * stop/start the delayed workqueue while the interval update
+		 * is happening.
+		 */
 		node = df->data;
 		hw = node->hw;
 		hw->suspend_hwmon(hw);

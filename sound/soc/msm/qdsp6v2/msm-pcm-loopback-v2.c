@@ -200,6 +200,14 @@ static int msm_pcm_loopback_get_session(struct snd_soc_pcm_runtime *rtd,
 			*pcm = session_map[n].loopback_priv;
 			goto exit;
 		}
+		/*
+		 * Store the min index value for allocating a new session.
+		 * Here, if session stream name is not found in the
+		 * existing entries after the loop iteration, then this
+		 * index will be used to allocate the new session.
+		 * This index variable is expected to point to the topmost
+		 * available free session.
+		 */
 		if (!(session_map[n].stream_name[0]) && (index < 0))
 			index = n;
 	}
@@ -311,14 +319,14 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 				dev_err(rtd->platform->dev,
 					"Error %d setting volume", ret);
 		}
-		
+		/* Set to largest negative value */
 		asm_mtmx_strtr_window.window_lsw = 0x00000000;
 		asm_mtmx_strtr_window.window_msw = 0x80000000;
 		param_id = ASM_SESSION_MTMX_STRTR_PARAM_RENDER_WINDOW_START_V2;
 		q6asm_send_mtmx_strtr_window(pcm->audio_client,
 					     &asm_mtmx_strtr_window,
 					     param_id);
-		
+		/* Set to largest positive value */
 		asm_mtmx_strtr_window.window_lsw = 0xffffffff;
 		asm_mtmx_strtr_window.window_msw = 0x7fffffff;
 		param_id = ASM_SESSION_MTMX_STRTR_PARAM_RENDER_WINDOW_END_V2;

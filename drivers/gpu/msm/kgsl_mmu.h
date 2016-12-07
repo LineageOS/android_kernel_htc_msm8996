@@ -15,6 +15,9 @@
 
 #include "kgsl_iommu.h"
 
+/* Identifier for the global page table */
+/* Per process page tables will probably pass in the thread group
+   as an identifier */
 #define KGSL_MMU_GLOBAL_PT 0
 #define KGSL_MMU_SECURE_PT 1
 
@@ -105,19 +108,44 @@ struct kgsl_mmu_pt_ops {
 			uint64_t offset, uint64_t size);
 };
 
+/*
+ * MMU_FEATURE - return true if the specified feature is supported by the GPU
+ * MMU
+ */
 #define MMU_FEATURE(_mmu, _bit) \
 	((_mmu)->features & (_bit))
 
+/* MMU has register retention */
 #define KGSL_MMU_RETENTION  BIT(1)
+/* MMU requires the TLB to be flushed on map */
 #define KGSL_MMU_FLUSH_TLB_ON_MAP BIT(2)
+/* MMU uses global pagetable */
 #define KGSL_MMU_GLOBAL_PAGETABLE BIT(3)
+/* MMU uses hypervisor for content protection */
 #define KGSL_MMU_HYP_SECURE_ALLOC BIT(4)
+/* Force 32 bit, even if the MMU can do 64 bit */
 #define KGSL_MMU_FORCE_32BIT BIT(5)
+/* 64 bit address is live */
 #define KGSL_MMU_64BIT BIT(6)
+/* MMU can do coherent hardware table walks */
 #define KGSL_MMU_COHERENT_HTW BIT(7)
+/* The MMU supports non-contigious pages */
 #define KGSL_MMU_PAGED BIT(8)
+/* The device requires a guard page */
 #define KGSL_MMU_NEED_GUARD_PAGE BIT(9)
 
+/**
+ * struct kgsl_mmu - Master definition for KGSL MMU devices
+ * @flags: MMU device flags
+ * @type: Type of MMU that is attached
+ * @defaultpagetable: Default pagetable object for the MMU
+ * @securepagetable: Default secure pagetable object for the MMU
+ * @mmu_ops: Function pointers for the MMU sub-type
+ * @secured: True if the MMU needs to be secured
+ * @feature: Static list of MMU features
+ * @secure_aligned_mask: Mask that secure buffers need to be aligned to
+ * @priv: Union of sub-device specific members
+ */
 struct kgsl_mmu {
 	unsigned long flags;
 	enum kgsl_mmutype type;
@@ -202,6 +230,11 @@ int kgsl_mmu_unmap_offset(struct kgsl_pagetable *pagetable,
 
 struct kgsl_memdesc *kgsl_mmu_get_qdss_global_entry(struct kgsl_device *device);
 
+/*
+ * Static inline functions of MMU that simply call the SMMU specific
+ * function using a function pointer. These functions can be thought
+ * of as wrappers around the actual function
+ */
 
 #define MMU_OP_VALID(_mmu, _field) \
 	(((_mmu) != NULL) && \
@@ -266,6 +299,15 @@ static inline void kgsl_mmu_disable_clk(struct kgsl_mmu *mmu)
 		mmu->mmu_ops->mmu_disable_clk(mmu);
 }
 
+/*
+ * kgsl_mmu_get_reg_ahbaddr() - Calls the mmu specific function pointer to
+ * return the address that GPU can use to access register
+ * @mmu:		Pointer to the device mmu
+ * @ctx_id:		The MMU HW context ID
+ * @reg:		Register whose address is to be returned
+ *
+ * Returns the ahb address of reg else 0
+ */
 static inline unsigned int kgsl_mmu_get_reg_ahbaddr(struct kgsl_mmu *mmu,
 				int ctx_id, unsigned int reg)
 {
@@ -350,10 +392,10 @@ static inline bool kgsl_mmu_bus_secured(struct device *dev)
 #else
 static inline bool kgsl_mmu_bus_secured(struct device *dev)
 {
-	
+	/* ARM driver contains all context banks on single bus */
 	return true;
 }
-#endif 
+#endif /* CONFIG_ARM_SMMU */
 static inline struct bus_type *kgsl_mmu_get_bus(struct device *dev)
 {
 	return msm_iommu_get_bus(dev);
@@ -365,7 +407,7 @@ static inline struct device *kgsl_mmu_get_ctx(const char *name)
 #else
 static inline bool kgsl_mmu_bus_secured(struct device *dev)
 {
-	
+	/*ARM driver contains all context banks on single bus */
 	return true;
 }
 
@@ -379,4 +421,4 @@ static inline struct device *kgsl_mmu_get_ctx(const char *name)
 }
 #endif
 
-#endif 
+#endif /* __KGSL_MMU_H */

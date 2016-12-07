@@ -21,6 +21,7 @@
 #include "sdcardfs.h"
 #include <linux/fs_struct.h>
 
+/* Do not directly use this function. Use OVERRIDE_CRED() instead. */
 const struct cred * override_fsids(struct sdcardfs_sb_info* sbi)
 {
 	struct cred * cred;
@@ -38,6 +39,7 @@ const struct cred * override_fsids(struct sdcardfs_sb_info* sbi)
 	return old_cred;
 }
 
+/* Do not directly use this function, use REVERT_CRED() instead. */
 void revert_fsids(const struct cred * old_cred)
 {
 	const struct cred * cur_cred;
@@ -66,7 +68,7 @@ static int sdcardfs_create(struct inode *dir, struct dentry *dentry,
 		goto out_eacces;
 	}
 
-	
+	/* save current_cred and override it */
 	OVERRIDE_CRED(SDCARDFS_SB(dir->i_sb), saved_cred);
 
 	sdcardfs_get_lower_path(dentry, &lower_path);
@@ -172,7 +174,7 @@ static int sdcardfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto out_eacces;
 	}
 
-	
+	/* save current_cred and override it */
 	OVERRIDE_CRED(SDCARDFS_SB(dir->i_sb), saved_cred);
 
 	sdcardfs_get_lower_path(dentry, &lower_path);
@@ -185,6 +187,13 @@ static int sdcardfs_unlink(struct inode *dir, struct dentry *dentry)
 		goto out_unlock;
 	err = vfs_unlink(lower_dir_inode, lower_dentry, NULL);
 
+	/*
+	 * Note: unlinking on top of NFS can cause silly-renamed files.
+	 * Trying to delete such files results in EBUSY from NFS
+	 * below.  Silly-renamed files will get deleted by NFS later on, so
+	 * we just need to detect them here and treat such EBUSY errors as
+	 * if the upper file was successfully deleted.
+	 */
 	if (err == -EBUSY && lower_dentry->d_flags & DCACHE_NFSFS_RENAMED)
 		err = 0;
 	if (err)
@@ -194,7 +203,7 @@ static int sdcardfs_unlink(struct inode *dir, struct dentry *dentry)
 	set_nlink(dentry->d_inode,
 		  sdcardfs_lower_inode(dentry->d_inode)->i_nlink);
 	dentry->d_inode->i_ctime = dir->i_ctime;
-	d_drop(dentry); 
+	d_drop(dentry); /* this is needed, else LTP fails (VFS won't do it) */
 out:
 	mnt_drop_write(lower_path.mnt);
 out_unlock:
@@ -281,17 +290,17 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 		goto out_eacces;
 	}
 
-	
+	/* save current_cred and override it */
 	OVERRIDE_CRED(SDCARDFS_SB(dir->i_sb), saved_cred);
 
-	
+	/* check disk space */
 	if (!check_min_free_space(dentry, 0, 1)) {
 		printk(KERN_INFO "sdcardfs: No minimum free space.\n");
 		err = -ENOSPC;
 		goto out_revert;
 	}
 
-	
+	/* the lower_dentry is negative here */
 	sdcardfs_get_lower_path(dentry, &lower_path);
 	lower_dentry = lower_path.dentry;
 	lower_parent_dentry = lock_parent(lower_dentry);
@@ -335,8 +344,15 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 
 		err = setup_obb_dentry(dentry, &lower_path);
 		if(err) {
+			/* if the sbi->obbpath is not available, the lower_path won't be
+			 * changed by setup_obb_dentry() but the lower path is saved to
+			 * its orig_path. this dentry will be revalidated later.
+			 * but now, the lower_path should be NULL */
 			sdcardfs_put_reset_lower_path(dentry);
 
+			/* the newly created lower path which saved to its orig_path or
+			 * the lower_path is the base obbpath.
+			 * therefore, an additional path_get is required */
 			path_get(&lower_path);
 		} else
 			make_nomedia_in_obb = 1;
@@ -346,7 +362,7 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 		&& (pi->perm == PERM_ANDROID) && (pi->userid == 0))
 		make_nomedia_in_obb = 1;
 
-	
+	/* When creating /Android/data and /Android/obb, mark them as .nomedia */
 	if (make_nomedia_in_obb ||
 		((pi->perm == PERM_ANDROID) && (!strcasecmp(dentry->d_name.name, "data")))) {
 		set_fs_pwd(current->fs, &lower_path);
@@ -385,9 +401,11 @@ static int sdcardfs_rmdir(struct inode *dir, struct dentry *dentry)
 		goto out_eacces;
 	}
 
-	
+	/* save current_cred and override it */
 	OVERRIDE_CRED(SDCARDFS_SB(dir->i_sb), saved_cred);
 
+	/* sdcardfs_get_real_lower(): in case of remove an user's obb dentry
+	 * the dentry on the original path should be deleted. */
 	sdcardfs_get_real_lower(dentry, &lower_path);
 
 	lower_dentry = lower_path.dentry;
@@ -400,7 +418,7 @@ static int sdcardfs_rmdir(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto out;
 
-	d_drop(dentry);	
+	d_drop(dentry);	/* drop our dentry on success (why not VFS's job?) */
 	if (dentry->d_inode)
 		clear_nlink(dentry->d_inode);
 	fsstack_copy_attr_times(dir, lower_dir_dentry->d_inode);
@@ -455,6 +473,10 @@ out_unlock:
 }
 #endif
 
+/*
+ * The locking rules in sdcardfs_rename are complex.  We could use a simpler
+ * superblock-level name-space lock for renames and copy-ups.
+ */
 static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			 struct inode *new_dir, struct dentry *new_dentry)
 {
@@ -477,7 +499,7 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		goto out_eacces;
 	}
 
-	
+	/* save current_cred and override it */
 	OVERRIDE_CRED(SDCARDFS_SB(old_dir->i_sb), saved_cred);
 
 	sdcardfs_get_real_lower(old_dentry, &lower_old_path);
@@ -488,12 +510,12 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	lower_new_dir_dentry = dget_parent(lower_new_dentry);
 
 	trap = lock_rename(lower_old_dir_dentry, lower_new_dir_dentry);
-	
+	/* source should not be ancestor of target */
 	if (trap == lower_old_dentry) {
 		err = -EINVAL;
 		goto out;
 	}
-	
+	/* target should not be ancestor of source */
 	if (trap == lower_new_dentry) {
 		err = -ENOTEMPTY;
 		goto out;
@@ -512,7 +534,7 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (err)
 		goto out_err;
 
-	
+	/* Copy attrs from lower dir, but i_uid/i_gid */
 	sdcardfs_copy_and_fix_attrs(new_dir, lower_new_dir_dentry->d_inode);
 	fsstack_copy_inode_size(new_dir, lower_new_dir_dentry->d_inode);
 
@@ -520,6 +542,9 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		sdcardfs_copy_and_fix_attrs(old_dir, lower_old_dir_dentry->d_inode);
 		fsstack_copy_inode_size(old_dir, lower_old_dir_dentry->d_inode);
 
+		/* update the derived permission of the old_dentry
+		 * with its new parent
+		 */
 		new_parent = dget_parent(new_dentry);
 		if(new_parent) {
 			if(old_dentry->d_inode) {
@@ -552,7 +577,7 @@ static int sdcardfs_readlink(struct dentry *dentry, char __user *buf, int bufsiz
 	int err;
 	struct dentry *lower_dentry;
 	struct path lower_path;
-	
+	/* XXX readlink does not requires overriding credential */
 
 	sdcardfs_get_lower_path(dentry, &lower_path);
 	lower_dentry = lower_path.dentry;
@@ -581,14 +606,14 @@ static void *sdcardfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 	int len = PAGE_SIZE, err;
 	mm_segment_t old_fs;
 
-	
+	/* This is freed by the put_link method assuming a successful call. */
 	buf = kmalloc(len, GFP_KERNEL);
 	if (!buf) {
 		buf = ERR_PTR(-ENOMEM);
 		goto out;
 	}
 
-	
+	/* read the symlink, and then we will follow it */
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 	err = sdcardfs_readlink(dentry, buf, len);
@@ -619,10 +644,27 @@ static int sdcardfs_permission(struct inode *inode, int mask)
 		}
 	}
 
+	/*
+	 * Permission check on sdcardfs inode.
+	 * Calling process should have AID_SDCARD_RW permission
+	 */
 	err = generic_permission(inode, mask);
 
+	/* XXX
+	 * Original sdcardfs code calls inode_permission(lower_inode,.. )
+	 * for checking inode permission. But doing such things here seems
+	 * duplicated work, because the functions called after this func,
+	 * such as vfs_create, vfs_unlink, vfs_rename, and etc,
+	 * does exactly same thing, i.e., they calls inode_permission().
+	 * So we just let they do the things.
+	 * If there are any security hole, just uncomment following if block.
+	 */
 #if 0
 	if (!err) {
+		/*
+		 * Permission check on lower_inode(=EXT4).
+		 * we check it with AID_MEDIA_RW permission
+		 */
 		struct inode *lower_inode;
 		OVERRIDE_CRED(SDCARDFS_SB(inode->sb));
 
@@ -649,11 +691,16 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 
 	inode = dentry->d_inode;
 
+	/*
+	 * Check if user has permission to change inode.  We don't check if
+	 * this user can change the lower inode: that should happen when
+	 * calling notify_change on the lower inode.
+	 */
 	err = inode_change_ok(inode, ia);
 
-	
+	/* no vfs_XXX operations required, cred overriding will be skipped. wj*/
 	if (!err) {
-		
+		/* check the Android group ID */
 		parent = dget_parent(dentry);
 		if(!check_caller_access_to_name(parent->d_inode, dentry->d_name.name)) {
 			printk(KERN_INFO "%s: need to check the caller's gid in packages.list\n"
@@ -672,13 +719,21 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 	lower_dentry = lower_path.dentry;
 	lower_inode = sdcardfs_lower_inode(inode);
 
-	
+	/* prepare our own lower struct iattr (with the lower file) */
 	memcpy(&lower_ia, ia, sizeof(lower_ia));
 	if (ia->ia_valid & ATTR_FILE)
 		lower_ia.ia_file = sdcardfs_lower_file(ia->ia_file);
 
 	lower_ia.ia_valid &= ~(ATTR_UID | ATTR_GID | ATTR_MODE);
 
+	/*
+	 * If shrinking, first truncate upper level to cancel writing dirty
+	 * pages beyond the new eof; and also if its' maxbytes is more
+	 * limiting (fail with -EFBIG before making any change to the lower
+	 * level).  There is no need to vmtruncate the upper level
+	 * afterwards in the other cases: we fsstack_copy_inode_size from
+	 * the lower level.
+	 */
 	if (current->mm)
 		down_write(&current->mm->mmap_sem);
 	if (ia->ia_valid & ATTR_SIZE) {
@@ -691,12 +746,21 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 		truncate_setsize(inode, ia->ia_size);
 	}
 
+	/*
+	 * mode change is for clearing setuid/setgid bits. Allow lower fs
+	 * to interpret this in its own way.
+	 */
 	if (lower_ia.ia_valid & (ATTR_KILL_SUID | ATTR_KILL_SGID))
 		lower_ia.ia_valid &= ~ATTR_MODE;
 
-	
+	/* notify the (possibly copied-up) lower inode */
+	/*
+	 * Note: we use lower_dentry->d_inode, because lower_inode may be
+	 * unlinked (no inode->i_sb and i_ino==0.  This happens if someone
+	 * tries to open(), unlink(), then ftruncate() a file.
+	 */
 	mutex_lock(&lower_dentry->d_inode->i_mutex);
-	err = notify_change(lower_dentry, &lower_ia, 
+	err = notify_change(lower_dentry, &lower_ia, /* note: lower_ia */
 			NULL);
 	mutex_unlock(&lower_dentry->d_inode->i_mutex);
 	if (current->mm)
@@ -704,9 +768,14 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 	if (err)
 		goto out;
 
-	
+	/* get attributes from the lower inode and update derived permissions */
 	sdcardfs_copy_and_fix_attrs(inode, lower_inode);
 
+	/*
+	 * Not running fsstack_copy_inode_size(inode, lower_inode), because
+	 * VFS should update our inode size, and notify_change on
+	 * lower_inode should update its size.
+	 */
 
 out:
 	sdcardfs_put_lower_path(dentry, &lower_path);
@@ -753,6 +822,13 @@ static int sdcardfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 const struct inode_operations sdcardfs_symlink_iops = {
 	.permission	= sdcardfs_permission,
 	.setattr	= sdcardfs_setattr,
+	/* XXX Following operations are implemented,
+	 *     but FUSE(sdcard) or FAT does not support them
+	 *     These methods are *NOT* perfectly tested.
+	.readlink	= sdcardfs_readlink,
+	.follow_link	= sdcardfs_follow_link,
+	.put_link	= kfree_put_link,
+	 */
 };
 
 const struct inode_operations sdcardfs_dir_iops = {
@@ -765,6 +841,13 @@ const struct inode_operations sdcardfs_dir_iops = {
 	.rename		= sdcardfs_rename,
 	.setattr	= sdcardfs_setattr,
 	.getattr	= sdcardfs_getattr,
+	/* XXX Following operations are implemented,
+	 *     but FUSE(sdcard) or FAT does not support them
+	 *     These methods are *NOT* perfectly tested.
+	.symlink	= sdcardfs_symlink,
+	.link		= sdcardfs_link,
+	.mknod		= sdcardfs_mknod,
+	 */
 };
 
 const struct inode_operations sdcardfs_main_iops = {

@@ -14,7 +14,7 @@ struct nameidata {
 	struct path	path;
 	struct qstr	last;
 	struct path	root;
-	struct inode	*inode; 
+	struct inode	*inode; /* path.dentry.d_inode */
 	unsigned int	flags;
 	unsigned	seq, m_seq;
 	int		last_type;
@@ -22,8 +22,20 @@ struct nameidata {
 	char *saved_names[MAX_NESTED_LINKS + 1];
 };
 
+/*
+ * Type of the last component on LOOKUP_PARENT
+ */
 enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
 
+/*
+ * The bitmask for a lookup event:
+ *  - follow links at the end
+ *  - require a directory
+ *  - ending slashes ok even for nonexistent files
+ *  - internal "there are more path components" flag
+ *  - dentry cache is untrusted; force a real lookup
+ *  - suppress terminal automount
+ */
 #define LOOKUP_FOLLOW		0x0001
 #define LOOKUP_DIRECTORY	0x0002
 #define LOOKUP_AUTOMOUNT	0x0004
@@ -32,6 +44,9 @@ enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
 #define LOOKUP_REVAL		0x0020
 #define LOOKUP_RCU		0x0040
 
+/*
+ * Intent data
+ */
 #define LOOKUP_OPEN		0x0100
 #define LOOKUP_CREATE		0x0200
 #define LOOKUP_EXCL		0x0400
@@ -88,10 +103,20 @@ static inline void nd_terminate_link(void *name, size_t len, size_t maxlen)
 	((char *) name)[min(len, maxlen)] = '\0';
 }
 
+/**
+ * retry_estale - determine whether the caller should retry an operation
+ * @error: the error that would currently be returned
+ * @flags: flags being used for next lookup attempt
+ *
+ * Check to see if the error code was -ESTALE, and then determine whether
+ * to retry the call based on whether "flags" already has LOOKUP_REVAL set.
+ *
+ * Returns true if the caller should try the operation again.
+ */
 static inline bool
 retry_estale(const long error, const unsigned int flags)
 {
 	return error == -ESTALE && !(flags & LOOKUP_REVAL);
 }
 
-#endif 
+#endif /* _LINUX_NAMEI_H */

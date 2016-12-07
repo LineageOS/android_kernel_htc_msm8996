@@ -33,7 +33,7 @@
 #include "qseecom_kernel.h"
 
 #include <soc/qcom/msm_qmi_interface.h>
-#define QBT1000_SNS_SERVICE_ID		0x138 
+#define QBT1000_SNS_SERVICE_ID		0x138 /* From sns_common_v01.idl */
 #define QBT1000_SNS_SERVICE_VER_ID	1
 #define QBT1000_SNS_INSTANCE_INST_ID	0
 
@@ -45,8 +45,9 @@ static void qbt1000_qmi_clnt_recv_msg(struct work_struct *work);
 #define QBT1000_IN_DEV_NAME "qbt1000_key_input"
 #define QBT1000_IN_DEV_VERSION 0x0100
 
+/* definitions for the TZ_BLSP_MODIFY_OWNERSHIP_ID system call */
 #define TZ_BLSP_MODIFY_OWNERSHIP_ARGINFO    2
-#define TZ_BLSP_MODIFY_OWNERSHIP_SVC_ID     4 
+#define TZ_BLSP_MODIFY_OWNERSHIP_SVC_ID     4 /* resource locking service */
 #define TZ_BLSP_MODIFY_OWNERSHIP_FUNC_ID    3
 
 enum sensor_connection_types {
@@ -54,6 +55,10 @@ enum sensor_connection_types {
 	SSC_SPI,
 };
 
+/*
+ * shared buffer size - init with max value,
+ * user space will provide new value upon tz app load
+ */
 static uint32_t g_app_buf_size = SZ_256K;
 
 struct qbt1000_drvdata {
@@ -84,13 +89,24 @@ struct qbt1000_drvdata {
 };
 #define W_LOCK_DELAY_MS (2000)
 
+/**
+ * get_cmd_rsp_buffers() - Function sets cmd & rsp buffer pointers and
+ *                         aligns buffer lengths
+ * @hdl:	index of qseecom_handle
+ * @cmd:	req buffer - set to qseecom_handle.sbuf
+ * @cmd_len:	ptr to req buffer len
+ * @rsp:	rsp buffer - set to qseecom_handle.sbuf + offset
+ * @rsp_len:	ptr to rsp buffer len
+ *
+ * Return: 0 on success. Error code on failure.
+ */
 static int get_cmd_rsp_buffers(struct qseecom_handle *hdl,
 	void **cmd,
 	uint32_t *cmd_len,
 	void **rsp,
 	uint32_t *rsp_len)
 {
-	
+	/* 64 bytes alignment for QSEECOM */
 	*cmd_len = ALIGN(*cmd_len, 64);
 	*rsp_len = ALIGN(*rsp_len, 64);
 
@@ -103,6 +119,13 @@ static int get_cmd_rsp_buffers(struct qseecom_handle *hdl,
 	return 0;
 }
 
+/**
+ * clocks_on() - Function votes for SPI and AHB clocks to be on and sets
+ *               the clk rate to predetermined value for SPI.
+ * @drvdata:	ptr to driver data
+ *
+ * Return: 0 on success. Error code on failure.
+ */
 static int clocks_on(struct qbt1000_drvdata *drvdata)
 {
 	int rc = 0;
@@ -142,6 +165,12 @@ end:
 	return rc;
 }
 
+/**
+ * clocks_off() - Function votes for SPI and AHB clocks to be off
+ * @drvdata:	ptr to driver data
+ *
+ * Return: None
+ */
 static void clocks_off(struct qbt1000_drvdata *drvdata)
 {
 	int index;
@@ -540,7 +569,7 @@ static void qbt1000_qmi_connect_to_service(struct qbt1000_drvdata *drvdata)
 {
 	int rc = 0;
 
-	
+	/* Create a Local client port for QMI communication */
 	drvdata->qmi_handle = qmi_handle_create(qbt1000_sns_notify, drvdata);
 	if (!drvdata->qmi_handle) {
 		dev_err(drvdata->dev, "%s: QMI client handle alloc failed\n",
@@ -622,6 +651,14 @@ static int qbt1000_set_blsp_ownership(struct qbt1000_drvdata *drvdata,
 	return rc;
 }
 
+/**
+ * qbt1000_open() - Function called when user space opens device.
+ * Successful if driver not currently open and clocks turned on.
+ * @inode:	ptr to inode object
+ * @file:	ptr to file object
+ *
+ * Return: 0 on success. Error code on failure.
+ */
 static int qbt1000_open(struct inode *inode, struct file *file)
 {
 	int rc = 0;
@@ -631,7 +668,7 @@ static int qbt1000_open(struct inode *inode, struct file *file)
 						   qbt1000_cdev);
 	file->private_data = drvdata;
 
-	
+	/* disallowing concurrent opens */
 	if (!atomic_dec_and_test(&drvdata->available)) {
 		atomic_inc(&drvdata->available);
 		return -EBUSY;
@@ -666,13 +703,21 @@ static int qbt1000_open(struct inode *inode, struct file *file)
 	}
 
 out:
-	
+	/* increment atomic counter on failure */
 	if (rc)
 		atomic_inc(&drvdata->available);
 
 	return rc;
 }
 
+/**
+ * qbt1000_release() - Function called when user space closes device.
+ *                     SPI Clocks turn off.
+ * @inode:	ptr to inode object
+ * @file:	ptr to file object
+ *
+ * Return: 0 on success. Error code on failure.
+ */
 static int qbt1000_release(struct inode *inode, struct file *file)
 {
 	struct qbt1000_drvdata *drvdata = file->private_data;
@@ -690,6 +735,16 @@ static int qbt1000_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/**
+ * qbt1000_ioctl() - Function called when user space calls ioctl.
+ * @file:	struct file - not used
+ * @cmd:	cmd identifier:QBT1000_LOAD_APP,QBT1000_UNLOAD_APP,
+ *              QBT1000_SEND_TZCMD
+ * @arg:	ptr to relevant structe: either qbt1000_app or
+ *              qbt1000_send_tz_cmd depending on which cmd is passed
+ *
+ * Return: 0 on success. Error code on failure.
+ */
 static long qbt1000_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 {
 	int rc = 0;
@@ -727,7 +782,7 @@ static long qbt1000_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 			goto end;
 		}
 
-		
+		/* start the TZ app */
 		rc = qseecom_start_app(app.app_handle, app.name, app.size);
 		if (rc == 0) {
 			g_app_buf_size = app.size;
@@ -752,7 +807,7 @@ static long qbt1000_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 			goto end;
 		}
 
-		
+		/* if the app hasn't been loaded already, return err */
 		if (!app.app_handle) {
 			dev_err(drvdata->dev, "%s: App not loaded\n",
 				__func__);
@@ -788,7 +843,7 @@ static long qbt1000_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 			goto end;
 		}
 
-		
+		/* if the app hasn't been loaded already, return err */
 		if (!tzcmd.app_handle) {
 			dev_err(drvdata->dev, "%s: App not loaded\n",
 				__func__);
@@ -796,7 +851,7 @@ static long qbt1000_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 			goto end;
 		}
 
-		
+		/* init command and response buffers and align lengths */
 		aligned_cmd_len = tzcmd.req_buf_len;
 		aligned_rsp_len = tzcmd.rsp_buf_len;
 		rc = get_cmd_rsp_buffers(tzcmd.app_handle,
@@ -816,7 +871,7 @@ static long qbt1000_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 			goto end;
 		}
 
-		
+		/* send cmd to TZ */
 		rc = qseecom_send_command(tzcmd.app_handle,
 			aligned_cmd,
 			aligned_cmd_len,
@@ -824,7 +879,7 @@ static long qbt1000_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 			aligned_rsp_len);
 
 		if (rc == 0) {
-			
+			/* copy rsp buf back to user space unaligned buffer */
 			rc = copy_to_user((void __user *)tzcmd.rsp_buf,
 				 aligned_rsp, tzcmd.rsp_buf_len);
 			if (rc != 0) {
@@ -928,6 +983,14 @@ err_alloc:
 	return ret;
 }
 
+/**
+ * qbt1000_create_input_device() - Function allocates an input
+ * device, configures it for key events and registers it
+ *
+ * @drvdata:	ptr to driver data
+ *
+ * Return: 0 on success. Error code on failure.
+ */
 int qbt1000_create_input_device(struct qbt1000_drvdata *drvdata)
 {
 	int rc = 0;
@@ -950,7 +1013,7 @@ int qbt1000_create_input_device(struct qbt1000_drvdata *drvdata)
 	drvdata->in_dev->evbit[0] = BIT_MASK(EV_KEY) |  BIT_MASK(EV_ABS);
 	drvdata->in_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 
-	
+	/* enable all 256 key events except to key 00 which is "KEY_RESERVED" */
 	memset(drvdata->in_dev->keybit, 0xFE,
 		   BIT_WORD(0x100)*sizeof(unsigned long));
 
@@ -990,7 +1053,7 @@ static int qbt1000_read_spi_conn_properties(struct device_node *node,
 
 	drvdata->sensor_conn_type = SPI;
 
-	
+	/* obtain number of clocks from hw config */
 	clkcnt = of_property_count_strings(node, "clock-names");
 	if (IS_ERR_VALUE(drvdata->clock_count)) {
 			dev_err(drvdata->dev, "%s: Failed to get clock names\n",
@@ -998,14 +1061,14 @@ static int qbt1000_read_spi_conn_properties(struct device_node *node,
 			return -EINVAL;
 	}
 
-	
+	/* sanity check for max clock count */
 	if (clkcnt > 16) {
 			dev_err(drvdata->dev, "%s: Invalid clock count %d\n",
 				__func__, clkcnt);
 			return -EINVAL;
 	}
 
-	
+	/* alloc mem for clock array - auto free if probe fails */
 	drvdata->clock_count = clkcnt;
 	drvdata->clocks = devm_kzalloc(drvdata->dev,
 				sizeof(struct clk *) * drvdata->clock_count,
@@ -1017,7 +1080,7 @@ static int qbt1000_read_spi_conn_properties(struct device_node *node,
 			return -ENOMEM;
 	}
 
-	
+	/* load clock names */
 	for (index = 0; index < drvdata->clock_count; index++) {
 			of_property_read_string_index(node,
 					"clock-names",
@@ -1037,7 +1100,7 @@ static int qbt1000_read_spi_conn_properties(struct device_node *node,
 				drvdata->root_clk_idx = index;
 	}
 
-	
+	/* read clock frequency */
 	if (of_property_read_u32(node, "clock-frequency", &rate) == 0)
 		drvdata->frequency = rate;
 
@@ -1055,27 +1118,27 @@ static int qbt1000_read_ssc_spi_conn_properties(struct device_node *node,
 
 	drvdata->sensor_conn_type = SSC_SPI;
 
-	
+	/* read SPI port id */
 	if (of_property_read_u32(node, "qcom,spi-port-id",
 				 &drvdata->ssc_spi_port) != 0)
 			return -EINVAL;
 
-	
+	/* read SPI port slave index */
 	if (of_property_read_u32(node, "qcom,spi-port-slave-index",
 				 &drvdata->ssc_spi_port_slave_index) != 0)
 		return -EINVAL;
 
-	
+	/* read TZ subsys id */
 	if (of_property_read_u32(node, "qcom,tz-subsys-id",
 				 &drvdata->tz_subsys_id) != 0)
 		return -EINVAL;
 
-	
+	/* read SSC subsys id */
 	if (of_property_read_u32(node, "qcom,ssc-subsys-id",
 				 &drvdata->ssc_subsys_id) != 0)
 		return -EINVAL;
 
-	
+	/* read clock frequency */
 	if (of_property_read_u32(node, "clock-frequency", &rate) != 0)
 		return -EINVAL;
 
@@ -1098,6 +1161,12 @@ static int qbt1000_read_ssc_spi_conn_properties(struct device_node *node,
 	return rc;
 }
 
+/**
+ * qbt1000_probe() - Function loads hardware config from device tree
+ * @pdev:	ptr to platform device object
+ *
+ * Return: 0 on success. Error code on failure.
+ */
 static int qbt1000_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1113,7 +1182,7 @@ static int qbt1000_probe(struct platform_device *pdev)
 	drvdata->dev = &pdev->dev;
 	platform_set_drvdata(pdev, drvdata);
 
-	
+	/* get child count */
 	child_node_cnt = of_get_child_count(pdev->dev.of_node);
 	if (child_node_cnt != 1) {
 		dev_err(drvdata->dev, "%s: Invalid number of child nodes %d\n",
@@ -1125,7 +1194,7 @@ static int qbt1000_probe(struct platform_device *pdev)
 	for_each_child_of_node(pdev->dev.of_node, child_node) {
 		if (!of_node_cmp(child_node->name,
 				 "qcom,fingerprint-sensor-spi-conn")) {
-			
+			/* sensor connected to regular SPI port */
 			rc = qbt1000_read_spi_conn_properties(child_node,
 							      drvdata);
 			if (rc != 0) {
@@ -1136,7 +1205,7 @@ static int qbt1000_probe(struct platform_device *pdev)
 			}
 		} else if (!of_node_cmp(child_node->name,
 				"qcom,fingerprint-sensor-ssc-spi-conn")) {
-			
+			/* sensor connected to SSC SPI port */
 			rc = qbt1000_read_ssc_spi_conn_properties(child_node,
 								  drvdata);
 			if (rc != 0) {
@@ -1206,6 +1275,12 @@ static int qbt1000_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct qbt1000_drvdata *drvdata = platform_get_drvdata(pdev);
 
+	/*
+	 * Returning an error code if driver currently making a TZ call.
+	 * Note: The purpose of this driver is to ensure that the clocks are on
+	 * while making a TZ call. Hence the clock check to determine if the
+	 * driver will allow suspend to occur.
+	 */
 	if (!mutex_trylock(&drvdata->mutex))
 		return -EBUSY;
 	if (((drvdata->sensor_conn_type == SPI) && (drvdata->clock_state)) ||

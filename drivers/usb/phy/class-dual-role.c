@@ -240,23 +240,29 @@ void *dual_role_get_drvdata(struct dual_role_phy_instance *dual_role)
 }
 EXPORT_SYMBOL_GPL(dual_role_get_drvdata);
 
+/***************** Device attribute functions **************************/
 
+/* port type */
 static char *supported_modes_text[] = {
 	"ufp dfp", "dfp", "ufp"
 };
 
+/* current mode */
 static char *mode_text[] = {
 	"ufp", "dfp", "none"
 };
 
+/* Power role */
 static char *pr_text[] = {
 	"source", "sink", "none"
 };
 
+/* Data role */
 static char *dr_text[] = {
 	"host", "device", "none"
 };
 
+/* Vconn supply */
 static char *vconn_supply_text[] = {
 	"n", "y"
 };
@@ -499,6 +505,7 @@ out:
 	return ret;
 }
 
+/******************* Module Init ***********************************/
 
 static int __init dual_role_class_init(void)
 {

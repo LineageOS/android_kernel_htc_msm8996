@@ -48,6 +48,7 @@ static DEFINE_MUTEX(msm_clock_init_lock);
 LIST_HEAD(orphan_clk_list);
 static LIST_HEAD(clk_notifier_list);
 
+/* Find the voltage level required for a given rate. */
 int find_vdd_level(struct clk *clk, unsigned long rate)
 {
 	int level;
@@ -65,6 +66,7 @@ int find_vdd_level(struct clk *clk, unsigned long rate)
 	return level;
 }
 
+/* Update voltage level given the current votes. */
 static int update_vdd(struct clk_vdd_class *vdd_class)
 {
 	int level, rc = 0, i, ignore;
@@ -77,7 +79,7 @@ static int update_vdd(struct clk_vdd_class *vdd_class)
 	int cur_base = cur_lvl * n_reg;
 	int new_base;
 
-	
+	/* aggregate votes */
 	for (level = max_lvl; level > 0; level--)
 		if (vdd_class->level_votes[level])
 			break;
@@ -115,6 +117,10 @@ static int update_vdd(struct clk_vdd_class *vdd_class)
 	return rc;
 
 enable_disable_fail:
+	/*
+	 * set_optimum_mode could use voltage to derive mode.  Restore
+	 * previous voltage setting for r[i] first.
+	 */
 	if (ua) {
 		regulator_set_voltage(r[i], uv[cur_base + i],
 			vdd_class->use_max_uV ? INT_MAX : uv[max_lvl + i]);
@@ -139,6 +145,7 @@ set_voltage_fail:
 	return rc;
 }
 
+/* Vote for a voltage level. */
 int vote_vdd_level(struct clk_vdd_class *vdd_class, int level)
 {
 	int rc;
@@ -156,6 +163,7 @@ int vote_vdd_level(struct clk_vdd_class *vdd_class, int level)
 	return rc;
 }
 
+/* Remove vote for a voltage level. */
 int unvote_vdd_level(struct clk_vdd_class *vdd_class, int level)
 {
 	int rc = 0;
@@ -177,6 +185,7 @@ out:
 	return rc;
 }
 
+/* Vote for a voltage level corresponding to a clock's rate. */
 static int vote_rate_vdd(struct clk *clk, unsigned long rate)
 {
 	int level;
@@ -191,6 +200,7 @@ static int vote_rate_vdd(struct clk *clk, unsigned long rate)
 	return vote_vdd_level(clk->vdd_class, level);
 }
 
+/* Remove vote for a voltage level corresponding to a clock's rate. */
 static void unvote_rate_vdd(struct clk *clk, unsigned long rate)
 {
 	int level;
@@ -205,6 +215,7 @@ static void unvote_rate_vdd(struct clk *clk, unsigned long rate)
 	unvote_vdd_level(clk->vdd_class, level);
 }
 
+/* Check if the rate is within the voltage limits of the clock. */
 bool is_rate_valid(struct clk *clk, unsigned long rate)
 {
 	int level;
@@ -216,6 +227,32 @@ bool is_rate_valid(struct clk *clk, unsigned long rate)
 	return level >= 0;
 }
 
+/**
+ * __clk_pre_reparent() - Set up the new parent before switching to it and
+ * prevent the enable state of the child clock from changing.
+ * @c: The child clock that's going to switch parents
+ * @new: The new parent that the child clock is going to switch to
+ * @flags: Pointer to scratch space to save spinlock flags
+ *
+ * Cannot be called from atomic context.
+ *
+ * Use this API to set up the @new parent clock to be able to support the
+ * current prepare and enable state of the child clock @c. Once the parent is
+ * set up, the child clock can safely switch to it.
+ *
+ * The caller shall grab the prepare_lock of clock @c before calling this API
+ * and only release it after calling __clk_post_reparent() for clock @c (or
+ * if this API fails). This is necessary to prevent the prepare state of the
+ * child clock @c from changing while the reparenting is in progress. Since
+ * this API takes care of grabbing the enable lock of @c, only atomic
+ * operation are allowed between calls to __clk_pre_reparent and
+ * __clk_post_reparent()
+ *
+ * The scratch space pointed to by @flags should not be altered before
+ * calling __clk_post_reparent() for clock @c.
+ *
+ * See also: __clk_post_reparent()
+ */
 int __clk_pre_reparent(struct clk *c, struct clk *new, unsigned long *flags)
 {
 	int rc;
@@ -238,6 +275,34 @@ int __clk_pre_reparent(struct clk *c, struct clk *new, unsigned long *flags)
 	return 0;
 }
 
+/**
+ * __clk_post_reparent() - Release requirements on old parent after switching
+ * away from it and allow changes to the child clock's enable state.
+ * @c:   The child clock that switched parents
+ * @old: The old parent that the child clock switched away from or the new
+ *	 parent of a failed reparent attempt.
+ * @flags: Pointer to scratch space where spinlock flags were saved
+ *
+ * Cannot be called from atomic context.
+ *
+ * This API works in tandem with __clk_pre_reparent. Use this API to
+ * - Remove prepare and enable requirements from the @old parent after
+ *   switching away from it
+ * - Or, undo the effects of __clk_pre_reparent() after a failed attempt to
+ *   change parents
+ *
+ * The caller shall release the prepare_lock of @c that was grabbed before
+ * calling __clk_pre_reparent() only after this API is called (or if
+ * __clk_pre_reparent() fails). This is necessary to prevent the prepare
+ * state of the child clock @c from changing while the reparenting is in
+ * progress. Since this API releases the enable lock of @c, the limit to
+ * atomic operations set by __clk_pre_reparent() is no longer present.
+ *
+ * The scratch space pointed to by @flags shall not be altered since the call
+ * to  __clk_pre_reparent() for clock @c.
+ *
+ * See also: __clk_pre_reparent()
+ */
 void __clk_post_reparent(struct clk *c, struct clk *old, unsigned long *flags)
 {
 	if (c->count)
@@ -291,6 +356,9 @@ err_prepare_depends:
 }
 EXPORT_SYMBOL(clk_prepare);
 
+/*
+ * Standard clock functions defined in include/linux/clk.h
+ */
 int clk_enable(struct clk *clk)
 {
 	int ret = 0;
@@ -411,6 +479,20 @@ int clk_reset(struct clk *clk, enum clk_reset_action action)
 }
 EXPORT_SYMBOL(clk_reset);
 
+/**
+ * __clk_notify - call clk notifier chain
+ * @clk: struct clk * that is changing rate
+ * @msg: clk notifier type (see include/linux/clk.h)
+ * @old_rate: old clk rate
+ * @new_rate: new clk rate
+ *
+ * Triggers a notifier call chain on the clk rate-change notification
+ * for 'clk'.  Passes a pointer to the struct clk and the previous
+ * and current rates to the notifier callback.  Intended to be called by
+ * internal clock code only.  Returns NOTIFY_DONE from the last driver
+ * called if all went well, or NOTIFY_STOP or NOTIFY_BAD immediately if
+ * a driver returns that.
+ */
 static int __clk_notify(struct clk *clk, unsigned long msg,
 		unsigned long old_rate, unsigned long new_rate)
 {
@@ -433,7 +515,44 @@ static int __clk_notify(struct clk *clk, unsigned long msg,
 	return ret;
 }
 
+/*
+ * clk rate change notifiers
+ *
+ * Note - The following notifier functionality is a verbatim copy
+ * of the implementation in the common clock framework, copied here
+ * until MSM switches to the common clock framework.
+ */
 
+/**
+ * msm_clk_notif_register - add a clk rate change notifier
+ * @clk: struct clk * to watch
+ * @nb: struct notifier_block * with callback info
+ *
+ * Request notification when clk's rate changes.  This uses an SRCU
+ * notifier because we want it to block and notifier unregistrations are
+ * uncommon.  The callbacks associated with the notifier must not
+ * re-enter into the clk framework by calling any top-level clk APIs;
+ * this will cause a nested prepare_lock mutex.
+ *
+ * Pre-change notifier callbacks will be passed the current, pre-change
+ * rate of the clk via struct msm_clk_notifier_data.old_rate.  The new,
+ * post-change rate of the clk is passed via struct
+ * msm_clk_notifier_data.new_rate.
+ *
+ * Post-change notifiers will pass the now-current, post-change rate of
+ * the clk in both struct msm_clk_notifier_data.old_rate and struct
+ * msm_clk_notifier_data.new_rate.
+ *
+ * Abort-change notifiers are effectively the opposite of pre-change
+ * notifiers: the original pre-change clk rate is passed in via struct
+ * msm_clk_notifier_data.new_rate and the failed post-change rate is passed
+ * in via struct msm_clk_notifier_data.old_rate.
+ *
+ * msm_clk_notif_register() must be called from non-atomic context.
+ * Returns -EINVAL if called with null arguments, -ENOMEM upon
+ * allocation failure; otherwise, passes along the return value of
+ * srcu_notifier_chain_register().
+ */
 int msm_clk_notif_register(struct clk *clk, struct notifier_block *nb)
 {
 	struct msm_clk_notifier *cn;
@@ -444,12 +563,12 @@ int msm_clk_notif_register(struct clk *clk, struct notifier_block *nb)
 
 	mutex_lock(&clk->prepare_lock);
 
-	
+	/* search the list of notifiers for this clk */
 	list_for_each_entry(cn, &clk_notifier_list, node)
 		if (cn->clk == clk)
 			break;
 
-	
+	/* if clk wasn't in the notifier list, allocate new clk_notifier */
 	if (cn->clk != clk) {
 		cn = kzalloc(sizeof(struct msm_clk_notifier), GFP_KERNEL);
 		if (!cn)
@@ -471,6 +590,17 @@ out:
 	return ret;
 }
 
+/**
+ * msm_clk_notif_unregister - remove a clk rate change notifier
+ * @clk: struct clk *
+ * @nb: struct notifier_block * with callback info
+ *
+ * Request no further notification for changes to 'clk' and frees memory
+ * allocated in msm_clk_notifier_register.
+ *
+ * Returns -EINVAL if called with null arguments; otherwise, passes
+ * along the return value of srcu_notifier_chain_unregister().
+ */
 int msm_clk_notif_unregister(struct clk *clk, struct notifier_block *nb)
 {
 	struct msm_clk_notifier *cn = NULL;
@@ -490,7 +620,7 @@ int msm_clk_notif_unregister(struct clk *clk, struct notifier_block *nb)
 
 		clk->notifier_count--;
 
-		
+		/* XXX the notifier code should handle this better */
 		if (!cn->notifier_head.head) {
 			srcu_cleanup_notifier_head(&cn->notifier_head);
 			list_del(&cn->node);
@@ -533,7 +663,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 
 	mutex_lock(&clk->prepare_lock);
 
-	
+	/* Return early if the rate isn't going to change */
 	if (clk->rate == rate && !(clk->flags & CLKFLAG_NO_RATE_CACHE))
 		goto out;
 
@@ -555,7 +685,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 			goto abort_set_rate;
 	}
 
-	
+	/* Enforce vdd requirements for target frequency. */
 	if (clk->prepare_count) {
 		rc = vote_rate_vdd(clk, rate);
 		if (rc)
@@ -567,7 +697,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 		goto err_set_rate;
 	clk->rate = rate;
 
-	
+	/* Release vdd requirements for starting frequency. */
 	if (clk->prepare_count)
 		unvote_rate_vdd(clk, start_rate);
 
@@ -588,7 +718,7 @@ err_set_rate:
 	if (clk->prepare_count)
 		unvote_rate_vdd(clk, rate);
 err_vote_vdd:
-	
+	/* clk->rate is still the old rate. So, pass the new rate instead. */
 	if (clk->ops->post_set_rate)
 		clk->ops->post_set_rate(clk, rate);
 	goto out;
@@ -842,7 +972,7 @@ static int __handoff_clk(struct clk *clk)
 			clk->dbg_name);
 
 	clk->flags |= CLKFLAG_INIT_DONE;
-	
+	/* if the clk is on orphan list, remove it */
 	list_del_init(&clk->list);
 	clock_debug_register(clk);
 
@@ -863,6 +993,14 @@ err:
 	return rc;
 }
 
+/**
+ * msm_clock_register() - Register additional clock tables
+ * @table: Table of clocks
+ * @size: Size of @table
+ *
+ * Upon return, clock APIs may be used to control clocks registered using this
+ * function.
+ */
 int msm_clock_register(struct clk_lookup *table, size_t size)
 {
 	int n = 0, rc;
@@ -873,9 +1011,20 @@ int msm_clock_register(struct clk_lookup *table, size_t size)
 
 	init_sibling_lists(table, size);
 
+	/*
+	 * Enable regulators and temporarily set them up at maximum voltage.
+	 * Once all the clocks have made their respective vote, remove this
+	 * temporary vote. The removing of the temporary vote is done at
+	 * late_init, by which time we assume all the clocks would have been
+	 * handed off.
+	 */
 	for (n = 0; n < size; n++)
 		vdd_class_init(table[n].clk->vdd_class);
 
+	/*
+	 * Detect and preserve initial clock state until clock_late_init() or
+	 * a driver explicitly changes it, whichever is first.
+	 */
 
 	for (n = 0; n < size; n++)
 		__handoff_clk(table[n].clk);
@@ -890,7 +1039,7 @@ int msm_clock_register(struct clk_lookup *table, size_t size)
 
 	do {
 		found_more_clks = false;
-		
+		/* clear cached __handoff_clk return values */
 		list_for_each_entry_safe(c, safe, &orphan_clk_list, list)
 			c->flags &= ~CLKFLAG_EPROBE_DEFER;
 
@@ -982,6 +1131,10 @@ static int get_voltage(struct clk *clk, unsigned long rate,
 	struct clk_vdd_class *vdd;
 	int uv, level, corner;
 
+	/*
+	 * Use the first regulator in the vdd class
+	 * for the OPP table.
+	 */
 	vdd = clk->vdd_class;
 	if (vdd->num_regulators > 1) {
 		corner = vdd->vdd_uv[vdd->num_regulators * n];
@@ -1047,7 +1200,7 @@ static void populate_clock_opp_table(struct device_node *np,
 	unsigned long rate, ret = 0;
 	bool store_vcorner;
 
-	
+	/* Iterate across all clocks in the clock controller */
 	for (i = 0; i < size; i++) {
 		n = 1;
 		rate = 0;
@@ -1110,6 +1263,11 @@ static void populate_clock_opp_table(struct device_node *np,
 
 		count = len/sizeof(u32);
 		while (1) {
+			/*
+			 * Calling clk_round_rate will not work for all clocks
+			 * (eg. mux_div). Use their fmax values instead to get
+			 *  list of all available frequencies.
+			 */
 			if (clk->ops->list_rate) {
 				ret = clk_round_rate(clk, rate + 1);
 				if (ret < 0) {
@@ -1117,6 +1275,11 @@ static void populate_clock_opp_table(struct device_node *np,
 							clk->dbg_name);
 					goto err_round_rate;
 				}
+				/*
+				 * If clk_round_rate give the same value on
+				 * consecutive iterations, exit loop since
+				 * we're at the maximum clock frequency.
+				 */
 				if (rate == ret)
 					break;
 				rate = ret;
@@ -1139,13 +1302,23 @@ static void populate_clock_opp_table(struct device_node *np,
 			n++;
 		}
 err_round_rate:
-		
+		/* If OPP table population was successful, set the flag */
 		if (uv >= 0 && ret >= 0)
 			clk->opp_table_populated = true;
 		kfree(device_list);
 	}
 }
 
+/**
+ * of_msm_clock_register() - Register clock tables with clkdev and with the
+ *			     clock DT framework
+ * @table: Table of clocks
+ * @size: Size of @table
+ * @np: Device pointer corresponding to the clock-provider device
+ *
+ * Upon return, clock APIs may be used to control clocks registered using this
+ * function.
+ */
 int of_msm_clock_register(struct device_node *np, struct clk_lookup *table,
 				size_t size)
 {
@@ -1170,6 +1343,13 @@ int of_msm_clock_register(struct device_node *np, struct clk_lookup *table,
 }
 EXPORT_SYMBOL(of_msm_clock_register);
 
+/**
+ * msm_clock_init() - Register and initialize a clock driver
+ * @data: Driver-specific clock initialization data
+ *
+ * Upon return from this call, clock APIs may be used to control
+ * clocks registered with this API.
+ */
 int __init msm_clock_init(struct clock_init_data *data)
 {
 	if (!data)
@@ -1226,4 +1406,7 @@ static int __init clock_late_init(void)
 
 	return ret;
 }
+/* clock_late_init should run only after all deferred probing
+ * (excluding DLKM probes) has completed.
+ */
 late_initcall_sync(clock_late_init);

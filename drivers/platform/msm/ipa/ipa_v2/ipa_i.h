@@ -114,6 +114,11 @@
 
 #define IPA_EVENT_THRESHOLD 0x10
 
+/*
+ * Due to ZLT issue with USB 3.0 core, IPA BAM threashold need to be set
+ * to max packet size + 1. After setting the threshold, USB core
+ * will not be notified on ZLTs
+ */
 #define IPA_USB_EVENT_THRESHOLD 0x4001
 
 #define IPA_RX_POOL_CEIL 32
@@ -176,6 +181,15 @@ struct ipa_smmu_cb_ctx {
 	u32 va_end;
 };
 
+/**
+ * struct ipa_flt_entry - IPA filtering table entry
+ * @link: entry's link in global filtering enrties list
+ * @rule: filter rule
+ * @cookie: cookie used for validity check
+ * @tbl: filter table
+ * @rt_tbl: routing table
+ * @hw_len: entry's size
+ */
 struct ipa_flt_entry {
 	struct list_head link;
 	struct ipa_flt_rule rule;
@@ -186,6 +200,22 @@ struct ipa_flt_entry {
 	int id;
 };
 
+/**
+ * struct ipa_rt_tbl - IPA routing table
+ * @link: table's link in global routing tables list
+ * @head_rt_rule_list: head of routing rules list
+ * @name: routing table name
+ * @idx: routing table index
+ * @rule_cnt: number of rules in routing table
+ * @ref_cnt: reference counter of routing table
+ * @set: collection of routing tables
+ * @cookie: cookie used for validity check
+ * @in_sys: flag indicating if the table is located in system memory
+ * @sz: the size of the routing table
+ * @curr_mem: current routing tables block in sys memory
+ * @prev_mem: previous routing table block in sys memory
+ * @id: routing table id
+ */
 struct ipa_rt_tbl {
 	struct list_head link;
 	struct list_head head_rt_rule_list;
@@ -202,6 +232,26 @@ struct ipa_rt_tbl {
 	int id;
 };
 
+/**
+ * struct ipa_hdr_entry - IPA header table entry
+ * @link: entry's link in global header table entries list
+ * @hdr: the header
+ * @hdr_len: header length
+ * @name: name of header table entry
+ * @type: l2 header type
+ * @is_partial: flag indicating if header table entry is partial
+ * @is_hdr_proc_ctx: false - hdr entry resides in hdr table,
+ * true - hdr entry resides in DDR and pointed to by proc ctx
+ * @phys_base: physical address of entry in DDR when is_hdr_proc_ctx is true,
+ * else 0
+ * @proc_ctx: processing context header
+ * @offset_entry: entry's offset
+ * @cookie: cookie used for validity check
+ * @ref_cnt: reference counter of routing table
+ * @id: header entry id
+ * @is_eth2_ofst_valid: is eth2_ofst field valid?
+ * @eth2_ofst: offset to start of Ethernet-II/802.3 header
+ */
 struct ipa_hdr_entry {
 	struct list_head link;
 	u8 hdr[IPA_HDR_MAX_SIZE];
@@ -220,6 +270,14 @@ struct ipa_hdr_entry {
 	u16 eth2_ofst;
 };
 
+/**
+ * struct ipa_hdr_tbl - IPA header table
+ * @head_hdr_entry_list: header entries list
+ * @head_offset_list: header offset list
+ * @head_free_offset_list: header free offset list
+ * @hdr_cnt: number of headers
+ * @end: the last header index
+ */
 struct ipa_hdr_tbl {
 	struct list_head head_hdr_entry_list;
 	struct list_head head_offset_list[IPA_HDR_BIN_MAX];
@@ -228,23 +286,52 @@ struct ipa_hdr_tbl {
 	u32 end;
 };
 
+/**
+ * struct ipa_hdr_offset_entry - IPA header offset entry
+ * @link: entry's link in global processing context header offset entries list
+ * @offset: the offset
+ * @bin: bin
+ */
 struct ipa_hdr_proc_ctx_offset_entry {
 	struct list_head link;
 	u32 offset;
 	u32 bin;
 };
 
+/**
+ * struct ipa_hdr_proc_ctx_add_hdr_seq -
+ * IPA processing context header - add header sequence
+ * @hdr_add: add header command
+ * @end: tlv end command (cmd.type must be 0)
+ */
 struct ipa_hdr_proc_ctx_add_hdr_seq {
 	struct ipa_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hdr_proc_ctx_tlv end;
 };
 
+/**
+ * struct ipa_hdr_proc_ctx_add_hdr_cmd_seq -
+ * IPA processing context header - process command sequence
+ * @hdr_add: add header command
+ * @cmd: tlv processing command (cmd.type must be 3)
+ * @end: tlv end command (cmd.type must be 0)
+ */
 struct ipa_hdr_proc_ctx_add_hdr_cmd_seq {
 	struct ipa_hdr_proc_ctx_hdr_add hdr_add;
 	struct ipa_hdr_proc_ctx_tlv cmd;
 	struct ipa_hdr_proc_ctx_tlv end;
 };
 
+/**
+ struct ipa_hdr_proc_ctx_entry - IPA processing context header table entry
+ * @link: entry's link in global header table entries list
+ * @type:
+ * @offset_entry: entry's offset
+ * @hdr: the header
+ * @cookie: cookie used for validity check
+ * @ref_cnt: reference counter of routing table
+ * @id: processing context header entry id
+ */
 struct ipa_hdr_proc_ctx_entry {
 	struct list_head link;
 	enum ipa_hdr_proc_type type;
@@ -255,6 +342,15 @@ struct ipa_hdr_proc_ctx_entry {
 	int id;
 };
 
+/**
+ * struct ipa_hdr_proc_ctx_tbl - IPA processing context header table
+ * @head_proc_ctx_entry_list: header entries list
+ * @head_offset_list: header offset list
+ * @head_free_offset_list: header free offset list
+ * @proc_ctx_cnt: number of processing context headers
+ * @end: the last processing context header index
+ * @start_offset: offset in words of processing context header table
+ */
 struct ipa_hdr_proc_ctx_tbl {
 	struct list_head head_proc_ctx_entry_list;
 	struct list_head head_offset_list[IPA_HDR_PROC_CTX_BIN_MAX];
@@ -264,6 +360,16 @@ struct ipa_hdr_proc_ctx_tbl {
 	u32 start_offset;
 };
 
+/**
+ * struct ipa_flt_tbl - IPA filter table
+ * @head_flt_rule_list: filter rules list
+ * @rule_cnt: number of filter rules
+ * @in_sys: flag indicating if filter table is located in system memory
+ * @sz: the size of the filter table
+ * @end: the last header index
+ * @curr_mem: current filter tables block in sys memory
+ * @prev_mem: previous filter table block in sys memory
+ */
 struct ipa_flt_tbl {
 	struct list_head head_flt_rule_list;
 	u32 rule_cnt;
@@ -274,6 +380,16 @@ struct ipa_flt_tbl {
 	bool sticky_rear;
 };
 
+/**
+ * struct ipa_rt_entry - IPA routing table entry
+ * @link: entry's link in global routing table entries list
+ * @rule: routing rule
+ * @cookie: cookie used for validity check
+ * @tbl: routing table
+ * @hdr: header table
+ * @proc_ctx: processing context table
+ * @hw_len: the length of the table
+ */
 struct ipa_rt_entry {
 	struct list_head link;
 	struct ipa_rt_rule rule;
@@ -285,16 +401,46 @@ struct ipa_rt_entry {
 	int id;
 };
 
+/**
+ * struct ipa_rt_tbl_set - collection of routing tables
+ * @head_rt_tbl_list: collection of routing tables
+ * @tbl_cnt: number of routing tables
+ */
 struct ipa_rt_tbl_set {
 	struct list_head head_rt_tbl_list;
 	u32 tbl_cnt;
 };
 
+/**
+ * struct ipa_ep_cfg_status - status configuration in IPA end-point
+ * @status_en: Determines if end point supports Status Indications. SW should
+ *	set this bit in order to enable Statuses. Output Pipe - send
+ *	Status indications only if bit is set. Input Pipe - forward Status
+ *	indication to STATUS_ENDP only if bit is set. Valid for Input
+ *	and Output Pipes (IPA Consumer and Producer)
+ * @status_ep: Statuses generated for this endpoint will be forwarded to the
+ *	specified Status End Point. Status endpoint needs to be
+ *	configured with STATUS_EN=1 Valid only for Input Pipes (IPA
+ *	Consumer)
+ */
 struct ipa_ep_cfg_status {
 	bool status_en;
 	u8 status_ep;
 };
 
+/**
+ * struct ipa_wlan_stats - Wlan stats for each wlan endpoint
+ * @rx_pkts_rcvd: Packets sent by wlan driver
+ * @rx_pkts_status_rcvd: Status packets received from ipa hw
+ * @rx_hd_processed: Data Descriptors processed by IPA Driver
+ * @rx_hd_reply: Data Descriptors recycled by wlan driver
+ * @rx_hd_rcvd: Data Descriptors sent by wlan driver
+ * @rx_pkt_leak: Packet count that are not recycled
+ * @rx_dp_fail: Packets failed to transfer to IPA HW
+ * @tx_pkts_rcvd: SKB Buffers received from ipa hw
+ * @tx_pkts_sent: SKB Buffers sent to wlan driver
+ * @tx_pkts_dropped: Dropped packets count
+ */
 struct ipa_wlan_stats {
 	u32 rx_pkts_rcvd;
 	u32 rx_pkts_status_rcvd;
@@ -308,6 +454,15 @@ struct ipa_wlan_stats {
 	u32 tx_pkts_dropped;
 };
 
+/**
+ * struct ipa_wlan_comm_memb - Wlan comm members
+ * @wlan_spinlock: protects wlan comm buff list and its size
+ * @ipa_tx_mul_spinlock: protects tx dp mul transfer
+ * @wlan_comm_total_cnt: wlan common skb buffers allocated count
+ * @wlan_comm_free_cnt: wlan common skb buffer free count
+ * @total_tx_pkts_freed: Recycled Buffer count
+ * @wlan_comm_desc_list: wlan common skb buffer list
+ */
 struct ipa_wlan_comm_memb {
 	spinlock_t wlan_spinlock;
 	spinlock_t ipa_tx_mul_spinlock;
@@ -333,6 +488,36 @@ enum ipa_wakelock_ref_client {
 	IPA_WAKELOCK_REF_CLIENT_MAX
 };
 
+/**
+ * struct ipa_ep_context - IPA end point context
+ * @valid: flag indicating id EP context is valid
+ * @client: EP client type
+ * @ep_hdl: EP's client SPS handle
+ * @cfg: EP cionfiguration
+ * @dst_pipe_index: destination pipe index
+ * @rt_tbl_idx: routing table index
+ * @connect: SPS connect
+ * @priv: user provided information which will forwarded once the user is
+ *        notified for new data avail
+ * @client_notify: user provided CB for EP events notification, the event is
+ *                 data revived.
+ * @desc_fifo_in_pipe_mem: flag indicating if descriptors FIFO uses pipe memory
+ * @data_fifo_in_pipe_mem: flag indicating if data FIFO uses pipe memory
+ * @desc_fifo_pipe_mem_ofst: descriptors FIFO pipe memory offset
+ * @data_fifo_pipe_mem_ofst: data FIFO pipe memory offset
+ * @desc_fifo_client_allocated: if descriptors FIFO was allocated by a client
+ * @data_fifo_client_allocated: if data FIFO was allocated by a client
+ * @skip_ep_cfg: boolean field that determines if EP should be configured
+ *  by IPA driver
+ * @keep_ipa_awake: when true, IPA will not be clock gated
+ * @rx_replenish_threshold: Indicates the WM value which requires the RX
+ *                          descriptors replenish function to be called to
+ *                          avoid the RX pipe to run out of descriptors
+ *                          and cause HOLB.
+ * @disconnect_in_progress: Indicates client disconnect in progress.
+ * @qmi_request_sent: Indicates whether QMI request to enable clear data path
+ *					request is sent or not.
+ */
 struct ipa_ep_context {
 	int valid;
 	enum ipa_client_type client;
@@ -365,7 +550,7 @@ struct ipa_ep_context {
 	enum ipa_wakelock_ref_client wakelock_client;
 	bool ep_disabled;
 
-	
+	/* sys MUST be the last element of this struct */
 	struct ipa_sys_context *sys;
 };
 
@@ -382,6 +567,16 @@ struct ipa_repl_ctx {
 	u32 capacity;
 };
 
+/**
+ * struct ipa_sys_context - IPA endpoint context for system to BAM pipes
+ * @head_desc_list: header descriptors list
+ * @len: the size of the above list
+ * @spinlock: protects the list and its size
+ * @event: used to request CALLBACK mode from SPS driver
+ * @ep: IPA EP context
+ *
+ * IPA context specific to the system-bam pipes a.k.a LAN IN/OUT and WAN
+ */
 struct ipa_sys_context {
 	u32 len;
 	struct sps_register_event event;
@@ -409,7 +604,7 @@ struct ipa_sys_context {
 	unsigned int repl_trig_cnt;
 	unsigned int repl_trig_thresh;
 
-	
+	/* ordering is important - mutable fields go above */
 	struct ipa_ep_context *ep;
 	struct list_head head_desc_list;
 	struct list_head rcycl_list;
@@ -417,9 +612,14 @@ struct ipa_sys_context {
 	struct workqueue_struct *wq;
 	struct workqueue_struct *repl_wq;
 	struct ipa_status_stats *status_stat;
-	
+	/* ordering is important - other immutable fields go below */
 };
 
+/**
+ * enum ipa_desc_type - IPA decriptors type
+ *
+ * IPA decriptors type, IPA supports DD and ICD but no CD
+ */
 enum ipa_desc_type {
 	IPA_DATA_DESC,
 	IPA_DATA_DESC_SKB,
@@ -427,6 +627,26 @@ enum ipa_desc_type {
 	IPA_IMM_CMD_DESC
 };
 
+/**
+ * struct ipa_tx_pkt_wrapper - IPA Tx packet wrapper
+ * @type: specify if this packet is for the skb or immediate command
+ * @mem: memory buffer used by this Tx packet
+ * @work: work struct for current Tx packet
+ * @link: linked to the wrappers on that pipe
+ * @callback: IPA client provided callback
+ * @user1: cookie1 for above callback
+ * @user2: cookie2 for above callback
+ * @sys: corresponding IPA sys context
+ * @mult: valid only for first of a "multiple" transfer,
+ * holds info for the "sps_transfer" buffer
+ * @cnt: 1 for single transfers,
+ * >1 and <0xFFFF for first of a "multiple" transfer,
+ * 0xFFFF for last desc, 0 for rest of "multiple' transfer
+ * @bounce: va of bounce buffer
+ * @unmap_dma: in case this is true, the buffer will not be dma unmapped
+ *
+ * This struct can wrap both data packet and immediate command packet.
+ */
 struct ipa_tx_pkt_wrapper {
 	enum ipa_desc_type type;
 	struct ipa_mem_buffer mem;
@@ -442,6 +662,21 @@ struct ipa_tx_pkt_wrapper {
 	bool no_unmap_dma;
 };
 
+/**
+ * struct ipa_desc - IPA descriptor
+ * @type: skb or immediate command or plain old data
+ * @pyld: points to skb
+ * @frag: points to paged fragment
+ * or kmalloc'ed immediate command parameters/plain old data
+ * @dma_address: dma mapped address of pyld
+ * @dma_address_valid: valid field for dma_address
+ * @len: length of the pyld
+ * @opcode: for immediate commands
+ * @callback: IPA client provided completion callback
+ * @user1: cookie1 for above callback
+ * @user2: cookie2 for above callback
+ * @xfer_done: completion object for sync completion
+ */
 struct ipa_desc {
 	enum ipa_desc_type type;
 	void *pyld;
@@ -456,6 +691,13 @@ struct ipa_desc {
 	struct completion xfer_done;
 };
 
+/**
+ * struct ipa_rx_pkt_wrapper - IPA Rx packet wrapper
+ * @skb: skb
+ * @dma_address: DMA address of this Rx packet
+ * @link: linked to the Rx packets on that pipe
+ * @len: how many bytes are copied into skb's flat buffer
+ */
 struct ipa_rx_pkt_wrapper {
 	struct list_head link;
 	struct ipa_rx_data data;
@@ -464,6 +706,28 @@ struct ipa_rx_pkt_wrapper {
 	struct ipa_sys_context *sys;
 };
 
+/**
+ * struct ipa_nat_mem - IPA NAT memory description
+ * @class: pointer to the struct class
+ * @dev: the dev_t of the device
+ * @cdev: cdev of the device
+ * @dev_num: device number
+ * @vaddr: virtual address
+ * @dma_handle: DMA handle
+ * @size: NAT memory size
+ * @is_mapped: flag indicating if NAT memory is mapped
+ * @is_sys_mem: flag indicating if NAT memory is sys memory
+ * @is_dev_init: flag indicating if NAT device is initialized
+ * @lock: NAT memory mutex
+ * @nat_base_address: nat table virutal address
+ * @ipv4_rules_addr: base nat table address
+ * @ipv4_expansion_rules_addr: expansion table address
+ * @index_table_addr: index table address
+ * @index_table_expansion_addr: index expansion table address
+ * @size_base_tables: base table size
+ * @size_expansion_tables: expansion table size
+ * @public_ip_addr: ip address of nat table
+ */
 struct ipa_nat_mem {
 	struct class *class;
 	struct device *dev;
@@ -490,6 +754,12 @@ struct ipa_nat_mem {
 	bool is_tmp_mem;
 };
 
+/**
+ * enum ipa_hw_mode - IPA hardware mode
+ * @IPA_HW_Normal: Regular IPA hardware
+ * @IPA_HW_Virtual: IPA hardware supporting virtual memory allocation
+ * @IPA_HW_PCIE: IPA hardware supporting memory allocation over PCIE Bridge
+ */
 enum ipa_hw_mode {
 	IPA_HW_MODE_NORMAL  = 0,
 	IPA_HW_MODE_VIRTUAL = 1,
@@ -542,6 +812,13 @@ struct ipa_tag_completion {
 
 struct ipa_controller;
 
+/**
+ * struct ipa_uc_hdlrs - IPA uC callback functions
+ * @ipa_uc_loaded_hdlr: Function handler when uC is loaded
+ * @ipa_uc_event_hdlr: Event handler function
+ * @ipa_uc_response_hdlr: Response handler function
+ * @ipa_uc_event_log_info_hdlr: Log event handler function
+ */
 struct ipa_uc_hdlrs {
 	void (*ipa_uc_loaded_hdlr)(void);
 
@@ -554,6 +831,23 @@ struct ipa_uc_hdlrs {
 		(struct IpaHwEventLogInfoData_t *uc_event_top_mmio);
 };
 
+/**
+ * enum ipa_hw_flags - flags which defines the behavior of HW
+ *
+ * @IPA_HW_FLAG_HALT_SYSTEM_ON_ASSERT_FAILURE: Halt system in case of assert
+ *	failure.
+ * @IPA_HW_FLAG_NO_REPORT_MHI_CHANNEL_ERORR: Channel error would be reported
+ *	in the event ring only. No event to CPU.
+ * @IPA_HW_FLAG_NO_REPORT_MHI_CHANNEL_WAKE_UP: No need to report event
+ *	IPA_HW_2_CPU_EVENT_MHI_WAKE_UP_REQUEST
+ * @IPA_HW_FLAG_WORK_OVER_DDR: Perform all transaction to external addresses by
+ *	QMB (avoid memcpy)
+ * @IPA_HW_FLAG_NO_REPORT_OOB: If set do not report that the device is OOB in
+ *	IN Channel
+ * @IPA_HW_FLAG_NO_REPORT_DB_MODE: If set, do not report that the device is
+ *	entering a mode where it expects a doorbell to be rung for OUT Channel
+ * @IPA_HW_FLAG_NO_START_OOB_TIMER
+ */
 enum ipa_hw_flags {
 	IPA_HW_FLAG_HALT_SYSTEM_ON_ASSERT_FAILURE	= 0x01,
 	IPA_HW_FLAG_NO_REPORT_MHI_CHANNEL_ERORR		= 0x02,
@@ -564,6 +858,19 @@ enum ipa_hw_flags {
 	IPA_HW_FLAG_NO_START_OOB_TIMER			= 0x40
 };
 
+/**
+ * struct ipa_uc_ctx - IPA uC context
+ * @uc_inited: Indicates if uC interface has been initialized
+ * @uc_loaded: Indicates if uC has loaded
+ * @uc_failed: Indicates if uC has failed / returned an error
+ * @uc_lock: uC interface lock to allow only one uC interaction at a time
+ * @uc_completation: Completion mechanism to wait for uC commands
+ * @uc_sram_mmio: Pointer to uC mapped memory
+ * @pending_cmd: The last command sent waiting to be ACKed
+ * @uc_status: The last status provided by the uC
+ * @uc_zip_error: uC has notified the APPS upon a ZIP engine error
+ * @uc_error_type: error type from uC error event
+ */
 struct ipa_uc_ctx {
 	bool uc_inited;
 	bool uc_loaded;
@@ -579,25 +886,124 @@ struct ipa_uc_ctx {
 	u32 uc_error_type;
 };
 
+/**
+ * struct ipa_uc_wdi_ctx
+ * @wdi_uc_top_ofst:
+ * @wdi_uc_top_mmio:
+ * @wdi_uc_stats_ofst:
+ * @wdi_uc_stats_mmio:
+ */
 struct ipa_uc_wdi_ctx {
-	
+	/* WDI specific fields */
 	u32 wdi_uc_stats_ofst;
 	struct IpaHwStatsWDIInfoData_t *wdi_uc_stats_mmio;
 	void *priv;
 	ipa_uc_ready_cb uc_ready_cb;
 };
 
+/**
+ * struct ipa_sps_pm - SPS power management related members
+ * @dec_clients: true if need to decrease active clients count
+ * @eot_activity: represent EOT interrupt activity to determine to reset
+ *  the inactivity timer
+ * @sps_pm_lock: Lock to protect the sps_pm functionality.
+ */
 struct ipa_sps_pm {
 	atomic_t dec_clients;
 	atomic_t eot_activity;
 	struct mutex sps_pm_lock;
 };
 
+/**
+ * struct ipacm_client_info - the client-info indicated from IPACM
+ * @ipacm_client_enum: the enum to indicate tether-client
+ * @ipacm_client_uplink: the bool to indicate pipe for uplink
+ */
 struct ipacm_client_info {
 	enum ipacm_client_enum client_enum;
 	bool uplink;
 };
 
+/**
+ * struct ipa_context - IPA context
+ * @class: pointer to the struct class
+ * @dev_num: device number
+ * @dev: the dev_t of the device
+ * @cdev: cdev of the device
+ * @bam_handle: IPA driver's BAM handle
+ * @ep: list of all end points
+ * @skip_ep_cfg_shadow: state to update filter table correctly across
+  power-save
+ * @resume_on_connect: resume ep on ipa_connect
+ * @flt_tbl: list of all IPA filter tables
+ * @mode: IPA operating mode
+ * @mmio: iomem
+ * @ipa_wrapper_base: IPA wrapper base address
+ * @glob_flt_tbl: global filter table
+ * @hdr_tbl: IPA header table
+ * @hdr_proc_ctx_tbl: IPA processing context table
+ * @rt_tbl_set: list of routing tables each of which is a list of rules
+ * @reap_rt_tbl_set: list of sys mem routing tables waiting to be reaped
+ * @flt_rule_cache: filter rule cache
+ * @rt_rule_cache: routing rule cache
+ * @hdr_cache: header cache
+ * @hdr_offset_cache: header offset cache
+ * @hdr_proc_ctx_cache: processing context cache
+ * @hdr_proc_ctx_offset_cache: processing context offset cache
+ * @rt_tbl_cache: routing table cache
+ * @tx_pkt_wrapper_cache: Tx packets cache
+ * @rx_pkt_wrapper_cache: Rx packets cache
+ * @rt_idx_bitmap: routing table index bitmap
+ * @lock: this does NOT protect the linked lists within ipa_sys_context
+ * @smem_sz: shared memory size available for SW use starting
+ *  from non-restricted bytes
+ * @smem_restricted_bytes: the bytes that SW should not use in the shared mem
+ * @nat_mem: NAT memory
+ * @excp_hdr_hdl: exception header handle
+ * @dflt_v4_rt_rule_hdl: default v4 routing rule handle
+ * @dflt_v6_rt_rule_hdl: default v6 routing rule handle
+ * @aggregation_type: aggregation type used on USB client endpoint
+ * @aggregation_byte_limit: aggregation byte limit used on USB client endpoint
+ * @aggregation_time_limit: aggregation time limit used on USB client endpoint
+ * @hdr_tbl_lcl: where hdr tbl resides 1-local, 0-system
+ * @hdr_proc_ctx_tbl_lcl: where proc_ctx tbl resides true-local, false-system
+ * @hdr_mem: header memory
+ * @hdr_proc_ctx_mem: processing context memory
+ * @ip4_rt_tbl_lcl: where ip4 rt tables reside 1-local; 0-system
+ * @ip6_rt_tbl_lcl: where ip6 rt tables reside 1-local; 0-system
+ * @ip4_flt_tbl_lcl: where ip4 flt tables reside 1-local; 0-system
+ * @ip6_flt_tbl_lcl: where ip6 flt tables reside 1-local; 0-system
+ * @empty_rt_tbl_mem: empty routing tables memory
+ * @power_mgmt_wq: workqueue for power management
+ * @sps_power_mgmt_wq: workqueue SPS related power management
+ * @tag_process_before_gating: indicates whether to start tag process before
+ *  gating IPA clocks
+ * @sps_pm: sps power management related information
+ * @disconnect_lock: protects LAN_CONS packet receive notification CB
+ * @pipe_mem_pool: pipe memory pool
+ * @dma_pool: special purpose DMA pool
+ * @ipa_active_clients: structure for reference counting connected IPA clients
+ * @ipa_hw_type: type of IPA HW type (e.g. IPA 1.0, IPA 1.1 etc')
+ * @ipa_hw_mode: mode of IPA HW mode (e.g. Normal, Virtual or over PCIe)
+ * @use_ipa_teth_bridge: use tethering bridge driver
+ * @ipa_bam_remote_mode: ipa bam is in remote mode
+ * @modem_cfg_emb_pipe_flt: modem configure embedded pipe filtering rules
+ * @ipa_bus_hdl: msm driver handle for the data path bus
+ * @ctrl: holds the core specific operations based on
+ *  core version (vtable like)
+ * @enable_clock_scaling: clock scaling is enabled ?
+ * @curr_ipa_clk_rate: ipa_clk current rate
+ * @wcstats: wlan common buffer stats
+ * @uc_ctx: uC interface context
+ * @uc_wdi_ctx: WDI specific fields for uC interface
+ * @ipa_num_pipes: The number of pipes used by IPA HW
+ * @skip_uc_pipe_reset: Indicates whether pipe reset via uC needs to be avoided
+ * @ipa_client_apps_wan_cons_agg_gro: RMNET_IOCTL_INGRESS_FORMAT_AGG_DATA
+ * @w_lock: Indicates the wakeup source.
+ * @wakelock_ref_cnt: Indicates the number of times wakelock is acquired
+
+ * IPA context - holds all relevant info about IPA driver and its state
+ */
 struct ipa_context {
 	struct class *class;
 	dev_t dev_num;
@@ -669,7 +1075,7 @@ struct ipa_context {
 	bool use_ipa_teth_bridge;
 	bool ipa_bam_remote_mode;
 	bool modem_cfg_emb_pipe_flt;
-	
+	/* featurize if memory footprint becomes a concern */
 	struct ipa_stats stats;
 	void *smem_pipe_mem;
 	u32 ipa_bus_hdl;
@@ -704,9 +1110,9 @@ struct ipa_context {
 	struct wakeup_source w_lock;
 	struct ipa_wakelock_ref_cnt wakelock_ref_cnt;
 
-	
+	/* RMNET_IOCTL_INGRESS_FORMAT_AGG_DATA */
 	bool ipa_client_apps_wan_cons_agg_gro;
-	
+	/* M-release support to know client pipes */
 	struct ipacm_client_info ipacm_client[IPA_MAX_NUM_PIPES];
 	bool tethered_flow_control;
 	u32 ipa_rx_min_timeout_usec;
@@ -714,6 +1120,16 @@ struct ipa_context {
 	u32 ipa_polling_iteration;
 };
 
+/**
+ * struct ipa_route - IPA route
+ * @route_dis: route disable
+ * @route_def_pipe: route default pipe
+ * @route_def_hdr_table: route default header table
+ * @route_def_hdr_ofst: route default header offset table
+ * @route_frag_def_pipe: Default pipe to route fragmented exception
+ *    packets and frag new rule statues, if source pipe does not have
+ *    a notification status pipe defined.
+ */
 struct ipa_route {
 	u32 route_dis;
 	u32 route_def_pipe;
@@ -722,6 +1138,12 @@ struct ipa_route {
 	u8  route_frag_def_pipe;
 };
 
+/**
+ * enum ipa_pipe_mem_type - IPA pipe memory type
+ * @IPA_SPS_PIPE_MEM: Default, SPS dedicated pipe memory
+ * @IPA_PRIVATE_MEM: IPA's private memory
+ * @IPA_SYSTEM_MEM: System RAM, requires allocation
+ */
 enum ipa_pipe_mem_type {
 	IPA_SPS_PIPE_MEM = 0,
 	IPA_PRIVATE_MEM  = 1,
@@ -862,16 +1284,32 @@ struct ipa_controller {
 
 extern struct ipa_context *ipa_ctx;
 
+/* public APIs */
+/*
+ * Connect / Disconnect
+ */
 int ipa2_connect(const struct ipa_connect_params *in,
 		struct ipa_sps_params *sps, u32 *clnt_hdl);
 int ipa2_disconnect(u32 clnt_hdl);
 
+/*
+ * Resume / Suspend
+ */
 int ipa2_reset_endpoint(u32 clnt_hdl);
 
+/*
+ * Remove ep delay
+ */
 int ipa2_clear_endpoint_delay(u32 clnt_hdl);
 
+/*
+ * Disable ep
+ */
 int ipa2_disable_endpoint(u32 clnt_hdl);
 
+/*
+ * Configuration
+ */
 int ipa2_cfg_ep(u32 clnt_hdl, const struct ipa_ep_cfg *ipa_ep_cfg);
 
 int ipa2_cfg_ep_nat(u32 clnt_hdl, const struct ipa_ep_cfg_nat *ipa_ep_cfg);
@@ -902,6 +1340,9 @@ int ipa2_cfg_ep_holb_by_client(enum ipa_client_type client,
 
 int ipa2_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl);
 
+/*
+ * Header removal / addition
+ */
 int ipa2_add_hdr(struct ipa_ioc_add_hdr *hdrs);
 
 int ipa2_del_hdr(struct ipa_ioc_del_hdr *hdls);
@@ -916,10 +1357,16 @@ int ipa2_put_hdr(u32 hdr_hdl);
 
 int ipa2_copy_hdr(struct ipa_ioc_copy_hdr *copy);
 
+/*
+ * Header Processing Context
+ */
 int ipa2_add_hdr_proc_ctx(struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs);
 
 int ipa2_del_hdr_proc_ctx(struct ipa_ioc_del_hdr_proc_ctx *hdls);
 
+/*
+ * Routing
+ */
 int ipa2_add_rt_rule(struct ipa_ioc_add_rt_rule *rules);
 
 int ipa2_del_rt_rule(struct ipa_ioc_del_rt_rule *hdls);
@@ -936,6 +1383,9 @@ int ipa2_query_rt_index(struct ipa_ioc_get_rt_tbl_indx *in);
 
 int ipa2_mdfy_rt_rule(struct ipa_ioc_mdfy_rt_rule *rules);
 
+/*
+ * Filtering
+ */
 int ipa2_add_flt_rule(struct ipa_ioc_add_flt_rule *rules);
 
 int ipa2_del_flt_rule(struct ipa_ioc_del_flt_rule *hdls);
@@ -946,6 +1396,9 @@ int ipa2_commit_flt(enum ipa_ip_type ip);
 
 int ipa2_reset_flt(enum ipa_ip_type ip);
 
+/*
+ * NAT
+ */
 int ipa2_allocate_nat_device(struct ipa_ioc_nat_alloc_mem *mem);
 
 int ipa2_nat_init_cmd(struct ipa_ioc_v4_nat_init *init);
@@ -954,11 +1407,17 @@ int ipa2_nat_dma_cmd(struct ipa_ioc_nat_dma_cmd *dma);
 
 int ipa2_nat_del_cmd(struct ipa_ioc_v4_nat_del *del);
 
+/*
+ * Messaging
+ */
 int ipa2_send_msg(struct ipa_msg_meta *meta, void *buff,
 		  ipa_msg_free_fn callback);
 int ipa2_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback);
 int ipa2_deregister_pull_msg(struct ipa_msg_meta *meta);
 
+/*
+ * Interface
+ */
 int ipa2_register_intf(const char *name, const struct ipa_tx_intf *tx,
 		       const struct ipa_rx_intf *rx);
 int ipa2_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
@@ -966,20 +1425,34 @@ int ipa2_register_intf_ext(const char *name, const struct ipa_tx_intf *tx,
 		       const struct ipa_ext_intf *ext);
 int ipa2_deregister_intf(const char *name);
 
+/*
+ * Aggregation
+ */
 int ipa2_set_aggr_mode(enum ipa_aggr_mode mode);
 
 int ipa2_set_qcncm_ndp_sig(char sig[3]);
 
 int ipa2_set_single_ndp_per_mbim(bool enable);
 
+/*
+ * Data path
+ */
 int ipa2_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
 		struct ipa_tx_meta *metadata);
 
+/*
+ * To transfer multiple data packets
+ * While passing the data descriptor list, the anchor node
+ * should be of type struct ipa_tx_data_desc not list_head
+*/
 int ipa2_tx_dp_mul(enum ipa_client_type dst,
 			struct ipa_tx_data_desc *data_desc);
 
 void ipa2_free_skb(struct ipa_rx_data *);
 
+/*
+ * System pipes
+ */
 int ipa2_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl);
 
 int ipa2_teardown_sys_pipe(u32 clnt_hdl);
@@ -1007,23 +1480,44 @@ int ipa2_setup_uc_ntn_pipes(struct ipa_ntn_conn_in_params *inp,
 		struct ipa_ntn_conn_out_params *outp);
 int ipa2_tear_down_uc_offload_pipes(int ipa_ep_idx_ul, int ipa_ep_idx_dl);
 
+/*
+ * To retrieve doorbell physical address of
+ * wlan pipes
+ */
 int ipa2_uc_wdi_get_dbpa(struct ipa_wdi_db_params *out);
 
+/*
+ * To register uC ready callback if uC not ready
+ * and also check uC readiness
+ * if uC not ready only, register callback
+ */
 int ipa2_uc_reg_rdyCB(struct ipa_wdi_uc_ready_params *param);
+/*
+ * To de-register uC ready callback
+ */
 int ipa2_uc_dereg_rdyCB(void);
 
+/*
+ * Tethering bridge (Rmnet / MBIM)
+ */
 int ipa2_teth_bridge_init(struct teth_bridge_init_params *params);
 
 int ipa2_teth_bridge_disconnect(enum ipa_client_type client);
 
 int ipa2_teth_bridge_connect(struct teth_bridge_connect_params *connect_params);
 
+/*
+ * Tethering client info
+ */
 void ipa2_set_client(int index, enum ipacm_client_enum client, bool uplink);
 
 enum ipacm_client_enum ipa2_get_client(int pipe_idx);
 
 bool ipa2_get_client_uplink(int pipe_idx);
 
+/*
+ * IPADMA
+ */
 int ipa2_dma_init(void);
 
 int ipa2_dma_enable(void);
@@ -1039,6 +1533,9 @@ int ipa2_dma_uc_memcpy(phys_addr_t dest, phys_addr_t src, int len);
 
 void ipa2_dma_destroy(void);
 
+/*
+ * MHI APIs for IPA MHI client driver
+ */
 int ipa2_init_mhi(struct ipa_mhi_init_params *params);
 
 int ipa2_mhi_init_engine(struct ipa_mhi_init_engine *params);
@@ -1062,8 +1559,14 @@ int ipa2_mhi_resume_channels_internal(enum ipa_client_type client,
 		bool LPTransitionRejected, bool brstmode_enabled,
 		union __packed gsi_channel_scratch ch_scratch, u8 index);
 
+/*
+ * mux id
+ */
 int ipa2_write_qmap_id(struct ipa_ioc_write_qmapid *param_in);
 
+/*
+ * interrupts
+ */
 int ipa2_add_interrupt_handler(enum ipa_irq_type interrupt,
 		ipa_irq_handler_t handler,
 		bool deferred_flag,
@@ -1071,6 +1574,9 @@ int ipa2_add_interrupt_handler(enum ipa_irq_type interrupt,
 
 int ipa2_remove_interrupt_handler(enum ipa_irq_type interrupt);
 
+/*
+ * Miscellaneous
+ */
 void ipa2_bam_reg_dump(void);
 
 int ipa2_get_ep_mapping(enum ipa_client_type client);
@@ -1088,6 +1594,7 @@ enum ipa_rm_resource_name ipa2_get_rm_resource_from_ep(int pipe_idx);
 
 bool ipa2_get_modem_cfg_emb_pipe_flt(void);
 
+/* internal functions */
 
 int ipa2_bind_api_controller(enum ipa_hw_type ipa_hw_type,
 	struct ipa_api_controller *api_ctrl);
@@ -1324,4 +1831,4 @@ int ipa_ntn_init(void);
 int ipa2_get_ntn_stats(struct IpaHwStatsNTNInfoData_t *stats);
 int ipa2_register_ipa_ready_cb(void (*ipa_ready_cb)(void *),
 				void *user_data);
-#endif 
+#endif /* _IPA_I_H_ */

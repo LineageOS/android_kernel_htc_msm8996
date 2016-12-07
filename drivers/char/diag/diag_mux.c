@@ -64,6 +64,10 @@ int diag_mux_init()
 	md_logger.log_ops = &md_log_ops;
 	diag_md_init();
 
+	/*
+	 * Set USB logging as the default logger. This is the mode
+	 * Diag should be in when it initializes.
+	 */
 	diag_mux->usb_ptr = &usb_logger;
 	diag_mux->md_ptr = &md_logger;
 	diag_mux->logger = &usb_logger;
@@ -86,7 +90,7 @@ int diag_mux_register(int proc, int ctx, struct diag_mux_ops *ops)
 	if (proc < 0 || proc >= NUM_MUX_PROC)
 		return 0;
 
-	
+	/* Register with USB logger */
 	usb_logger.ops[proc] = ops;
 	err = diag_usb_register(proc, ctx, ops);
 	if (err) {
@@ -155,7 +159,7 @@ int diag_mux_close_peripheral(int proc, uint8_t peripheral)
 	struct diag_logger_t *logger = NULL;
 	if (proc < 0 || proc >= NUM_MUX_PROC)
 		return -EINVAL;
-	
+	/* Peripheral should account for Apps data as well */
 	if (peripheral > NUM_PERIPHERALS)
 		return -EINVAL;
 	if (!diag_mux)

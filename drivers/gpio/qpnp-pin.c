@@ -38,13 +38,16 @@
 
 #define Q_NUM_CTL_REGS			0xD
 
+/* revision registers base address offsets */
 #define Q_REG_DIG_MINOR_REV		0x0
 #define Q_REG_DIG_MAJOR_REV		0x1
 #define Q_REG_ANA_MINOR_REV		0x2
 
+/* type registers base address offsets */
 #define Q_REG_TYPE			0x4
 #define Q_REG_SUBTYPE			0x5
 
+/* gpio peripheral type and subtype values */
 #define Q_GPIO_TYPE			0x10
 #define Q_GPIO_SUBTYPE_GPIO_4CH		0x1
 #define Q_GPIO_SUBTYPE_GPIOC_4CH	0x5
@@ -53,6 +56,7 @@
 #define Q_GPIO_SUBTYPE_GPIO_LV		0x10
 #define Q_GPIO_SUBTYPE_GPIO_MV		0x11
 
+/* mpp peripheral type and subtype values */
 #define Q_MPP_TYPE				0x11
 #define Q_MPP_SUBTYPE_4CH_NO_ANA_OUT		0x3
 #define Q_MPP_SUBTYPE_ULT_4CH_NO_ANA_OUT	0x4
@@ -61,6 +65,7 @@
 #define Q_MPP_SUBTYPE_4CH_FULL_FUNC		0x7
 #define Q_MPP_SUBTYPE_8CH_FULL_FUNC		0xF
 
+/* control register base address offsets */
 #define Q_REG_MODE_CTL			0x40
 #define Q_REG_DIG_VIN_CTL		0x41
 #define Q_REG_DIG_PULL_CTL		0x42
@@ -73,6 +78,7 @@
 #define Q_REG_APASS_SEL_CTL		0x4A
 #define Q_REG_SINK_CTL			0x4C
 
+/* control register regs array indices */
 #define Q_REG_I_MODE_CTL		0
 #define Q_REG_I_DIG_VIN_CTL		1
 #define Q_REG_I_DIG_PULL_CTL		2
@@ -85,6 +91,7 @@
 #define Q_REG_I_AIN_CTL			10
 #define Q_REG_I_SINK_CTL		12
 
+/* control reg: mode */
 #define Q_REG_OUT_INVERT_SHIFT		0
 #define Q_REG_OUT_INVERT_MASK		0x1
 #define Q_REG_SRC_SEL_SHIFT		1
@@ -94,22 +101,27 @@
 #define Q_REG_LV_MV_MODE_SEL_SHIFT	0
 #define Q_REG_LV_MV_MODE_SEL_MASK	0x3
 
+/* control reg: dig_out_src (GPIO LV/MV only) */
 #define Q_REG_DIG_OUT_SRC_SRC_SEL_SHIFT 0
 #define Q_REG_DIG_OUT_SRC_SRC_SEL_MASK	0xF
 #define Q_REG_DIG_OUT_SRC_INVERT_SHIFT	7
 #define Q_REG_DIG_OUT_SRC_INVERT_MASK	0x80
 
+/* control reg: dig_vin */
 #define Q_REG_VIN_SHIFT			0
 #define Q_REG_VIN_MASK			0x7
 
+/* control reg: dig_pull */
 #define Q_REG_PULL_SHIFT		0
 #define Q_REG_PULL_MASK			0x7
 
+/* control reg: dig_out */
 #define Q_REG_OUT_STRENGTH_SHIFT	0
 #define Q_REG_OUT_STRENGTH_MASK		0x3
 #define Q_REG_OUT_TYPE_SHIFT		4
 #define Q_REG_OUT_TYPE_MASK		0x30
 
+/* control reg: dig_in_ctl */
 #define Q_REG_DTEST_SEL_SHIFT			0
 #define Q_REG_DTEST_SEL_MASK			0xF
 #define Q_REG_LV_MV_DTEST_SEL_CFG_SHIFT		0
@@ -117,18 +129,23 @@
 #define Q_REG_LV_MV_DTEST_SEL_EN_SHIFT		7
 #define Q_REG_LV_MV_DTEST_SEL_EN_MASK		0x80
 
+/* control reg: en */
 #define Q_REG_MASTER_EN_SHIFT		7
 #define Q_REG_MASTER_EN_MASK		0x80
 
+/* control reg: ana_out */
 #define Q_REG_AOUT_REF_SHIFT		0
 #define Q_REG_AOUT_REF_MASK		0x7
 
+/* control reg: ana_in */
 #define Q_REG_AIN_ROUTE_SHIFT		0
 #define Q_REG_AIN_ROUTE_MASK		0x7
 
+/* control reg: sink */
 #define Q_REG_CS_OUT_SHIFT		0
 #define Q_REG_CS_OUT_MASK		0x7
 
+/* control ref: apass_sel */
 #define Q_REG_APASS_SEL_SHIFT		0
 #define Q_REG_APASS_SEL_MASK		0x3
 
@@ -151,6 +168,7 @@ enum qpnp_pin_param_type {
 
 #define Q_NUM_PARAMS			Q_PIN_CFG_INVALID
 
+/* param error checking */
 #define QPNP_PIN_GPIO_MODE_INVALID		3
 #define QPNP_PIN_GPIO_LV_MV_MODE_INVALID	4
 #define QPNP_PIN_MPP_MODE_INVALID		7
@@ -174,15 +192,15 @@ enum qpnp_pin_param_type {
 #define QPNP_PIN_DTEST_SEL_INVALID		4
 
 struct qpnp_pin_spec {
-	uint8_t slave;			
-	uint16_t offset;		
-	uint32_t gpio_chip_idx;		
-	uint32_t pmic_pin;		
-	int irq;			
-	u8 regs[Q_NUM_CTL_REGS];	
-	u8 num_ctl_regs;		
-	u8 type;			
-	u8 subtype;			
+	uint8_t slave;			/* 0-15 */
+	uint16_t offset;		/* 0-255 */
+	uint32_t gpio_chip_idx;		/* offset from gpio_chip base */
+	uint32_t pmic_pin;		/* PMIC pin number */
+	int irq;			/* logical IRQ number */
+	u8 regs[Q_NUM_CTL_REGS];	/* Control regs */
+	u8 num_ctl_regs;		/* usable number on this pin */
+	u8 type;			/* peripheral type */
+	u8 subtype;			/* peripheral subtype */
 	u8 dig_major_rev;
 	struct device_node *node;
 	enum qpnp_pin_param_type params[Q_NUM_PARAMS];
@@ -250,6 +268,18 @@ static bool is_gpio_lv_mv(struct qpnp_pin_spec *q_spec)
 	return false;
 }
 
+/*
+ * Determines whether a specified param's configuration is correct.
+ * This check is two tier. First a check is done whether the hardware
+ * supports this param and value requested. The second check validates
+ * that the configuration is correct, given the fact that the hardware
+ * supports it.
+ *
+ * Returns
+ *	-ENXIO is the hardware does not support this param.
+ *	-EINVAL if the the hardware does support this param, but the
+ *	requested value is outside the supported range.
+ */
 static int qpnp_pin_check_config(enum qpnp_pin_param_type idx,
 				 struct qpnp_pin_spec *q_spec, uint32_t val)
 {
@@ -568,7 +598,7 @@ static int _qpnp_pin_config(struct qpnp_pin_chip *q_chip,
 	if (rc)
 		goto gpio_cfg;
 
-	
+	/* set mode */
 	if (Q_HAVE_HW_SP(Q_PIN_CFG_MODE, q_spec, param->mode)) {
 		if (is_gpio_lv_mv(q_spec)) {
 			shift = Q_REG_LV_MV_MODE_SEL_SHIFT;
@@ -581,7 +611,7 @@ static int _qpnp_pin_config(struct qpnp_pin_chip *q_chip,
 			shift, mask, param->mode);
 	}
 
-	
+	/* output specific configuration */
 	if (Q_HAVE_HW_SP(Q_PIN_CFG_INVERT, q_spec, param->invert)) {
 		if (is_gpio_lv_mv(q_spec)) {
 			shift = Q_REG_DIG_OUT_SRC_INVERT_SHIFT;
@@ -617,7 +647,7 @@ static int _qpnp_pin_config(struct qpnp_pin_chip *q_chip,
 			  Q_REG_OUT_TYPE_SHIFT, Q_REG_OUT_TYPE_MASK,
 			  param->output_type);
 
-	
+	/* input config */
 	if (Q_HAVE_HW_SP(Q_PIN_CFG_DTEST_SEL, q_spec, param->dtest_sel)
 			&& param->dtest_sel) {
 		if (is_gpio_lv_mv(q_spec)) {
@@ -636,7 +666,7 @@ static int _qpnp_pin_config(struct qpnp_pin_chip *q_chip,
 		}
 	}
 
-	
+	/* config applicable for both input / output */
 	if (Q_HAVE_HW_SP(Q_PIN_CFG_VIN_SEL, q_spec, param->vin_sel))
 		q_reg_clr_set(&q_spec->regs[Q_REG_I_DIG_VIN_CTL],
 			  Q_REG_VIN_SHIFT, Q_REG_VIN_MASK,
@@ -650,7 +680,7 @@ static int _qpnp_pin_config(struct qpnp_pin_chip *q_chip,
 			  Q_REG_MASTER_EN_SHIFT, Q_REG_MASTER_EN_MASK,
 			  param->master_en);
 
-	
+	/* mpp specific config */
 	if (Q_HAVE_HW_SP(Q_PIN_CFG_AOUT_REF, q_spec, param->aout_ref))
 		q_reg_clr_set(&q_spec->regs[Q_REG_I_AOUT_CTL],
 			  Q_REG_AOUT_REF_SHIFT, Q_REG_AOUT_REF_MASK,
@@ -754,11 +784,11 @@ static int qpnp_pin_to_irq(struct gpio_chip *gpio_chip, unsigned offset)
 	if (!q_spec)
 		return -EINVAL;
 
-	
+	/* if we have mapped this pin previously return the virq */
 	if (q_spec->irq)
 		return q_spec->irq;
 
-	
+	/* call into irq_domain to get irq mapping */
 	oirq.np = q_chip->int_ctrl;
 	oirq.args[0] = q_chip->spmi->sid;
 	oirq.args[1] = (q_spec->offset >> 8) & 0xFF;
@@ -791,7 +821,7 @@ static int qpnp_pin_get(struct gpio_chip *gpio_chip, unsigned offset)
 	if (WARN_ON(!q_spec))
 		return -ENODEV;
 
-	
+	/* gpio val is from RT status iff input is enabled */
 	if ((q_spec->regs[Q_REG_I_MODE_CTL] & Q_REG_MODE_SEL_MASK)
 						== QPNP_PIN_MODE_DIG_IN) {
 		rc = spmi_ext_register_readl(q_chip->spmi->ctrl, q_spec->slave,
@@ -803,7 +833,7 @@ static int qpnp_pin_get(struct gpio_chip *gpio_chip, unsigned offset)
 		else if (q_spec->type == Q_GPIO_TYPE &&
 			 q_spec->dig_major_rev > 0)
 			en_mask = Q_REG_STATUS1_GPIO_EN_MASK;
-		else 
+		else /* MPP */
 			en_mask = Q_REG_STATUS1_MPP_EN_MASK;
 
 		if (!(buf[0] & en_mask))
@@ -1256,10 +1286,15 @@ static int qpnp_pin_debugfs_set(void *data, u64 val)
 	q_spec = container_of(idx, struct qpnp_pin_spec, params[*idx]);
 	q_chip = q_spec->q_chip;
 
+	/*
+	 * special handling for GPIO_LV/MV 'dtest-sel'
+	 * if (dtest_sel == 0) then disable dtest-sel
+	 * else enable and set dtest.
+	 */
 	if ((q_spec->subtype == Q_GPIO_SUBTYPE_GPIO_LV ||
 		q_spec->subtype == Q_GPIO_SUBTYPE_GPIO_MV) &&
 				*idx == Q_PIN_CFG_DTEST_SEL) {
-		
+		/* enable/disable DTEST */
 		cfg.shift = Q_REG_LV_MV_DTEST_SEL_EN_SHIFT;
 		cfg.mask = Q_REG_LV_MV_DTEST_SEL_EN_MASK;
 		cfg.addr = Q_REG_DIG_IN_CTL;
@@ -1293,7 +1328,7 @@ static int qpnp_pin_debugfs_set(void *data, u64 val)
 DEFINE_SIMPLE_ATTRIBUTE(qpnp_pin_fops, qpnp_pin_debugfs_get,
 			qpnp_pin_debugfs_set, "%llu\n");
 
-#define DEBUGFS_BUF_SIZE 11 
+#define DEBUGFS_BUF_SIZE 11 /* supports 2^32 in decimal */
 
 struct qpnp_pin_debugfs_args {
 	enum qpnp_pin_param_type type;
@@ -1350,6 +1385,11 @@ static int qpnp_pin_debugfs_create(struct qpnp_pin_chip *q_chip)
 			type = dfs_args[j].type;
 			filename = dfs_args[j].filename;
 
+			/*
+			 * Use a value of '0' to see if the pin has even basic
+			 * support for a function. Do not create a file if
+			 * it doesn't.
+			 */
 			rc = qpnp_pin_check_config(type, q_spec, 0);
 			if (rc == -ENXIO)
 				continue;
@@ -1503,7 +1543,7 @@ static int qpnp_pin_probe(struct spmi_device *spmi)
 	list_add(&q_chip->chip_list, &qpnp_pin_chips);
 	mutex_unlock(&qpnp_pin_chips_lock);
 
-	
+	/* first scan through nodes to find the range required for allocation */
 	for (i = 0; i < spmi->num_dev_node; i++) {
 		rc = of_property_read_u32(spmi->dev_node[i].of_node,
 						"qcom,pin-num", &gpio);
@@ -1534,7 +1574,7 @@ static int qpnp_pin_probe(struct spmi_device *spmi)
 	q_chip->pmic_pin_lowest = lowest_gpio;
 	q_chip->pmic_pin_highest = highest_gpio;
 
-	
+	/* allocate gpio lookup tables */
 	q_chip->pmic_pins = kzalloc(sizeof(struct qpnp_pin_spec *) *
 					(highest_gpio - lowest_gpio + 1),
 					GFP_KERNEL);
@@ -1547,7 +1587,7 @@ static int qpnp_pin_probe(struct spmi_device *spmi)
 		goto err_probe;
 	}
 
-	
+	/* get interrupt controller device_node */
 	q_chip->int_ctrl = of_irq_find_parent(spmi->dev.of_node);
 	if (!q_chip->int_ctrl) {
 		dev_err(&spmi->dev, "%s: Can't find interrupt parent\n",
@@ -1556,7 +1596,7 @@ static int qpnp_pin_probe(struct spmi_device *spmi)
 		goto err_probe;
 	}
 
-	
+	/* now scan through again and populate the lookup table */
 	for (i = 0; i < spmi->num_dev_node; i++) {
 		d_node = &spmi->dev_node[i];
 		res = spmi_get_resource(spmi, d_node, IORESOURCE_MEM, 0);
@@ -1614,7 +1654,7 @@ static int qpnp_pin_probe(struct spmi_device *spmi)
 		if (rc)
 			goto err_probe;
 
-		
+		/* initialize lookup table params */
 		qpnp_pmic_pin_set_spec(q_chip, gpio, q_spec);
 		qpnp_chip_gpio_set_spec(q_chip, i, q_spec);
 	}
@@ -1640,7 +1680,7 @@ static int qpnp_pin_probe(struct spmi_device *spmi)
 	}
 
 	q_chip->chip_registered = true;
-	
+	/* now configure gpio config defaults if they exist */
 	for (i = 0; i < spmi->num_dev_node; i++) {
 		q_spec = qpnp_chip_gpio_get_spec(q_chip, i);
 		if (WARN_ON(!q_spec)) {

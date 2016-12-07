@@ -61,6 +61,12 @@ struct mdss_mdp_validate_info_t {
 	struct mdss_mdp_pipe_multirect_params multirect;
 };
 
+/*
+ * __layer_needs_src_split() - check needs source split configuration
+ * @layer:	input layer
+ *
+ * return true if the layer should be used as source split
+ */
 static bool __layer_needs_src_split(struct mdp_input_layer *layer)
 {
 	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
@@ -326,12 +332,17 @@ static int __layer_param_check(struct msm_fb_data_type *mfd,
 	return 0;
 }
 
+/* compare all reconfiguration parameter validation in this API */
 static int __validate_layer_reconfig(struct mdp_input_layer *layer,
 	struct mdss_mdp_pipe *pipe)
 {
 	int status = 0;
 	struct mdss_mdp_format_params *src_fmt;
 
+	/*
+	 * csc registers are not double buffered. It is not permitted
+	 * to change them on staged pipe with YUV layer.
+	 */
 	if (pipe->csc_coeff_set != layer->color_space) {
 		src_fmt = mdss_mdp_get_format_params(layer->buffer.format);
 		if (pipe->src_fmt->is_yuv && src_fmt && src_fmt->is_yuv) {
@@ -539,6 +550,10 @@ static int __configure_pipe_params(struct msm_fb_data_type *mfd,
 	if (is_single_layer)
 		flags |= PERF_CALC_PIPE_SINGLE_LAYER;
 
+	/*
+	 * async update is allowed only in video mode panels with single LM
+	 * or dual LM with src_split enabled.
+	 */
 	if (pipe->async_update && ((is_split_lm(mfd) && !mdata->has_src_split)
 			|| (!mdp5_data->ctl->is_video_mode))) {
 		pr_err("async update allowed only in video mode panel with src_split\n");
@@ -546,9 +561,18 @@ static int __configure_pipe_params(struct msm_fb_data_type *mfd,
 		goto end;
 	}
 
+	/*
+	 * unstage the pipe if it's current z_order does not match with new
+	 * z_order because client may only call the validate.
+	 */
 	if (pipe->mixer_stage != layer->z_order)
 		mdss_mdp_mixer_pipe_unstage(pipe, pipe->mixer_left);
 
+	/*
+	 * check if overlay span across two mixers and if source split is
+	 * available. If yes, enable src_split_req flag so that during mixer
+	 * staging, same pipe will be stagged on both layer mixers.
+	 */
 	if (mdata->has_src_split) {
 		if (left_blend_pipe) {
 			if (pipe->priority <= left_blend_pipe->priority) {
@@ -562,6 +586,10 @@ static int __configure_pipe_params(struct msm_fb_data_type *mfd,
 				pipe->is_right_blend = true;
 			}
 		} else if (pipe->is_right_blend) {
+			/*
+			 * pipe used to be right blend. So need to update mixer
+			 * configuration to remove it as a right blend.
+			 */
 			mdss_mdp_mixer_pipe_unstage(pipe, pipe->mixer_left);
 			mdss_mdp_mixer_pipe_unstage(pipe, pipe->mixer_right);
 			pipe->is_right_blend = false;
@@ -621,6 +649,10 @@ static int __configure_pipe_params(struct msm_fb_data_type *mfd,
 		pipe->overfetch_disable = 0;
 	}
 
+	/*
+	 * When scaling is enabled src crop and image
+	 * width and height is modified by user
+	 */
 	if ((pipe->flags & MDP_DEINTERLACE) && !pipe->scaler.enable) {
 		if (pipe->flags & MDP_SOURCE_ROTATED_90) {
 			pipe->src.x = DIV_ROUND_UP(pipe->src.x, 2);
@@ -718,7 +750,7 @@ static struct sync_fence *__create_fence(struct msm_fb_data_type *mfd,
 		goto end;
 	}
 
-	
+	/* get fence fd */
 	*fence_fd = get_unused_fd_flags(0);
 	if (*fence_fd < 0) {
 		pr_err("%s: get_unused_fd_flags failed error:0x%x\n",
@@ -732,6 +764,13 @@ end:
 	return sync_fence;
 }
 
+/*
+ * __handle_buffer_fences() - copy sync fences and return release/retire
+ * fence to caller.
+ *
+ * This function copies all input sync fences to acquire fence array and
+ * returns release/retire fences to caller. It acts like buff_sync ioctl.
+ */
 static int __handle_buffer_fences(struct msm_fb_data_type *mfd,
 	struct mdp_layer_commit_v1 *commit, struct mdp_input_layer *layer_list)
 {
@@ -816,6 +855,12 @@ sync_fence_err:
 	return ret;
 }
 
+/*
+ * __map_layer_buffer() - map input layer buffer
+ *
+ * This function maps input layer buffer. It supports only single layer
+ * buffer mapping right now. This is case for all formats including UBWC.
+ */
 static struct mdss_mdp_data *__map_layer_buffer(struct msm_fb_data_type *mfd,
 	struct mdss_mdp_pipe *pipe,
 	struct mdss_mdp_validate_info_t *validate_info_list,
@@ -916,6 +961,13 @@ static inline bool __compare_layer_config(struct mdp_input_layer *validate,
 	return status;
 }
 
+/*
+ * __find_layer_in_validate_q() - Search layer in validation queue
+ *
+ * This functions helps to skip validation for layers where only buffer is
+ * changing. For ex: video playback case. In order to skip validation, it
+ * compares all input layer params except buffer handle, offset, fences.
+ */
 static struct mdss_mdp_pipe *__find_layer_in_validate_q(
 	struct mdss_mdp_validate_info_t *vinfo,
 	struct mdss_overlay_private *mdp5_data)
@@ -955,6 +1007,10 @@ static bool __find_pipe_in_list(struct list_head *head,
 	return false;
 }
 
+/*
+ * Search pipe from destroy and cleanup list to avoid validation failure.
+ * It is caller responsibility to hold the list lock before calling this API.
+ */
 static struct mdss_mdp_pipe *__find_and_move_cleanup_pipe(
 	struct mdss_overlay_private *mdp5_data, u32 pipe_ndx,
 	enum mdss_mdp_pipe_rect rect_num)
@@ -979,6 +1035,15 @@ static struct mdss_mdp_pipe *__find_and_move_cleanup_pipe(
 	return pipe;
 }
 
+/*
+ * __assign_pipe_for_layer() - get a pipe for layer
+ *
+ * This function first searches the pipe from used list, cleanup list and
+ * destroy list. On successful search, it returns the same pipe for current
+ * layer. It also un-stage the pipe from current mixer for used, cleanup,
+ * destroy pipes if they switches the mixer. On failure search, it returns
+ * the null pipe.
+ */
 static struct mdss_mdp_pipe *__assign_pipe_for_layer(
 	struct msm_fb_data_type *mfd,
 	struct mdss_mdp_mixer *mixer, u32 pipe_ndx,
@@ -1003,7 +1068,7 @@ static struct mdss_mdp_pipe *__assign_pipe_for_layer(
 	}
 	mutex_unlock(&mdp5_data->list_lock);
 
-	
+	/* found the pipe from used, destroy or cleanup list */
 	if (!IS_ERR_OR_NULL(pipe)) {
 		if (pipe->mixer_left != mixer) {
 			if (!mixer->ctl || (mixer->ctl->mfd != mfd)) {
@@ -1042,6 +1107,14 @@ end:
 	return pipe;
 }
 
+/*
+ * __validate_secure_display() - validate secure display
+ *
+ * This function travers through used pipe list and checks if any pipe
+ * is with secure display enabled flag. It fails if client tries to stage
+ * unsecure content with secure display session.
+ *
+ */
 static int __validate_secure_display(struct mdss_overlay_private *mdp5_data)
 {
 	struct mdss_mdp_pipe *pipe, *tmp;
@@ -1069,6 +1142,16 @@ static int __validate_secure_display(struct mdss_overlay_private *mdp5_data)
 	}
 }
 
+/*
+ * __handle_free_list() - updates free pipe list
+ *
+ * This function travers through used pipe list and checks if any pipe
+ * is not staged in current validation cycle. It moves the pipe to cleanup
+ * list if no layer is attached for that pipe.
+ *
+ * This should be called after validation is successful for current cycle.
+ * Moving pipes before can affects staged pipe for previous cycle.
+ */
 static void __handle_free_list(struct mdss_overlay_private *mdp5_data,
 	struct mdss_mdp_validate_info_t *validate_info_list, u32 layer_count)
 {
@@ -1088,6 +1171,11 @@ static void __handle_free_list(struct mdss_overlay_private *mdp5_data,
 				break;
 		}
 
+		/*
+		 * if validate cycle is not attaching any layer for this
+		 * pipe then move it to cleanup list. It does overlay_unset
+		 * task.
+		 */
 		if (i == layer_count)
 			list_move(&pipe->list, &mdp5_data->pipes_cleanup);
 	}
@@ -1097,11 +1185,11 @@ static void __handle_free_list(struct mdss_overlay_private *mdp5_data,
 static bool __multirect_validate_flip(struct mdp_input_layer **layers,
 		size_t count)
 {
-	
+	/* not supporting more than 2 layers */
 	if (count != 2)
 		return false;
 
-	
+	/* flip related validation */
 	if ((layers[0]->flags & MDP_LAYER_FLIP_LR) ||
 	    (layers[1]->flags & MDP_LAYER_FLIP_LR)) {
 		pr_err("multirect and HFLIP is not allowed. input layer flags=0x%x paired layer flags=0x%x\n",
@@ -1123,11 +1211,11 @@ static bool __multirect_validate_format(struct mdp_input_layer **layers,
 	struct mdss_mdp_format_params *rec0_fmt, *rec1_fmt;
 	bool is_ubwc;
 
-	
+	/* not supporting more than 2 layers */
 	if (count != 2)
 		return false;
 
-	
+	/* format related validation */
 	rec0_fmt = mdss_mdp_get_format_params(layers[0]->buffer.format);
 	if (!rec0_fmt) {
 		pr_err("invalid input layer format %d\n",
@@ -1179,7 +1267,7 @@ static bool __multirect_validate_rects(struct mdp_input_layer **layers,
 	struct mdss_rect dst[MDSS_MDP_PIPE_MAX_RECTS];
 	int i;
 
-	
+	/* not supporting more than 2 layers */
 	if (count != 2)
 		return false;
 
@@ -1198,7 +1286,7 @@ static bool __multirect_validate_rects(struct mdp_input_layer **layers,
 					     layers[i]->dst_rect.h};
 	}
 
-	
+	/* resolution related validation */
 	if (mdss_rect_overlap_check(&dst[0], &dst[1])) {
 		pr_err("multirect dst overlap is not allowed. input: %d,%d,%d,%d paired %d,%d,%d,%d\n",
 			dst[0].x, dst[0].y, dst[0].w, dst[0].y,
@@ -1212,7 +1300,7 @@ static bool __multirect_validate_rects(struct mdp_input_layer **layers,
 static bool __multirect_validate_properties(struct mdp_input_layer **layers,
 		size_t count)
 {
-	
+	/* not supporting more than 2 layers */
 	if (count != 2)
 		return false;
 
@@ -1269,7 +1357,7 @@ static int __multirect_validate_mode(struct msm_fb_data_type *mfd,
 	int i, mode;
 	struct mdp_rect *dst[MDSS_MDP_PIPE_MAX_RECTS];
 
-	
+	/* not supporting more than 2 layers */
 	if (count != 2)
 		return false;
 
@@ -1278,7 +1366,7 @@ static int __multirect_validate_mode(struct msm_fb_data_type *mfd,
 
 	mode = __multirect_layer_flags_to_mode(layers[0]->flags);
 
-	
+	/* format related validation */
 	rec0_fmt = mdss_mdp_get_format_params(layers[0]->buffer.format);
 	if (!rec0_fmt) {
 		pr_err("invalid input layer format %d\n",
@@ -1298,11 +1386,16 @@ static int __multirect_validate_mode(struct msm_fb_data_type *mfd,
 		else
 			yoffset = 0;
 
+		/*
+		* time multiplexed is possible only if the y position of layers
+		* is not overlapping and there is sufficient time to buffer
+		* 2 lines/tiles.  Otherwise use parallel fetch mode
+		*/
 		threshold = 2;
 		if (is_ubwc) {
 			struct mdss_mdp_format_params_ubwc *uf;
 
-			
+			/* in ubwc all layers would need to be same format */
 			uf = (struct mdss_mdp_format_params_ubwc *)rec0_fmt;
 			threshold *= uf->micro.tile_height;
 		}
@@ -1316,6 +1409,18 @@ static int __multirect_validate_mode(struct msm_fb_data_type *mfd,
 	} else if (mode == MDSS_MDP_PIPE_MULTIRECT_PARALLEL) {
 		u32 left_lm_w, rec0_mixer, rec1_mixer;
 
+		/*
+		 * For UBWC, 5 lines worth of buffering is needed in to meet
+		 * the performance which requires 2560w*4bpp*5lines = 50KB,
+		 * where 2560 is max width. Now let's say pixel ram is fixed to
+		 * 50KB then in UBWC parellel fetch, maximum width of each
+		 * rectangle would be 2560/2 = 1280.
+		 *
+		 * For Linear, this restriction is avoided because maximum
+		 * buffering of 2 lines is enough which yields to
+		 * 2560w*4bpp*2lines=20KB. Based on this, we can have 2 max
+		 * width rectangles in parrellel fetch mode.
+		 */
 		if (is_ubwc &&
 			((dst[0]->w > (mdata->max_mixer_width / 2)) ||
 			(dst[1]->w > (mdata->max_mixer_width / 2)))) {
@@ -1384,7 +1489,7 @@ static int __update_multirect_info(struct msm_fb_data_type *mfd,
 	vinfo[0]->multirect.num = MDSS_MDP_PIPE_RECT0;
 	vinfo[0]->multirect.next = NULL;
 
-	
+	/* nothing to be done if multirect is disabled */
 	if (mode == MDSS_MDP_PIPE_MULTIRECT_NONE)
 		return cnt;
 
@@ -1452,7 +1557,7 @@ static int __validate_multirect(struct msm_fb_data_type *mfd,
 		return cnt;
 
 	if (cnt <= 1) {
-		
+		/* nothing to validate in single rect mode */
 		return 0;
 	} else if (cnt > 2) {
 		pr_err("unsupported multirect configuration, multirect cnt=%d\n",
@@ -1475,6 +1580,15 @@ static int __validate_multirect(struct msm_fb_data_type *mfd,
 	return 0;
 }
 
+/*
+ * __validate_layers() - validate input layers
+ * @mfd:	Framebuffer data structure for display
+ * @commit:	Commit version-1 structure for display
+ *
+ * This function validates all input layers present in layer_list. In case
+ * of failure, it updates the "error_code" for failed layer. It is possible
+ * to find failed layer from layer_list based on "error_code".
+ */
 static int __validate_layers(struct msm_fb_data_type *mfd,
 	struct file *file, struct mdp_layer_commit_v1 *commit)
 {
@@ -1555,6 +1669,11 @@ static int __validate_layers(struct msm_fb_data_type *mfd,
 		rec_ndx[rect_num] |= layer_list[i].pipe_ndx;
 	}
 
+	/*
+	 * Force all layers to go through full validation after
+	 * dynamic resolution switch, immaterial of the configs in
+	 * the layer.
+	 */
 	mutex_lock(&mfd->switch_lock);
 	force_validate = (mfd->switch_state != MDSS_MDP_NO_UPDATE_REQUESTED);
 	mutex_unlock(&mfd->switch_lock);
@@ -1567,6 +1686,19 @@ static int __validate_layers(struct msm_fb_data_type *mfd,
 		left_blend_pipe = NULL;
 
 		prev_layer = (i > 0) ? &layer_list[i - 1] : NULL;
+		/*
+		 * check if current layer is at same z_order as
+		 * previous one, and fail if any or both are async layers,
+		 * as async layers should have unique z_order.
+		 *
+		 * If it has same z_order and qualifies as a right blend,
+		 * pass a pointer to the pipe representing previous overlay or
+		 * in other terms left blend layer.
+		 *
+		 * Following logic of selecting left_blend has an inherent
+		 * assumption that layer list is sorted on dst_x within a
+		 * same z_order. Otherwise it will fail based on z_order checks.
+		 */
 		if (prev_layer && (prev_layer->z_order == layer->z_order)) {
 			struct mdp_rect *left = &prev_layer->dst_rect;
 			struct mdp_rect *right = &layer->dst_rect;
@@ -1579,10 +1711,19 @@ static int __validate_layers(struct msm_fb_data_type *mfd,
 				goto validate_exit;
 			}
 
+			/*
+			 * check if layer is right blend by checking it's
+			 * directly to the right.
+			 */
 			if (((left->x + left->w) == right->x) &&
 			    (left->y == right->y) && (left->h == right->h))
 				left_blend_pipe = pipe;
 
+			/*
+			 * if the layer is right at the left lm boundary and
+			 * src split is not required then right blend is not
+			 * required as it will lie only on the left mixer
+			 */
 			if (!__layer_needs_src_split(prev_layer) &&
 			    ((left->x + left->w) == left_lm_w))
 				left_blend_pipe = NULL;
@@ -1617,6 +1758,11 @@ static int __validate_layers(struct msm_fb_data_type *mfd,
 			mixer_mux = MDSS_MDP_MIXER_MUX_RIGHT;
 		}
 
+		/**
+		 * search pipe in current used list to find if parameters
+		 * are same. validation can be skipped if only buffer handle
+		 * is changed.
+		 */
 		pipe = (force_validate) ? NULL :
 				__find_layer_in_validate_q(
 					&validate_info_list[i], mdp5_data);
@@ -1684,6 +1830,10 @@ static int __validate_layers(struct msm_fb_data_type *mfd,
 		}
 
 		if (pipe_q_type == LAYER_USES_USED_PIPE_Q) {
+			/*
+			 * reconfig is allowed on new/destroy pipes. Only used
+			 * pipe needs this extra validation.
+			 */
 			ret = __validate_layer_reconfig(layer, pipe);
 			if (ret) {
 				pr_err("layer reconfig validation failed=%d\n",
@@ -1706,7 +1856,7 @@ static int __validate_layers(struct msm_fb_data_type *mfd,
 
 		mdss_mdp_pipe_unmap(pipe);
 
-		
+		/* keep the original copy of dst_x */
 		pipe->layer.dst_rect.x = layer->dst_rect.x = dst_x;
 
 		if (mixer_mux == MDSS_MDP_MIXER_MUX_RIGHT)
@@ -1753,6 +1903,12 @@ validate_exit:
 				mdss_mdp_pipe_destroy(pipe);
 			} else if ((pipe->ndx & rec_destroy_ndx[0]) ||
 				   (pipe->ndx & rec_destroy_ndx[1])) {
+				/*
+				 * cleanup/destroy list pipes should move back
+				 * to destroy list. Next/current kickoff cycle
+				 * will release the pipe because validate also
+				 * acquires ov_lock.
+				 */
 				list_move(&pipe->list,
 					&mdp5_data->pipes_destroy);
 			}
@@ -1772,6 +1928,18 @@ end:
 	return ret;
 }
 
+/*
+ * mdss_mdp_layer_pre_commit() - pre commit validation for input layers
+ * @mfd:	Framebuffer data structure for display
+ * @commit:	Commit version-1 structure for display
+ *
+ * This function checks if layers present in commit request are already
+ * validated or not. If there is mismatch in validate and commit layers
+ * then it validate all input layers again. On successful validation, it
+ * maps the input layer buffer and creates release/retire fences.
+ *
+ * This function is called from client context and can return the error.
+ */
 int mdss_mdp_layer_pre_commit(struct msm_fb_data_type *mfd,
 	struct file *file, struct mdp_layer_commit_v1 *commit)
 {
@@ -1792,7 +1960,7 @@ int mdss_mdp_layer_pre_commit(struct msm_fb_data_type *mfd,
 
 	layer_list = commit->input_layers;
 
-	
+	/* handle null commit */
 	if (!layer_count) {
 		__handle_free_list(mdp5_data, NULL, layer_count);
 		return 0;
@@ -1831,6 +1999,10 @@ int mdss_mdp_layer_pre_commit(struct msm_fb_data_type *mfd,
 			goto end;
 		}
 	} else {
+		/*
+		 * move unassigned pipes to cleanup list since commit
+		 * supports validate+commit operation.
+		 */
 		__handle_free_list(mdp5_data, validate_info_list, layer_count);
 	}
 
@@ -1875,6 +2047,15 @@ end:
 	return ret;
 }
 
+/*
+ * mdss_mdp_layer_atomic_validate() - validate input layers
+ * @mfd:	Framebuffer data structure for display
+ * @commit:	Commit version-1 structure for display
+ *
+ * This function validates only input layers received from client. It
+ * does perform any validation for mdp_output_layer defined for writeback
+ * display.
+ */
 int mdss_mdp_layer_atomic_validate(struct msm_fb_data_type *mfd,
 	struct file *file, struct mdp_layer_commit_v1 *commit)
 {

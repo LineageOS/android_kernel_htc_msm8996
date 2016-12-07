@@ -3662,7 +3662,7 @@ static int msm_gcc_8996_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Set the HMSS_AHB_CLK_ENA bit to enable the hmss_ahb_clk */
 	regval = readl_relaxed(virt_base + GCC_APCS_CLOCK_BRANCH_ENA_VOTE);
 	regval |= BIT(21);
 	writel_relaxed(regval, virt_base + GCC_APCS_CLOCK_BRANCH_ENA_VOTE);
@@ -3686,7 +3686,7 @@ static int msm_gcc_8996_probe(struct platform_device *pdev)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Perform revision specific fixes */
 	compat = of_get_property(pdev->dev.of_node, "compatible", &compatlen);
 	if (!compat || (compatlen <= 0))
 		return -EINVAL;
@@ -3700,7 +3700,7 @@ static int msm_gcc_8996_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	
+	/* Register v2 specific clocks */
 	if (is_v2) {
 		ret = of_msm_clock_register(pdev->dev.of_node,
 				msm_clocks_gcc_8996_v2,
@@ -3709,15 +3709,22 @@ static int msm_gcc_8996_probe(struct platform_device *pdev)
 			return ret;
 	}
 
+	/*
+	 * Hold an active set vote for the PNOC AHB source. Sleep set vote is 0.
+	 */
 	clk_set_rate(&pnoc_keepalive_a_clk.c, 19200000);
 	clk_prepare_enable(&pnoc_keepalive_a_clk.c);
 
-	
+	/* This clock is used for all MMSS register access */
 	clk_prepare_enable(&gcc_mmss_noc_cfg_ahb_clk.c);
 
-	
+	/* Keep an active vote on CXO in case no other driver votes for it */
 	clk_prepare_enable(&cxo_clk_src_ao.c);
 
+	/*
+	 * Keep the core memory settings enabled at all times for
+	 * gcc_mmss_bimc_gfx_clk.
+	 */
 	clk_set_flags(&gcc_mmss_bimc_gfx_clk.c, CLKFLAG_RETAIN_MEM);
 
 	dev_info(&pdev->dev, "Registered GCC clocks.\n");
@@ -3746,6 +3753,7 @@ int __init msm_gcc_8996_init(void)
 }
 arch_initcall(msm_gcc_8996_init);
 
+/* ======== Clock Debug Controller ======== */
 static struct clk_lookup msm_clocks_measure_8996[] = {
 	CLK_LIST(mmss_gcc_dbg_clk),
 	CLK_LIST(gpu_gcc_dbg_clk),
@@ -3797,7 +3805,7 @@ static int msm_clock_debug_8996_probe(struct platform_device *pdev)
 	gpu_gcc_dbg_clk.dev = &pdev->dev;
 	gpu_gcc_dbg_clk.clk_id = "debug_gpu_clk";
 
-	
+	/* Perform revision specific fixes */
 	compat = of_get_property(pdev->dev.of_node, "compatible", &compatlen);
 	if (!compat || (compatlen <= 0))
 		return -EINVAL;

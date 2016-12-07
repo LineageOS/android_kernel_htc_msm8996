@@ -16,7 +16,7 @@
 #include <linux/asn1_ber_bytecode.h>
 
 static const unsigned char asn1_op_lengths[ASN1_OP__NR] = {
-	
+	/*					OPC TAG JMP ACT */
 	[ASN1_OP_MATCH]				= 1 + 1,
 	[ASN1_OP_MATCH_OR_SKIP]			= 1 + 1,
 	[ASN1_OP_MATCH_ACT]			= 1 + 1     + 1,
@@ -44,6 +44,14 @@ static const unsigned char asn1_op_lengths[ASN1_OP__NR] = {
 	[ASN1_OP_END_SET_OF_ACT]		= 1     + 1 + 1,
 };
 
+/*
+ * Find the length of an indefinite length object
+ * @data: The data buffer
+ * @datalen: The end of the innermost containing element in the buffer
+ * @_dp: The data parse cursor (updated before returning)
+ * @_len: Where to return the size of the element.
+ * @_errmsg: Where to return a pointer to an error message on error
+ */
 static int asn1_find_indefinite_length(const unsigned char *data, size_t datalen,
 				       size_t *_dp, size_t *_len,
 				       const char **_errmsg)
@@ -59,7 +67,7 @@ next_tag:
 		goto data_overrun_error;
 	}
 
-	
+	/* Extract a tag from the data */
 	tag = data[dp++];
 	if (tag == ASN1_EOC) {
 		
@@ -81,13 +89,13 @@ next_tag:
 		} while (tmp & 0x80);
 	}
 
-	
+	/* Extract the length */
 	len = data[dp++];
 	if (len <= 0x7f)
 		goto check_length;
 
 	if (unlikely(len == ASN1_INDEFINITE_LENGTH)) {
-		
+		/* Indefinite length */
 		if (unlikely((tag & ASN1_CONS_BIT) == ASN1_PRIM << 5))
 			goto indefinite_len_primitive;
 		indef_level++;
@@ -129,6 +137,31 @@ error:
 	return -1;
 }
 
+/**
+ * asn1_ber_decoder - Decoder BER/DER/CER ASN.1 according to pattern
+ * @decoder: The decoder definition (produced by asn1_compiler)
+ * @context: The caller's context (to be passed to the action functions)
+ * @data: The encoded data
+ * @datalen: The size of the encoded data
+ *
+ * Decode BER/DER/CER encoded ASN.1 data according to a bytecode pattern
+ * produced by asn1_compiler.  Action functions are called on marked tags to
+ * allow the caller to retrieve significant data.
+ *
+ * LIMITATIONS:
+ *
+ * To keep down the amount of stack used by this function, the following limits
+ * have been imposed:
+ *
+ *  (1) This won't handle datalen > 65535 without increasing the size of the
+ *	cons stack elements and length_too_long checking.
+ *
+ *  (2) The stack of constructed types is 10 deep.  If the depth of non-leaf
+ *	constructed types exceeds this, the decode will fail.
+ *
+ *  (3) The SET type (not the SET OF type) isn't really supported as tracking
+ *	what members of the set have been seen is a pain.
+ */
 int asn1_ber_decoder(const struct asn1_decoder *decoder,
 		     void *context,
 		     const unsigned char *data,
@@ -146,7 +179,10 @@ int asn1_ber_decoder(const struct asn1_decoder *decoder,
 	unsigned char flags = 0;
 #define FLAG_INDEFINITE_LENGTH	0x01
 #define FLAG_MATCHED		0x02
-#define FLAG_CONS		0x20 
+#define FLAG_CONS		0x20 /* Corresponds to CONS bit in the opcode tag
+				      * - ie. whether or not we are going to parse
+				      *   a compound type.
+				      */
 
 #define NR_CONS_STACK 10
 	unsigned short cons_dp_stack[NR_CONS_STACK];
@@ -167,6 +203,9 @@ next_op:
 	if (unlikely(pc + asn1_op_lengths[op] > machlen))
 		goto machine_overrun_error;
 
+	/* If this command is meant to match a tag, then do that before
+	 * evaluating the command.
+	 */
 	if (op <= ASN1_OP__MATCHES_TAG) {
 		unsigned char tmp;
 
@@ -180,7 +219,7 @@ next_op:
 		flags = 0;
 		hdr = 2;
 
-		
+		/* Extract a tag from the data */
 		if (unlikely(dp >= datalen - 1))
 			goto data_overrun_error;
 		tag = data[dp++];
@@ -190,15 +229,20 @@ next_op:
 		if (op & ASN1_OP_MATCH__ANY) {
 			pr_debug("- any %02x\n", tag);
 		} else {
+			/* Extract the tag from the machine
+			 * - Either CONS or PRIM are permitted in the data if
+			 *   CONS is not set in the op stream, otherwise CONS
+			 *   is mandatory.
+			 */
 			optag = machine[pc + 1];
 			flags |= optag & FLAG_CONS;
 
-			
+			/* Determine whether the tag matched */
 			tmp = optag ^ tag;
 			tmp &= ~(optag & ASN1_CONS_BIT);
 			pr_debug("- match? %02x %02x %02x\n", tag, optag, tmp);
 			if (tmp != 0) {
-				
+				/* All odd-numbered tags are MATCH_OR_SKIP. */
 				if (op & ASN1_OP_MATCH__SKIP) {
 					pc += asn1_op_lengths[op];
 					dp--;
@@ -212,7 +256,7 @@ next_op:
 		len = data[dp++];
 		if (len > 0x7f) {
 			if (unlikely(len == ASN1_INDEFINITE_LENGTH)) {
-				
+				/* Indefinite length */
 				if (unlikely(!(tag & ASN1_CONS_BIT)))
 					goto indefinite_len_primitive;
 				flags |= FLAG_INDEFINITE_LENGTH;
@@ -235,6 +279,9 @@ next_op:
 		}
 
 		if (flags & FLAG_CONS) {
+			/* For expected compound forms, we stack the positions
+			 * of the start and end of the data.
+			 */
 			if (unlikely(csp >= NR_CONS_STACK))
 				goto cons_stack_overflow;
 			cons_dp_stack[csp] = dp;
@@ -253,7 +300,7 @@ next_op:
 		tdp = dp;
 	}
 
-	
+	/* Decide how to handle the operation */
 	switch (op) {
 	case ASN1_OP_MATCH_ANY_ACT:
 	case ASN1_OP_COND_MATCH_ANY_ACT:
@@ -334,7 +381,7 @@ next_op:
 		pr_debug("- end cons t=%zu dp=%zu l=%zu/%zu\n",
 			 tdp, dp, len, datalen);
 		if (datalen == 0) {
-			
+			/* Indefinite length - check for the EOC. */
 			datalen = len;
 			if (unlikely(datalen - dp < 2))
 				goto data_overrun_error;
@@ -391,7 +438,7 @@ next_op:
 		break;
 	}
 
-	
+	/* Shouldn't reach here */
 	pr_err("ASN.1 decoder error: Found reserved opcode (%u)\n", op);
 	return -EBADMSG;
 

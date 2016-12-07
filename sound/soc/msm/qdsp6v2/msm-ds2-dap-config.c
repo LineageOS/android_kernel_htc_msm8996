@@ -23,7 +23,9 @@
 #ifdef CONFIG_DOLBY_DS2
 #include <linux/workqueue.h>
 
+/* ramp up/down for 30ms    */
 #define DOLBY_SOFT_VOLUME_PERIOD	40
+/* Step value 0ms or 0us */
 #define DOLBY_SOFT_VOLUME_STEP		1000
 #define DOLBY_ADDITIONAL_RAMP_WAIT	40
 #define SOFT_VOLUME_PARAM_SIZE		3
@@ -37,6 +39,7 @@ enum {
 
 #define VOLUME_ZERO_GAIN     0x0
 #define VOLUME_UNITY_GAIN    0x2000
+/* Wait time for module enable/disble */
 #define DOLBY_MODULE_ENABLE_PERIOD     50
 
 static struct work_struct ramping_dwork;
@@ -62,6 +65,7 @@ enum {
 	MODULE_DISABLE = 0,
 	MODULE_ENABLE,
 };
+/* dolby param ids to/from dsp */
 static uint32_t	ds2_dap_params_id[MAX_DS2_PARAMS] = {
 	DOLBY_PARAM_ID_VDHE, DOLBY_PARAM_ID_VSPE, DOLBY_PARAM_ID_DSSF,
 	DOLBY_PARAM_ID_DVLI, DOLBY_PARAM_ID_DVLO, DOLBY_PARAM_ID_DVLE,
@@ -81,6 +85,13 @@ static uint32_t	ds2_dap_params_id[MAX_DS2_PARAMS] = {
 	DOLBY_PARAM_ID_VEN,  DOLBY_PARAM_ID_PSTG, DOLBY_PARAM_ID_INIT_ENDP,
 };
 
+/* modifed state:	0x00000000 - Not updated
+*			> 0x00000000 && < 0x00010000
+*				Updated and not commited to DSP
+*			0x00010001 - Updated and commited to DSP
+*			> 0x00010001 - Modified the commited value
+*/
+/* param offset */
 static uint32_t	ds2_dap_params_offset[MAX_DS2_PARAMS] = {
 	DOLBY_PARAM_VDHE_OFFSET, DOLBY_PARAM_VSPE_OFFSET,
 	DOLBY_PARAM_DSSF_OFFSET, DOLBY_PARAM_DVLI_OFFSET,
@@ -107,6 +118,7 @@ static uint32_t	ds2_dap_params_offset[MAX_DS2_PARAMS] = {
 	DOLBY_PARAM_PREG_OFFSET, DOLBY_PARAM_VEN_OFFSET,
 	DOLBY_PARAM_PSTG_OFFSET, DOLBY_PARAM_INT_ENDP_OFFSET,
 };
+/* param_length */
 static uint32_t	ds2_dap_params_length[MAX_DS2_PARAMS] = {
 	DOLBY_PARAM_VDHE_LENGTH, DOLBY_PARAM_VSPE_LENGTH,
 	DOLBY_PARAM_DSSF_LENGTH, DOLBY_PARAM_DVLI_LENGTH,
@@ -149,11 +161,11 @@ struct audio_rx_cal_data {
 static struct ds2_dap_params_s ds2_dap_params[DOLBY_MAX_CACHE];
 
 struct ds2_device_mapping {
-	int32_t device_id; 
-	int port_id; 
-	
-	int copp_idx; 
-	int cache_dev; 
+	int32_t device_id; /* audio_out_... */
+	int port_id; /* afe port. constant for a target variant. routing-v2*/
+	/*Only one Dolby COPP  for a specific port*/
+	int copp_idx; /* idx for the copp port on which ds2 is active */
+	int cache_dev; /* idx to a shared parameter array dependent on device*/
 	uint32_t stream_ref_count;
 	bool active;
 	void *cal_data;
@@ -220,6 +232,11 @@ static void msm_ds2_dap_check_and_update_ramp_wait(int port_id, int copp_idx,
 	}
 end:
 	kfree(update_params_value);
+	/*
+	 * No error returned as we do not need to error out from dap on/dap
+	 * bypass. The default ramp parameter will be used to wait during
+	 * ramp down.
+	 */
 	return;
 }
 
@@ -268,7 +285,7 @@ static int msm_ds2_dap_set_vspe_vdhe(int dev_map_idx,
 	params_length = 0;
 	param_val = update_params_value;
 	cdev = dev_map[dev_map_idx].cache_dev;
-	
+	/* for VDHE and VSPE DAP params at index 0 and 1 in table */
 	for (i = 0; i < 2; i++) {
 		*update_params_value++ = DOLBY_BUNDLE_MODULE_ID;
 		*update_params_value++ = ds2_dap_params_id[i];
@@ -363,24 +380,26 @@ int qti_set_custom_stereo_on(int port_id, int copp_idx,
 	if (avail_length < 10 * sizeof(uint16_t))
 		goto skip_send_cmd;
 	*update_params_value16++ = CUSTOM_STEREO_CMD_PARAM_SIZE;
-	
+	/* for alignment only*/
 	*update_params_value16++ = 0;
-	
+	/* index is 32-bit param in little endian*/
 	*update_params_value16++ = CUSTOM_STEREO_INDEX_PARAM;
 	*update_params_value16++ = 0;
-	
+	/* for stereo mixing num out ch*/
 	*update_params_value16++ = CUSTOM_STEREO_NUM_OUT_CH;
-	
+	/* for stereo mixing num in ch*/
 	*update_params_value16++ = CUSTOM_STEREO_NUM_IN_CH;
 
-	
+	/* Out ch map FL/FR*/
 	*update_params_value16++ = PCM_CHANNEL_FL;
 	*update_params_value16++ = PCM_CHANNEL_FR;
 
-	
+	/* In ch map FL/FR*/
 	*update_params_value16++ = PCM_CHANNEL_FL;
 	*update_params_value16++ = PCM_CHANNEL_FR;
 	avail_length = avail_length - (10 * sizeof(uint16_t));
+	/* weighting coefficients as name suggests,
+	mixing will be done according to these coefficients*/
 	if (avail_length < 4 * sizeof(uint16_t))
 		goto skip_send_cmd;
 	*update_params_value16++ = op_FL_ip_FL_weight;
@@ -427,7 +446,7 @@ static int dap_set_custom_stereo_onoff(int dev_map_idx,
 		goto end;
 	}
 
-	
+	/* DAP custom stereo */
 	msm_ds2_dap_set_vspe_vdhe(dev_map_idx,
 				  is_custom_stereo_enabled);
 	update_params_value = kzalloc(params_length_bytes, GFP_KERNEL);
@@ -607,7 +626,7 @@ static int msm_ds2_dap_send_cal_data(int dev_map_idx)
 		goto end;
 	}
 
-	
+	/* send aud proc cal */
 	aud_cal_data = (struct audio_rx_cal_data *)
 				dev_map[dev_map_idx].cal_data;
 	rc = adm_send_calibration(dev_map[dev_map_idx].port_id,
@@ -621,7 +640,7 @@ static int msm_ds2_dap_send_cal_data(int dev_map_idx)
 		goto end;
 	}
 
-	
+	/* send aud volume cal*/
 	rc = adm_send_calibration(dev_map[dev_map_idx].port_id,
 				  dev_map[dev_map_idx].copp_idx,
 				  ADM_PATH_PLAYBACK, 0,
@@ -648,7 +667,7 @@ static inline int msm_ds2_dap_can_enable_module(int32_t module_id)
 static int msm_ds2_dap_init_modules_in_topology(int dev_map_idx)
 {
 	int rc = 0, i = 0, port_id, copp_idx;
-	
+	/* Account for 32 bit interger allocation */
 	int32_t param_sz = (ADM_GET_TOPO_MODULE_LIST_LENGTH / sizeof(uint32_t));
 	int32_t *update_param_val = NULL;
 
@@ -669,7 +688,7 @@ static int msm_ds2_dap_init_modules_in_topology(int dev_map_idx)
 	}
 
 	if (!ds2_dap_params_states.dap_bypass) {
-		
+		/* get modules from dsp */
 		rc = adm_get_pp_topo_module_list(port_id, copp_idx,
 			ADM_GET_TOPO_MODULE_LIST_LENGTH,
 			(char *)update_param_val);
@@ -686,7 +705,7 @@ static int msm_ds2_dap_init_modules_in_topology(int dev_map_idx)
 			rc = -EINVAL;
 			goto end;
 		}
-		
+		/* Turn off modules */
 		for (i = 1; i < update_param_val[0]; i++) {
 			if (!msm_ds2_dap_can_enable_module(
 				update_param_val[i]) ||
@@ -816,7 +835,7 @@ static int msm_ds2_dap_update_num_devices(struct dolby_param_data *dolby_data,
 		dev_arr[idx++] = FM;
 	if ((idx < array_size) && (supported_devices & FM_TX))
 		dev_arr[idx++] = FM_TX;
-	
+	/* CHECK device none separately */
 	if ((idx < array_size) && (supported_devices == DEVICE_NONE))
 		dev_arr[idx++] = DEVICE_NONE;
 	pr_debug("%s: dev id 0x%x, idx %d\n", __func__,
@@ -876,7 +895,7 @@ static int msm_ds2_dap_handle_bypass_wait(int port_id, int copp_idx,
 static int msm_ds2_dap_handle_bypass(struct dolby_param_data *dolby_data)
 {
 	int rc = 0, i = 0, j = 0;
-	
+	/*Account for 32 bit interger allocation  */
 	int32_t param_sz = (ADM_GET_TOPO_MODULE_LIST_LENGTH / sizeof(uint32_t));
 	int32_t *mod_list = NULL;
 	int port_id = 0, copp_idx = -1;
@@ -912,7 +931,7 @@ static int msm_ds2_dap_handle_bypass(struct dolby_param_data *dolby_data)
 				goto end;
 			}
 
-			
+			/* getmodules from dsp */
 			rc = adm_get_pp_topo_module_list(port_id, copp_idx,
 				    ADM_GET_TOPO_MODULE_LIST_LENGTH,
 				    (char *)mod_list);
@@ -930,14 +949,23 @@ static int msm_ds2_dap_handle_bypass(struct dolby_param_data *dolby_data)
 				rc = -EINVAL;
 				goto end;
 			}
+			/*
+			 * get ramp parameters
+			 * check for change in ramp parameters
+			 * update ramp wait
+			 */
 			msm_ds2_dap_check_and_update_ramp_wait(port_id,
 							       copp_idx,
 							       &ramp_wait);
 
-			
+			/* Mute before switching modules */
 			rc = adm_set_volume(port_id, copp_idx,
 					    VOLUME_ZERO_GAIN);
 			if (rc < 0) {
+				/*
+				 * Not Fatal can continue bypass operations.
+				 * Do not need to block playback
+				 */
 				pr_info("%s :Set volume port_id %d",
 					__func__, port_id);
 				pr_info("copp_idx %d, error %d\n",
@@ -955,11 +983,16 @@ static int msm_ds2_dap_handle_bypass(struct dolby_param_data *dolby_data)
 				continue;
 			}
 
-			
+			/* if dap bypass is set */
 			if (ds2_dap_params_states.dap_bypass) {
-				
+				/* Turn off dap module */
 				adm_param_enable(port_id, copp_idx,
 						 DS2_MODULE_ID, MODULE_DISABLE);
+				/*
+				 * If custom stereo is on at the time of bypass,
+				 * switch off custom stereo on dap and turn on
+				 * custom stereo on qti channel mixer.
+				 */
 				if (cs_onoff) {
 					rc = dap_set_custom_stereo_onoff(i,
 								!cs_onoff);
@@ -977,14 +1010,18 @@ static int msm_ds2_dap_handle_bypass(struct dolby_param_data *dolby_data)
 							copp_idx, rc);
 					}
 				}
-				
+				/* Add adm api to resend calibration on port */
 				rc = msm_ds2_dap_send_cal_data(i);
 				if (rc < 0) {
+					/*
+					 * Not fatal,continue bypass operations.
+					 * Do not need to block playback
+					 */
 					pr_info("%s:send cal err %d index %d\n",
 						__func__, rc, i);
 				}
 			} else {
-				
+				/* Turn off qti modules */
 				for (j = 1; j < mod_list[0]; j++) {
 					if (!msm_ds2_dap_can_enable_module(
 						mod_list[j]) ||
@@ -998,10 +1035,16 @@ static int msm_ds2_dap_handle_bypass(struct dolby_param_data *dolby_data)
 							 MODULE_DISABLE);
 				}
 
-				
+				/* Enable DAP modules */
 				pr_debug("%s:DS2 param enable\n", __func__);
 				adm_param_enable(port_id, copp_idx,
 						 DS2_MODULE_ID, MODULE_ENABLE);
+				/*
+				 * If custom stereo is on at the time of dap on,
+				 * switch off custom stereo on qti channel mixer
+				 * and turn on custom stereo on DAP.
+				 * mixer(qti).
+				 */
 				if (cs_onoff) {
 					rc = qti_set_custom_stereo_on(port_id,
 								copp_idx,
@@ -1026,15 +1069,19 @@ static int msm_ds2_dap_handle_bypass(struct dolby_param_data *dolby_data)
 			if (rc == -EINTR) {
 				pr_info("%s:bypass interupted port_id %d copp_idx %d\n",
 					__func__, port_id, copp_idx);
-				
+				/* Interrupted ignore bypass */
 				rc = 0;
 				continue;
 			}
 
-			
+			/* set volume to unity gain after module on/off */
 			rc = adm_set_volume(port_id, copp_idx,
 					    VOLUME_UNITY_GAIN);
 			if (rc < 0) {
+				/*
+				 * Not Fatal can continue bypass operations.
+				 * Do not need to block playback
+				 */
 				pr_info("%s: Set vol port %d copp %d, rc %d\n",
 					__func__, port_id, copp_idx, rc);
 				rc = 0;
@@ -1146,7 +1193,7 @@ static int msm_ds2_dap_send_cached_params(int dev_map_idx,
 	}
 	cache_device = dev_map[dev_map_idx].cache_dev;
 
-	
+	/* Use off profile cache in only for soft bypass */
 	if (ds2_dap_params_states.dap_bypass_type == DAP_SOFT_BYPASS &&
 		ds2_dap_params_states.dap_bypass == true) {
 		pr_debug("%s: use bypass cache 0\n", __func__);
@@ -1180,7 +1227,7 @@ static int msm_ds2_dap_send_cached_params(int dev_map_idx,
 	update_params_value = params_value;
 	params_length = 0;
 	for (i = 0; i < (MAX_DS2_PARAMS-1); i++) {
-		
+		/*get the pointer to the param modified array in the cache*/
 		modified_param = ds2_ap_params_obj->dap_params_modified;
 		if (modified_param == NULL) {
 			pr_err("%s: modified param structure invalid\n",
@@ -1220,7 +1267,7 @@ static int msm_ds2_dap_send_cached_params(int dev_map_idx,
 			goto end;
 		}
 		for (i = 0; i < MAX_DS2_PARAMS-1; i++) {
-			
+			/*get pointer to the param modified array in the cache*/
 			modified_param = ds2_ap_params_obj->dap_params_modified;
 			if (modified_param == NULL) {
 				pr_err("%s: modified param struct invalid\n",
@@ -1246,7 +1293,7 @@ static int msm_ds2_dap_commit_params(struct dolby_param_data *dolby_data,
 	struct ds2_dap_params_s *ds2_ap_params_obj =  NULL;
 	int32_t *modified_param = NULL;
 
-	
+	/* Do not commit params if in hard bypass */
 	if (ds2_dap_params_states.dap_bypass_type == DAP_HARD_BYPASS &&
 		ds2_dap_params_states.dap_bypass == true) {
 		pr_debug("%s: called in bypass", __func__);
@@ -1277,7 +1324,7 @@ static int msm_ds2_dap_commit_params(struct dolby_param_data *dolby_data,
 			(ds2_dap_params_states.dap_bypass == true))) &&
 			(dev_map[i].active == true)) {
 
-			
+			/*get ptr to the cache storing the params for device*/
 			if ((ds2_dap_params_states.dap_bypass_type ==
 				DAP_SOFT_BYPASS) &&
 				(ds2_dap_params_states.dap_bypass == true))
@@ -1287,7 +1334,7 @@ static int msm_ds2_dap_commit_params(struct dolby_param_data *dolby_data,
 				ds2_ap_params_obj =
 					&ds2_dap_params[dev_map[i].cache_dev];
 
-			
+			/*get the pointer to the param modified array in cache*/
 			modified_param = ds2_ap_params_obj->dap_params_modified;
 			if (modified_param == NULL) {
 				pr_err("%s: modified_param NULL\n", __func__);
@@ -1295,6 +1342,10 @@ static int msm_ds2_dap_commit_params(struct dolby_param_data *dolby_data,
 				goto end;
 			}
 
+			/*
+			 * Send the endp param if use cache is set
+			 * or if param is modified
+			 */
 			if (!commit || msm_ds2_dap_check_is_param_modified(
 					modified_param, idx, commit)) {
 				msm_ds2_dap_send_end_point(i, idx);
@@ -1345,11 +1396,11 @@ static int msm_ds2_dap_handle_commands(u32 cmd, void *arg)
 			 ds2_dap_params_states.dap_bypass,
 			 ds2_dap_params_states.dap_bypass_type,
 			 data);
-		
+		/* Do not perform bypass operation if bypass state is same*/
 		if (ds2_dap_params_states.dap_bypass == data)
 			break;
 		ds2_dap_params_states.dap_bypass = data;
-		
+		/* hard bypass */
 		if (ds2_dap_params_states.dap_bypass_type == DAP_HARD_BYPASS)
 		{
 			schedule_work(&ramping_dwork);
@@ -1372,7 +1423,7 @@ static int msm_ds2_dap_handle_commands(u32 cmd, void *arg)
 	case DAP_CMD_SET_ACTIVE_DEVICE:
 		pr_debug("%s: DAP_CMD_SET_ACTIVE_DEVICE length %d\n",
 			__func__, dolby_data->length);
-		
+		/* TODO: need to handle multiple instance*/
 		ds2_dap_params_states.device |= dolby_data->device_id;
 		port_id = msm_ds2_dap_get_port_id(
 						  dolby_data->device_id,
@@ -1427,7 +1478,7 @@ static int msm_ds2_dap_set_param(u32 cmd, void *arg)
 			 , __func__, port_id, dolby_data->be_id, dev_arr[i],
 			 cdev, dolby_data->param_id, dolby_data->length);
 		for (idx = 0; idx < MAX_DS2_PARAMS; idx++) {
-			
+			/*paramid from user space*/
 			if (dolby_data->param_id == ds2_dap_params_id[idx])
 				break;
 		}
@@ -1447,7 +1498,7 @@ static int msm_ds2_dap_set_param(u32 cmd, void *arg)
 			goto end;
 		}
 
-		
+		/* cache the parameters */
 		ds2_dap_params[cdev].dap_params_modified[idx] += 1;
 		for (j = 0; j <  dolby_data->length; j++) {
 			if (get_user(data, &dolby_data->data[j])) {
@@ -1476,7 +1527,7 @@ static int msm_ds2_dap_get_param(u32 cmd, void *arg)
 	uint32_t param_payload_len =
 			DOLBY_PARAM_PAYLOAD_SIZE * sizeof(uint32_t);
 
-	
+	/* Return error on get param in soft or hard bypass */
 	if (ds2_dap_params_states.dap_bypass == true) {
 		pr_err("%s: called in bypass_type %d bypass %d\n", __func__,
 			ds2_dap_params_states.dap_bypass_type,
@@ -1485,7 +1536,7 @@ static int msm_ds2_dap_get_param(u32 cmd, void *arg)
 		goto end;
 	}
 
-	
+	/* Return if invalid length */
 	if ((dolby_data->length >
 	      (DOLBY_MAX_LENGTH_INDIVIDUAL_PARAM - DOLBY_PARAM_PAYLOAD_SIZE)) ||
 	      (dolby_data->length <= 0)) {
@@ -1619,7 +1670,7 @@ static int msm_ds2_dap_param_visualizer_control_get(u32 cmd, void *arg)
 	}
 	memset(visualizer_data, 0x0, params_length);
 
-	
+	/* Return error on get param in soft or hard bypass */
 	if (ds2_dap_params_states.dap_bypass == true) {
 		pr_debug("%s: visualizer called in bypass, return 0\n",
 			 __func__);
@@ -1936,10 +1987,12 @@ int msm_ds2_dap_init(int port_id, int copp_idx, int channels,
 	if (port_id != DOLBY_INVALID_PORT_ID) {
 		for (i = 0; i < DS2_DEVICES_ALL; i++) {
 			if ((dev_map[i].port_id == port_id) &&
-				
+				/* device part of active device */
 				(dev_map[i].device_id &
 				ds2_dap_params_states.device)) {
 				idx = i;
+				/* Give priority to headset in case of
+				   combo device */
 				if (dev_map[i].device_id == SPEAKER)
 					continue;
 				else
@@ -1965,7 +2018,7 @@ int msm_ds2_dap_init(int port_id, int copp_idx, int channels,
 			 dev_map[idx].device_id,
 			 dev_map[idx].stream_ref_count);
 		if (dev_map[idx].stream_ref_count == 0) {
-			
+			/*perform next 3 func only if hard bypass enabled*/
 			if (ds2_dap_params_states.dap_bypass_type ==
 				DAP_HARD_BYPASS) {
 				ret = msm_ds2_dap_alloc_and_store_cal_data(idx,
@@ -2025,18 +2078,28 @@ end:
 
 void msm_ds2_dap_deinit(int port_id)
 {
+	/*
+	 * Get the active port corrresponding to the active device
+	 * Check if this is same as incoming port
+	 * Set it to invalid
+	 */
 	int idx = -1, i;
 	pr_debug("%s: port_id %d\n", __func__, port_id);
 	cancel_work_sync(&ramping_dwork);
 
 	if (port_id != DOLBY_INVALID_PORT_ID) {
 		for (i = 0; i < DS2_DEVICES_ALL; i++) {
-			
+			/* Active port */
 			if ((dev_map[i].port_id == port_id) &&
-				
+				/* device part of active device */
 				(dev_map[i].device_id &
 				ds2_dap_params_states.device) &&
-				
+				/*
+				 * Need this check to avoid race condition of
+				 * active device being set and playback
+				 * instance opened
+				 */
+				/* active device*/
 				dev_map[i].active) {
 				idx = i;
 				if (dev_map[i].device_id == SPEAKER)
@@ -2055,7 +2118,7 @@ void msm_ds2_dap_deinit(int port_id)
 		if (dev_map[idx].stream_ref_count > 0)
 			dev_map[idx].stream_ref_count--;
 		if (dev_map[idx].stream_ref_count == 0) {
-			
+			/*perform next func only if hard bypass enabled*/
 			if (ds2_dap_params_states.dap_bypass_type ==
 				DAP_HARD_BYPASS) {
 				msm_ds2_dap_free_cal_data(idx);
@@ -2078,7 +2141,7 @@ int msm_ds2_dap_set_custom_stereo_onoff(int port_id, int copp_idx,
 	if (port_id != DOLBY_INVALID_PORT_ID) {
 		for (i = 0; i < DS2_DEVICES_ALL; i++) {
 			if ((dev_map[i].port_id == port_id) &&
-				
+				/* device part of active device */
 				(dev_map[i].device_id &
 				ds2_dap_params_states.device)) {
 				idx = i;
@@ -2244,4 +2307,4 @@ int msm_ds2_dap_ioctl_shared(struct snd_hwdep *hw, struct file *file,
 {
 	return 0;
 }
-#endif 
+#endif /*CONFIG_DOLBY_DS2*/

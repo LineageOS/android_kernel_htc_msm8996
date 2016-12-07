@@ -86,9 +86,9 @@ struct mdss_perf_tune {
 #define MDSS_IRQ_REQ		0
 
 struct mdss_intr {
-	
+	/* requested intr */
 	u32 req;
-	
+	/* currently enabled intr */
 	u32 curr;
 	int state;
 	spinlock_t lock;
@@ -288,24 +288,24 @@ struct mdss_data_type {
 	struct mdss_smmu_ops smmu_ops;
 	struct mutex reg_lock;
 
-	
+	/* bitmap to track pipes that have BWC enabled */
 	DECLARE_BITMAP(bwc_enable_map, MAX_DRV_SUP_PIPES);
-	
+	/* bitmap to track hw workarounds */
 	DECLARE_BITMAP(mdss_quirk_map, MDSS_QUIRK_MAX);
-	
+	/* bitmap to track total mmbs in use */
 	DECLARE_BITMAP(mmb_alloc_map, MAX_DRV_SUP_MMB_BLKS);
-	
+	/* bitmap to track qos applicable settings */
 	DECLARE_BITMAP(mdss_qos_map, MDSS_QOS_MAX);
-	
+	/* bitmap to track hw capabilities/features */
 	DECLARE_BITMAP(mdss_caps_map, MDSS_CAPS_MAX);
 
 	u32 has_bwc;
-	
+	/* values used when HW has a common panic/robust LUT */
 	u32 default_panic_lut0;
 	u32 default_panic_lut1;
 	u32 default_robust_lut;
 
-	
+	/* values used when HW has panic/robust LUTs per pipe */
 	u32 default_panic_lut_per_pipe_linear;
 	u32 default_panic_lut_per_pipe_tile;
 	u32 default_robust_lut_per_pipe_linear;
@@ -353,16 +353,16 @@ struct mdss_data_type {
 
 	u32 rot_block_size;
 
-	
+	/* HW RT  bus (AXI) */
 	u32 hw_rt_bus_hdl;
 	u32 hw_rt_bus_ref_cnt;
 
-	
+	/* data bus (AXI) */
 	u32 bus_hdl;
 	u32 bus_ref_cnt;
 	struct mutex bus_lock;
 
-	
+	/* register bus (AHB) */
 	u32 reg_bus_hdl;
 	u32 reg_bus_usecase_ndx;
 	struct list_head reg_bus_clist;
@@ -374,7 +374,7 @@ struct mdss_data_type {
 	u32 nrt_axi_port_cnt;
 	u32 bus_channels;
 	u32 curr_bw_uc_idx;
-	u32 ao_bw_uc_idx; 
+	u32 ao_bw_uc_idx; /* active only idx */
 	struct msm_bus_scale_pdata *bus_scale_table;
 	struct msm_bus_scale_pdata *reg_bus_scale_table;
 	struct msm_bus_scale_pdata *hw_rt_bus_scale_table;
@@ -468,7 +468,7 @@ struct mdss_data_type {
 	bool mixer_switched;
 	struct mdss_panel_cfg pan_cfg;
 	struct mdss_prefill_data prefill_data;
-	u32 min_prefill_lines; 
+	u32 min_prefill_lines; /* this changes within different chipsets */
 	u32 props;
 
 	int handoff_pending;
@@ -588,4 +588,4 @@ static inline bool mdss_has_quirk(struct mdss_data_type *mdata,
 #define MDSS_REG_READ(mdata, offset) \
 		dss_reg_r(&mdata->mdss_io, offset, 0)
 
-#endif 
+#endif /* MDSS_H */

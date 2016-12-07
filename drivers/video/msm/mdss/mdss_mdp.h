@@ -50,10 +50,10 @@
 #define VALID_MDP_WB_INTF_FORMAT BIT(1)
 #define VALID_MDP_CURSOR_FORMAT BIT(2)
 
-#define C3_ALPHA	3	
-#define C2_R_Cr		2	
-#define C1_B_Cb		1	
-#define C0_G_Y		0	
+#define C3_ALPHA	3	/* alpha */
+#define C2_R_Cr		2	/* R/Cr */
+#define C1_B_Cb		1	/* B/Cb */
+#define C0_G_Y		0	/* G/luma */
 
 #define KOFF_TIMEOUT msecs_to_jiffies(1000)
 
@@ -85,6 +85,7 @@
 
 #define MAX_LAYER_COUNT		0xC
 
+/* hw cursor can only be setup in highest mixer stage */
 #define HW_CURSOR_STAGE(mdata) \
 	(((mdata)->max_target_zorder + MDSS_MDP_STAGE_0) - 1)
 
@@ -219,6 +220,14 @@ enum mdss_mdp_fetch_type {
 	MDSS_MDP_FETCH_UBWC,
 };
 
+/**
+ * enum mdp_commit_stage_type - Indicate different commit stages
+ *
+ * @MDP_COMMIT_STATE_WAIT_FOR_PINGPONG:	At the stage of being ready to
+*			wait for pingpong buffer.
+ * @MDP_COMMIT_STATE_PINGPONG_DONE:		At the stage that pingpong
+ *			buffer is ready.
+ */
 enum mdp_commit_stage_type {
 	MDP_COMMIT_STAGE_SETUP_DONE,
 	MDP_COMMIT_STAGE_READY_FOR_KICKOFF,
@@ -258,6 +267,21 @@ enum mdp_wb_blk_caps {
 	MDSS_MDP_WB_UBWC = BIT(3),
 };
 
+/**
+ * enum perf_calc_vote_mode - enum to decide if mdss_mdp_get_bw_vote_mode
+ *		function needs an extra efficiency factor.
+ *
+ * @PERF_CALC_VOTE_MODE_PER_PIPE: used to check if efficiency factor is needed
+ *		based on the pipe properties.
+ * @PERF_CALC_VOTE_MODE_CTL: used to check if efficiency factor is needed based
+ *		on the controller properties.
+ * @PERF_CALC_VOTE_MODE_MAX: used to check if efficiency factor is need to vote
+ *		max MDP bandwidth.
+ *
+ * Depending upon the properties of each specific object (determined
+ * by this enum), driver decides if the mode to vote needs an
+ * extra factor.
+ */
 enum perf_calc_vote_mode {
 	PERF_CALC_VOTE_MODE_PER_PIPE,
 	PERF_CALC_VOTE_MODE_CTL,
@@ -301,12 +325,16 @@ struct mdss_mdp_ctl_intfs_ops {
 	int (*restore_fnc)(struct mdss_mdp_ctl *ctl, bool locked);
 	int (*early_wake_up_fnc)(struct mdss_mdp_ctl *ctl);
 
+	/*
+	 * reconfigure interface for new resolution, called before (pre=1)
+	 * and after interface has been reconfigured (pre=0)
+	 */
 	int (*reconfigure)(struct mdss_mdp_ctl *ctl,
 			enum dynamic_switch_modes mode, bool pre);
-	
+	/* called before do any register programming  from commit thread */
 	void (*pre_programming)(struct mdss_mdp_ctl *ctl);
 
-	
+	/* to update lineptr, [1..yres] - enable, 0 - disable */
 	int (*update_lineptr)(struct mdss_mdp_ctl *ctl, bool enable);
 };
 
@@ -318,9 +346,13 @@ struct mdss_mdp_ctl {
 	int power_state;
 
 	u32 intf_num;
-	u32 slave_intf_num; 
+	u32 slave_intf_num; /* ping-pong split */
 	u32 intf_type;
 
+	/*
+	 * false: for sctl in DUAL_LM_DUAL_DISPLAY
+	 * true: everything else
+	 */
 	bool is_master;
 
 	u32 opmode;
@@ -342,7 +374,7 @@ struct mdss_mdp_ctl {
 	u16 border_y_off;
 	bool is_secure;
 
-	
+	/* used for WFD */
 	u32 dst_format;
 	enum mdss_mdp_csc_type csc_type;
 	struct mult_factor dst_comp_ratio;
@@ -379,6 +411,24 @@ struct mdss_mdp_ctl {
 
 	struct mdss_mdp_lineptr_handler lineptr_handler;
 
+	/*
+	 * This ROI is aligned to as per following guidelines and
+	 * sent to the panel driver.
+	 *
+	 * 1. DUAL_LM_DUAL_DISPLAY
+	 *    Panel = 1440x2560
+	 *    CTL0 = 720x2560 (LM0=720x2560)
+	 *    CTL1 = 720x2560 (LM1=720x2560)
+	 *    Both CTL's ROI will be (0-719)x(0-2599)
+	 * 2. DUAL_LM_SINGLE_DISPLAY
+	 *    Panel = 1440x2560
+	 *    CTL0 = 1440x2560 (LM0=720x2560 and LM1=720x2560)
+	 *    CTL0's ROI will be (0-1429)x(0-2599)
+	 * 3. SINGLE_LM_SINGLE_DISPLAY
+	 *    Panel = 1080x1920
+	 *    CTL0 = 1080x1920 (LM0=1080x1920)
+	 *    CTL0's ROI will be (0-1079)x(0-1919)
+	 */
 	struct mdss_rect roi;
 	struct mdss_rect roi_bkup;
 
@@ -397,7 +447,7 @@ struct mdss_mdp_ctl {
 	int pending_mode_switch;
 	u16 frame_rate;
 
-	
+	/* dynamic resolution switch during cont-splash handoff */
 	bool switch_with_handoff;
 
 	
@@ -424,6 +474,14 @@ struct mdss_mdp_mixer {
 	u16 cursor_hoty;
 	u8 rotator_mode;
 
+	/*
+	 * src_split_req is valid only for right layer mixer.
+	 *
+	 * VIDEO mode panels: Always true if source split is enabled.
+	 * CMD mode panels: Only true if source split is enabled and
+	 *                  for a given commit left and right both ROIs
+	 *                  are valid.
+	 */
 	bool src_split_req;
 	bool is_right_mixer;
 	struct mdss_mdp_ctl *ctl;
@@ -441,15 +499,15 @@ struct mdss_mdp_format_params {
 	u8 chroma_sample;
 	u8 solid_fill;
 	u8 fetch_planes;
-	u8 unpack_align_msb;	
-	u8 unpack_tight;	
-	u8 unpack_count;	
+	u8 unpack_align_msb;	/* 0 to LSB, 1 to MSB */
+	u8 unpack_tight;	/* 0 for loose, 1 for tight */
+	u8 unpack_count;	/* 0 = 1 component, 1 = 2 component ... */
 	u8 bpp;
-	u8 alpha_enable;	
+	u8 alpha_enable;	/*  source has alpha */
 	u8 fetch_mode;
 	u8 bits[MAX_PLANES];
 	u8 element[MAX_PLANES];
-	u8 unpack_dx_format;	
+	u8 unpack_dx_format;	/*1 for 10 bit format otherwise 0 */
 };
 
 struct mdss_mdp_format_ubwc_tile_info {
@@ -595,22 +653,39 @@ struct mdss_mdp_shared_reg_ctrl {
 };
 
 enum mdss_mdp_pipe_rect {
-	MDSS_MDP_PIPE_RECT0, 
+	MDSS_MDP_PIPE_RECT0, /* default */
 	MDSS_MDP_PIPE_RECT1,
 	MDSS_MDP_PIPE_MAX_RECTS,
 };
 
+/**
+ * enum mdss_mdp_pipe_multirect_mode - pipe multirect mode
+ * @MDSS_MDP_PIPE_MULTIRECT_NONE:	pipe is not working in multirect mode
+ * @MDSS_MDP_PIPE_MULTIRECT_PARALLEL:	rectangles are being fetched at the
+ *					same time in time multiplexed fashion
+ * @MDSS_MDP_PIPE_MULTIRECT_SERIAL:	rectangles are fetched serially, where
+ *					one is only fetched after the other one
+ *					is complete
+ */
 enum mdss_mdp_pipe_multirect_mode {
 	MDSS_MDP_PIPE_MULTIRECT_NONE,
 	MDSS_MDP_PIPE_MULTIRECT_PARALLEL,
 	MDSS_MDP_PIPE_MULTIRECT_SERIAL,
 };
 
+/**
+ * struct mdss_mdp_pipe_multirect_params - multirect info for layer or pipe
+ * @num:	rectangle being operated, default is RECT0 if pipe doesn't
+ *		support multirect
+ * @mode:	mode of multirect operation, default is NONE
+ * @next:	pointer to sibling pipe/layer which is also operating in
+ *		multirect mode
+ */
 struct mdss_mdp_pipe_multirect_params {
-	enum mdss_mdp_pipe_rect num; 
+	enum mdss_mdp_pipe_rect num; /* RECT0 or RECT1 */
 	int max_rects;
 	enum mdss_mdp_pipe_multirect_mode mode;
-	void *next; 
+	void *next; /* pointer to next pipe or layer */
 };
 
 struct mdss_mdp_pipe {
@@ -635,7 +710,7 @@ struct mdss_mdp_pipe {
 	u32 flags;
 	u32 bwc_mode;
 
-	
+	/* valid only when pipe's output is crossing both layer mixers */
 	bool src_split_req;
 	bool is_right_blend;
 
@@ -648,7 +723,7 @@ struct mdss_mdp_pipe {
 	struct mdss_mdp_format_params *src_fmt;
 	struct mdss_mdp_plane_sizes src_planes;
 
-	
+	/* compression ratio from the source format */
 	struct mult_factor comp_ratio;
 
 	enum mdss_mdp_stage_index mixer_stage;
@@ -723,11 +798,11 @@ struct mdss_overlay_private {
 	bool mixer_swap;
 	u32 resources_state;
 
-	
+	/* list of buffers that can be reused */
 	struct list_head bufs_chunks;
 	struct list_head bufs_pool;
 	struct list_head bufs_used;
-	
+	/* list of buffers which should be freed during cleanup stage */
 	struct list_head bufs_freelist;
 
 	int ad_state;
@@ -776,11 +851,29 @@ struct mdss_mdp_commit_cb {
 		void *data);
 };
 
+/**
+ * enum mdss_screen_state - Screen states that MDP can be forced into
+ *
+ * @MDSS_SCREEN_DEFAULT:	Do not force MDP into any screen state.
+ * @MDSS_SCREEN_FORCE_BLANK:	Force MDP to generate blank color fill screen.
+ */
 enum mdss_screen_state {
 	MDSS_SCREEN_DEFAULT,
 	MDSS_SCREEN_FORCE_BLANK,
 };
 
+/**
+ * enum mdss_mdp_clt_intf_event_flags - flags specifying how event to should
+ *                                      be sent to panel drivers.
+ *
+ * @CTL_INTF_EVENT_FLAG_DEFAULT: this flag denotes default behaviour where
+ *                              event will be send to all panels attached this
+ *                              display, recursively in split-DSI.
+ * @CTL_INTF_EVENT_FLAG_SKIP_BROADCAST: this flag sends event only to panel
+ *                                     associated with this ctl.
+ * @CTL_INTF_EVENT_FLAG_SLAVE_INTF: this flag sends event only to slave panel
+ *                                  associated with this ctl, i.e pingpong-split
+ */
 enum mdss_mdp_clt_intf_event_flags {
 	CTL_INTF_EVENT_FLAG_DEFAULT = 0,
 	CTL_INTF_EVENT_FLAG_SKIP_BROADCAST = BIT(1),
@@ -795,6 +888,13 @@ enum mdss_mdp_clt_intf_event_flags {
 #define mfd_to_wb(mfd) (((struct mdss_overlay_private *)\
 				(mfd->mdp.private1))->wb)
 
+/**
+ * - mdss_mdp_is_roi_changed
+ * @mfd - pointer to mfd
+ *
+ * Function returns true if roi is changed for any layer mixer of a given
+ * display, false otherwise.
+ */
 static inline bool mdss_mdp_is_roi_changed(struct msm_fb_data_type *mfd)
 {
 	struct mdss_mdp_ctl *ctl;
@@ -802,12 +902,20 @@ static inline bool mdss_mdp_is_roi_changed(struct msm_fb_data_type *mfd)
 	if (!mfd)
 		return false;
 
-	ctl = mfd_to_ctl(mfd); 
+	ctl = mfd_to_ctl(mfd); /* returns master ctl */
 
 	return ctl->mixer_left->roi_changed ||
 	      (is_split_lm(mfd) ? ctl->mixer_right->roi_changed : false);
 }
 
+/**
+ * - mdss_mdp_is_both_lm_valid
+ * @main_ctl - pointer to a main ctl
+ *
+ * Function checks if both layer mixers are active or not. This can be useful
+ * when partial update is enabled on either MDP_DUAL_LM_SINGLE_DISPLAY or
+ * MDP_DUAL_LM_DUAL_DISPLAY .
+ */
 static inline bool mdss_mdp_is_both_lm_valid(struct mdss_mdp_ctl *main_ctl)
 {
 	return (main_ctl && main_ctl->is_master &&
@@ -818,10 +926,11 @@ static inline bool mdss_mdp_is_both_lm_valid(struct mdss_mdp_ctl *main_ctl)
 enum mdss_mdp_pu_type {
 	MDSS_MDP_INVALID_UPDATE = -1,
 	MDSS_MDP_DEFAULT_UPDATE,
-	MDSS_MDP_LEFT_ONLY_UPDATE,	
-	MDSS_MDP_RIGHT_ONLY_UPDATE,	
+	MDSS_MDP_LEFT_ONLY_UPDATE,	/* only valid for split_lm */
+	MDSS_MDP_RIGHT_ONLY_UPDATE,	/* only valid for split_lm */
 };
 
+/* only call from master ctl */
 static inline enum mdss_mdp_pu_type mdss_mdp_get_pu_type(
 	struct mdss_mdp_ctl *mctl)
 {
@@ -1026,6 +1135,11 @@ static inline void mdss_update_sd_client(struct mdss_data_type *mdata,
 static inline int mdss_mdp_get_wb_ctl_support(struct mdss_data_type *mdata,
 							bool rotator_session)
 {
+	/*
+	 * Initial control paths are used for primary and external
+	 * interfaces and remaining control paths are used for WB
+	 * interfaces.
+	 */
 	return rotator_session ? (mdata->nctl - mdata->nmixers_wb) :
 				(mdata->nctl - mdata->nwb);
 }
@@ -1124,6 +1238,11 @@ static inline int mdss_mdp_is_cdm_supported(struct mdss_data_type *mdata,
 {
 	int support = mdata->ncdm;
 
+	/*
+	 * CDM is supported under these conditions
+	 * 1. If Device tree created a cdm block AND
+	 * 2. Output interface is HDMI OR Output interface is WB2
+	 */
 	return support && ((intf_type == MDSS_INTF_HDMI) ||
 			   ((intf_type == MDSS_MDP_NO_INTF) &&
 			    ((mixer_type == MDSS_MDP_MIXER_TYPE_INTF) ||
@@ -1148,6 +1267,24 @@ static inline uint8_t pp_vig_csc_pipe_val(struct mdss_mdp_pipe *pipe)
 	}
 }
 
+/*
+ * when split_lm topology is used without 3D_Mux, either DSC_MERGE or
+ * split_panel is used during full frame updates. Now when we go from
+ * full frame update to right-only update, we need to disable DSC_MERGE or
+ * split_panel. However, those are controlled through DSC0_COMMON_MODE
+ * register which is double buffered, and this double buffer update is tied to
+ * LM0. Now for right-only update, LM0 will not get double buffer update signal.
+ * So DSC_MERGE or split_panel is not disabled for right-only update which is
+ * a wrong HW state and leads ping-pong timeout. Workaround for this is to use
+ * LM0->DSC0 pair for right-only update and disable DSC_MERGE or split_panel.
+ *
+ * However using LM0->DSC0 pair for right-only update requires many changes
+ * at various levels of SW. To lower the SW impact and still support
+ * right-only partial update, keep SW state as it is but swap mixer register
+ * writes such that we instruct HW to use LM0->DSC0 pair.
+ *
+ * This function will return true if such a swap is needed or not.
+ */
 static inline bool mdss_mdp_is_lm_swap_needed(struct mdss_data_type *mdata,
 	struct mdss_mdp_ctl *mctl)
 {
@@ -1215,6 +1352,9 @@ static inline bool mdss_mdp_is_map_needed(struct mdss_data_type *mdata,
 {
 	u32 is_secure_ui = data->flags & MDP_SECURE_DISPLAY_OVERLAY_SESSION;
 
+     /*
+      * For ULT Targets we need SMMU Map, to issue map call for secure Display.
+      */
 	if (is_secure_ui && !mdss_has_quirk(mdata, MDSS_QUIRK_NEED_SECURE_MAP))
 		return false;
 
@@ -1615,5 +1755,5 @@ void mdss_mdp_free_layer_pp_info(struct mdp_input_layer *layer)
 {
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_FB_MSM_MDP_NONE */
+#endif /* MDSS_MDP_H */

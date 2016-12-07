@@ -11,6 +11,10 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * This file contains utility functions to be used by platform specific CPR3
+ * regulator drivers.
+ */
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
@@ -37,8 +41,20 @@
 #define CPR3_IDLE_CLOCKS_MIN		0
 #define CPR3_IDLE_CLOCKS_MAX		31
 
+/* This constant has units of uV/mV so 1000 corresponds to 100%. */
 #define CPR3_AGING_DERATE_UNITY		1000
 
+/**
+ * cpr3_allocate_regulators() - allocate and initialize CPR3 regulators for a
+ *		given thread based upon device tree data
+ * @thread:		Pointer to the CPR3 thread
+ *
+ * This function allocates the thread->vreg array based upon the number of
+ * device tree regulator subnodes.  It also initializes generic elements of each
+ * regulator struct such as name, of_node, and thread.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_allocate_regulators(struct cpr3_thread *thread)
 {
 	struct device_node *node;
@@ -74,6 +90,19 @@ static int cpr3_allocate_regulators(struct cpr3_thread *thread)
 	return 0;
 }
 
+/**
+ * cpr3_allocate_threads() - allocate and initialize CPR3 threads for a given
+ *			     controller based upon device tree data
+ * @ctrl:		Pointer to the CPR3 controller
+ * @min_thread_id:	Minimum allowed hardware thread ID for this controller
+ * @max_thread_id:	Maximum allowed hardware thread ID for this controller
+ *
+ * This function allocates the ctrl->thread array based upon the number of
+ * device tree thread subnodes.  It also initializes generic elements of each
+ * thread struct such as thread_id, of_node, ctrl, and vreg array.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_allocate_threads(struct cpr3_controller *ctrl, u32 min_thread_id,
 			u32 max_thread_id)
 {
@@ -113,7 +142,7 @@ int cpr3_allocate_threads(struct cpr3_controller *ctrl, u32 min_thread_id,
 			return -EINVAL;
 		}
 
-		
+		/* Verify that the thread ID is unique for all child nodes. */
 		for (j = 0; j < i; j++) {
 			if (ctrl->thread[j].thread_id
 					== ctrl->thread[i].thread_id) {
@@ -133,6 +162,13 @@ int cpr3_allocate_threads(struct cpr3_controller *ctrl, u32 min_thread_id,
 	return 0;
 }
 
+/**
+ * cpr3_map_fuse_base() - ioremap the base address of the fuse region
+ * @ctrl:	Pointer to the CPR3 controller
+ * @pdev:	Platform device pointer for the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_map_fuse_base(struct cpr3_controller *ctrl,
 			struct platform_device *pdev)
 {
@@ -150,6 +186,20 @@ int cpr3_map_fuse_base(struct cpr3_controller *ctrl,
 	return 0;
 }
 
+/**
+ * cpr3_read_fuse_param() - reads a CPR3 fuse parameter out of eFuses
+ * @fuse_base_addr:	Virtual memory address of the eFuse base address
+ * @param:		Null terminated array of fuse param segments to read
+ *			from
+ * @param_value:	Output with value read from the eFuses
+ *
+ * This function reads from each of the parameter segments listed in the param
+ * array and concatenates their values together.  Reading stops when an element
+ * is reached which has all 0 struct values.  The total number of bits specified
+ * for the fuse parameter across all segments must be less than or equal to 64.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_read_fuse_param(void __iomem *fuse_base_addr,
 		const struct cpr3_fuse_param *param, u64 *param_value)
 {
@@ -186,6 +236,19 @@ int cpr3_read_fuse_param(void __iomem *fuse_base_addr,
 	return 0;
 }
 
+/**
+ * cpr3_convert_open_loop_voltage_fuse() - converts an open loop voltage fuse
+ *		value into an absolute voltage with units of microvolts
+ * @ref_volt:		Reference voltage in microvolts
+ * @step_volt:		The step size in microvolts of the fuse LSB
+ * @fuse:		Open loop voltage fuse value
+ * @fuse_len:		The bit length of the fuse value
+ *
+ * The MSB of the fuse parameter corresponds to a sign bit.  If it is set, then
+ * the lower bits correspond to the number of steps to go down from the
+ * reference voltage.  If it is not set, then the lower bits correspond to the
+ * number of steps to go up from the reference voltage.
+ */
 int cpr3_convert_open_loop_voltage_fuse(int ref_volt, int step_volt, u32 fuse,
 					int fuse_len)
 {
@@ -197,6 +260,18 @@ int cpr3_convert_open_loop_voltage_fuse(int ref_volt, int step_volt, u32 fuse,
 	return ref_volt + sign * steps * step_volt;
 }
 
+/**
+ * cpr3_interpolate() - performs linear interpolation
+ * @x1		Lower known x value
+ * @y1		Lower known y value
+ * @x2		Upper known x value
+ * @y2		Upper known y value
+ * @x		Intermediate x value
+ *
+ * Returns y where (x, y) falls on the line between (x1, y1) and (x2, y2).
+ * It is required that x1 < x2, y1 <= y2, and x1 <= x <= x2.  If these
+ * conditions are not met, then y2 will be returned.
+ */
 u64 cpr3_interpolate(u64 x1, u64 y1, u64 x2, u64 y2, u64 x)
 {
 	u64 temp;
@@ -210,6 +285,29 @@ u64 cpr3_interpolate(u64 x1, u64 y1, u64 x2, u64 y2, u64 x)
 	return y2 - temp;
 }
 
+/**
+ * cpr3_parse_array_property() - fill an array from a portion of the values
+ *		specified for a device tree property
+ * @vreg:		Pointer to the CPR3 regulator
+ * @prop_name:		The name of the device tree property to read from
+ * @tuple_size:		The number of elements in each tuple
+ * @out:		Output data array which must be of size tuple_size
+ *
+ * cpr3_parse_common_corner_data() must be called for vreg before this function
+ * is called so that fuse combo and speed bin size elements are initialized.
+ *
+ * Three formats are supported for the device tree property:
+ * 1. Length == tuple_size
+ *	(reading begins at index 0)
+ * 2. Length == tuple_size * vreg->fuse_combos_supported
+ *	(reading begins at index tuple_size * vreg->fuse_combo)
+ * 3. Length == tuple_size * vreg->speed_bins_supported
+ *	(reading begins at index tuple_size * vreg->speed_bin_fuse)
+ *
+ * All other property lengths are treated as errors.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_parse_array_property(struct cpr3_regulator *vreg,
 		const char *prop_name, int tuple_size, u32 *out)
 {
@@ -261,6 +359,30 @@ int cpr3_parse_array_property(struct cpr3_regulator *vreg,
 	return 0;
 }
 
+/**
+ * cpr3_parse_corner_array_property() - fill a per-corner array from a portion
+ *		of the values specified for a device tree property
+ * @vreg:		Pointer to the CPR3 regulator
+ * @prop_name:		The name of the device tree property to read from
+ * @tuple_size:		The number of elements in each per-corner tuple
+ * @out:		Output data array which must be of size:
+ *			tuple_size * vreg->corner_count
+ *
+ * cpr3_parse_common_corner_data() must be called for vreg before this function
+ * is called so that fuse combo and speed bin size elements are initialized.
+ *
+ * Three formats are supported for the device tree property:
+ * 1. Length == tuple_size * vreg->corner_count
+ *	(reading begins at index 0)
+ * 2. Length == tuple_size * vreg->fuse_combo_corner_sum
+ *	(reading begins at index tuple_size * vreg->fuse_combo_offset)
+ * 3. Length == tuple_size * vreg->speed_bin_corner_sum
+ *	(reading begins at index tuple_size * vreg->speed_bin_offset)
+ *
+ * All other property lengths are treated as errors.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_parse_corner_array_property(struct cpr3_regulator *vreg,
 		const char *prop_name, int tuple_size, u32 *out)
 {
@@ -312,6 +434,35 @@ int cpr3_parse_corner_array_property(struct cpr3_regulator *vreg,
 	return 0;
 }
 
+/**
+ * cpr3_parse_corner_band_array_property() - fill a per-corner band array
+ *		from a portion of the values specified for a device tree
+ *		property
+ * @vreg:		Pointer to the CPR3 regulator
+ * @prop_name:		The name of the device tree property to read from
+ * @tuple_size:		The number of elements in each per-corner band tuple
+ * @out:		Output data array which must be of size:
+ *			tuple_size * vreg->corner_band_count
+ *
+ * cpr3_parse_common_corner_data() must be called for vreg before this function
+ * is called so that fuse combo and speed bin size elements are initialized.
+ * In addition, corner band fuse combo and speed bin sum and offset elements
+ * must be initialized prior to executing this function.
+ *
+ * Three formats are supported for the device tree property:
+ * 1. Length == tuple_size * vreg->corner_band_count
+ *	(reading begins at index 0)
+ * 2. Length == tuple_size * vreg->fuse_combo_corner_band_sum
+ *	(reading begins at index tuple_size *
+ *		vreg->fuse_combo_corner_band_offset)
+ * 3. Length == tuple_size * vreg->speed_bin_corner_band_sum
+ *	(reading begins at index tuple_size *
+ *		vreg->speed_bin_corner_band_offset)
+ *
+ * All other property lengths are treated as errors.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_parse_corner_band_array_property(struct cpr3_regulator *vreg,
 		const char *prop_name, int tuple_size, u32 *out)
 {
@@ -366,6 +517,27 @@ int cpr3_parse_corner_band_array_property(struct cpr3_regulator *vreg,
 	return 0;
 }
 
+/**
+ * cpr3_parse_common_corner_data() - parse common CPR3 properties relating to
+ *		the corners supported by a CPR3 regulator from device tree
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * This function reads, validates, and utilizes the following device tree
+ * properties: qcom,cpr-fuse-corners, qcom,cpr-fuse-combos, qcom,cpr-speed-bins,
+ * qcom,cpr-speed-bin-corners, qcom,cpr-corners, qcom,cpr-voltage-ceiling,
+ * qcom,cpr-voltage-floor, qcom,corner-frequencies,
+ * and qcom,cpr-corner-fmax-map.
+ *
+ * It initializes these CPR3 regulator elements: corner, corner_count,
+ * fuse_combos_supported, fuse_corner_map, and speed_bins_supported.  It
+ * initializes these elements for each corner: ceiling_volt, floor_volt,
+ * proc_freq, and cpr_fuse_corner.
+ *
+ * It requires that the following CPR3 regulator elements be initialized before
+ * being called: fuse_corner_count, fuse_combo, and speed_bin_fuse.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 {
 	struct device_node *node = vreg->of_node;
@@ -390,6 +562,11 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 		return -EINVAL;
 	}
 
+	/*
+	 * Check if CPR3 regulator's fuse_combos_supported element is already
+	 * populated by fuse-combo-map logic. If not populated, then parse the
+	 * qcom,cpr-fuse-combos property.
+	 */
 	if (vreg->fuse_combos_supported)
 		max_fuse_combos = vreg->fuse_combos_supported;
 	else {
@@ -401,6 +578,10 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 			return rc;
 		}
 
+		/*
+		 * Sanity check against arbitrarily large value to avoid
+		 * excessive memory allocation.
+		 */
 		if (max_fuse_combos > 100 || max_fuse_combos == 0) {
 			cpr3_err(vreg, "qcom,cpr-fuse-combos is invalid: %u\n",
 				max_fuse_combos);
@@ -419,6 +600,10 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 
 	of_property_read_u32(node, "qcom,cpr-speed-bins", &max_speed_bins);
 
+	/*
+	 * Sanity check against arbitrarily large value to avoid excessive
+	 * memory allocation.
+	 */
 	if (max_speed_bins > 100) {
 		cpr3_err(vreg, "qcom,cpr-speed-bins is invalid: %u\n",
 			max_speed_bins);
@@ -442,7 +627,7 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 	rc = of_property_read_u32_array(node, "qcom,cpr-corners", combo_corners,
 					vreg->fuse_combos_supported);
 	if (rc == -EOVERFLOW) {
-		
+		/* Single value case */
 		rc = of_property_read_u32(node, "qcom,cpr-corners",
 					combo_corners);
 		for (i = 1; i < vreg->fuse_combos_supported; i++)
@@ -503,6 +688,10 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 		kfree(speed_bin_corners);
 	}
 
+	/*
+	 * In CPRh compliant controllers an additional corner is
+	 * allocated to correspond to the APM crossover voltage
+	 */
 	vreg->corner = devm_kcalloc(ctrl->dev, ctrl->ctrl_type ==
 				    CPR_CTRL_TYPE_CPRH ?
 				    vreg->corner_count + 1 :
@@ -530,7 +719,7 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 		vreg->corner[i].floor_volt
 			= CPR3_ROUND(temp[i], ctrl->step_volt);
 
-	
+	/* Validate ceiling and floor values */
 	for (i = 0; i < vreg->corner_count; i++) {
 		if (vreg->corner[i].floor_volt
 		    > vreg->corner[i].ceiling_volt) {
@@ -542,7 +731,7 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 		}
 	}
 
-	
+	/* Load optional system-supply voltages */
 	if (of_find_property(vreg->of_node, "qcom,system-voltage", NULL)) {
 		rc = cpr3_parse_corner_array_property(vreg,
 			"qcom,system-voltage", 1, temp);
@@ -559,7 +748,7 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 	for (i = 0; i < vreg->corner_count; i++)
 		vreg->corner[i].proc_freq = temp[i];
 
-	
+	/* Validate frequencies */
 	for (i = 1; i < vreg->corner_count; i++) {
 		if (vreg->corner[i].proc_freq
 		    < vreg->corner[i - 1].proc_freq) {
@@ -610,6 +799,10 @@ int cpr3_parse_common_corner_data(struct cpr3_regulator *vreg)
 			}
 		}
 		if (j == vreg->fuse_corner_count) {
+			/*
+			 * Handle the case where the highest fuse corner maps
+			 * to a corner below the highest corner.
+			 */
 			vreg->corner[i].cpr_fuse_corner
 				= vreg->fuse_corner_count - 1;
 		}
@@ -686,6 +879,20 @@ free_temp:
 	return rc;
 }
 
+/**
+ * cpr3_parse_thread_u32() - parse the specified property from the CPR3 thread's
+ *		device tree node and verify that it is within the allowed limits
+ * @thread:		Pointer to the CPR3 thread
+ * @propname:		The name of the device tree property to read
+ * @out_value:		The output pointer to fill with the value read
+ * @value_min:		The minimum allowed property value
+ * @value_max:		The maximum allowed property value
+ *
+ * This function prints a verbose error message if the property is missing or
+ * has a value which is not within the specified range.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_parse_thread_u32(struct cpr3_thread *thread, const char *propname,
 		       u32 *out_value, u32 value_min, u32 value_max)
 {
@@ -708,6 +915,21 @@ int cpr3_parse_thread_u32(struct cpr3_thread *thread, const char *propname,
 	return 0;
 }
 
+/**
+ * cpr3_parse_ctrl_u32() - parse the specified property from the CPR3
+ *		controller's device tree node and verify that it is within the
+ *		allowed limits
+ * @ctrl:		Pointer to the CPR3 controller
+ * @propname:		The name of the device tree property to read
+ * @out_value:		The output pointer to fill with the value read
+ * @value_min:		The minimum allowed property value
+ * @value_max:		The maximum allowed property value
+ *
+ * This function prints a verbose error message if the property is missing or
+ * has a value which is not within the specified range.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_parse_ctrl_u32(struct cpr3_controller *ctrl, const char *propname,
 		       u32 *out_value, u32 value_min, u32 value_max)
 {
@@ -729,6 +951,13 @@ int cpr3_parse_ctrl_u32(struct cpr3_controller *ctrl, const char *propname,
 	return 0;
 }
 
+/**
+ * cpr3_parse_common_thread_data() - parse common CPR3 thread properties from
+ *		device tree
+ * @thread:		Pointer to the CPR3 thread
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_parse_common_thread_data(struct cpr3_thread *thread)
 {
 	int rc;
@@ -760,6 +989,12 @@ int cpr3_parse_common_thread_data(struct cpr3_thread *thread)
 	return rc;
 }
 
+/**
+ * cpr3_parse_irq_affinity() - parse CPR IRQ affinity information
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_parse_irq_affinity(struct cpr3_controller *ctrl)
 {
 	struct device_node *cpu_node;
@@ -768,7 +1003,7 @@ static int cpr3_parse_irq_affinity(struct cpr3_controller *ctrl)
 
 	if (!of_find_property(ctrl->dev->of_node, "qcom,cpr-interrupt-affinity",
 				&len)) {
-		
+		/* No IRQ affinity required */
 		return 0;
 	}
 
@@ -802,7 +1037,7 @@ static int cpr3_panic_notifier_init(struct cpr3_controller *ctrl)
 	int i, reg_count, len, rc = 0;
 
 	if (!of_find_property(node, "qcom,cpr-panic-reg-addr-list", &len)) {
-		
+		/* panic register address list not specified */
 		return rc;
 	}
 
@@ -862,6 +1097,13 @@ static int cpr3_panic_notifier_init(struct cpr3_controller *ctrl)
 	return rc;
 }
 
+/**
+ * cpr3_parse_common_ctrl_data() - parse common CPR3 controller properties from
+ *		device tree
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_parse_common_ctrl_data(struct cpr3_controller *ctrl)
 {
 	int rc;
@@ -913,7 +1155,7 @@ int cpr3_parse_common_ctrl_data(struct cpr3_controller *ctrl)
 	if (rc)
 		return rc;
 
-	
+	/* Count repeat is optional */
 	ctrl->count_repeat = 0;
 	of_property_read_u32(ctrl->dev->of_node, "qcom,cpr-count-repeat",
 			&ctrl->count_repeat);
@@ -925,7 +1167,7 @@ int cpr3_parse_common_ctrl_data(struct cpr3_controller *ctrl)
 	if (rc)
 		return rc;
 
-	
+	/* Aging reference voltage is optional */
 	ctrl->aging_ref_volt = 0;
 	of_property_read_u32(ctrl->dev->of_node, "qcom,cpr-aging-ref-voltage",
 			&ctrl->aging_ref_volt);
@@ -941,6 +1183,11 @@ int cpr3_parse_common_ctrl_data(struct cpr3_controller *ctrl)
 		}
 	}
 
+	/*
+	 * Regulator device handles are not necessary for CPRh controllers
+	 * since communication with the regulators is completely managed
+	 * in hardware.
+	 */
 	if (ctrl->ctrl_type == CPR_CTRL_TYPE_CPRH)
 		return rc;
 
@@ -982,6 +1229,18 @@ int cpr3_parse_common_ctrl_data(struct cpr3_controller *ctrl)
 	return rc;
 }
 
+/**
+ * cpr3_limit_open_loop_voltages() - modify the open-loop voltage of each corner
+ *				so that it fits within the floor to ceiling
+ *				voltage range of the corner
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * This function clips the open-loop voltage for each corner so that it is
+ * limited to the floor to ceiling range.  It also rounds each open-loop voltage
+ * so that it corresponds to a set point available to the underlying regulator.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_limit_open_loop_voltages(struct cpr3_regulator *vreg)
 {
 	int i, volt;
@@ -1001,6 +1260,18 @@ int cpr3_limit_open_loop_voltages(struct cpr3_regulator *vreg)
 	return 0;
 }
 
+/**
+ * cpr3_open_loop_voltage_as_ceiling() - configures the ceiling voltage for each
+ *		corner to equal the open-loop voltage if the relevant device
+ *		tree property is found for the CPR3 regulator
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * This function assumes that the the open-loop voltage for each corner has
+ * already been rounded to the nearest allowed set point and that it falls
+ * within the floor to ceiling range.
+ *
+ * Return: none
+ */
 void cpr3_open_loop_voltage_as_ceiling(struct cpr3_regulator *vreg)
 {
 	int i;
@@ -1014,6 +1285,18 @@ void cpr3_open_loop_voltage_as_ceiling(struct cpr3_regulator *vreg)
 			= vreg->corner[i].open_loop_volt;
 }
 
+/**
+ * cpr3_limit_floor_voltages() - raise the floor voltage of each corner so that
+ *		the optional maximum floor to ceiling voltage range specified in
+ *		device tree is satisfied
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * This function also ensures that the open-loop voltage for each corner falls
+ * within the final floor to ceiling voltage range and that floor voltages
+ * increase monotonically.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_limit_floor_voltages(struct cpr3_regulator *vreg)
 {
 	char *prop = "qcom,cpr-floor-to-ceiling-max-range";
@@ -1052,7 +1335,7 @@ free_floor_adjust:
 	kfree(floor_range);
 
 enforce_monotonicity:
-	
+	/* Ensure that floor voltages increase monotonically. */
 	for (i = 1; i < vreg->corner_count; i++) {
 		if (vreg->corner[i].floor_volt
 		    < vreg->corner[i - 1].floor_volt) {
@@ -1077,6 +1360,13 @@ enforce_monotonicity:
 	return rc;
 }
 
+/**
+ * cpr3_print_quots() - print CPR target quotients into the kernel log for
+ *		debugging purposes
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * Return: none
+ */
 void cpr3_print_quots(struct cpr3_regulator *vreg)
 {
 	int i, j, pos;
@@ -1098,6 +1388,17 @@ void cpr3_print_quots(struct cpr3_regulator *vreg)
 	kfree(buf);
 }
 
+/**
+ * cpr3_adjust_fused_open_loop_voltages() - adjust the fused open-loop voltages
+ *		for each fuse corner according to device tree values
+ * @vreg:		Pointer to the CPR3 regulator
+ * @fuse_volt:		Pointer to an array of the fused open-loop voltage
+ *			values
+ *
+ * Voltage values in fuse_volt are modified in place.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_adjust_fused_open_loop_voltages(struct cpr3_regulator *vreg,
 		int *fuse_volt)
 {
@@ -1106,7 +1407,7 @@ int cpr3_adjust_fused_open_loop_voltages(struct cpr3_regulator *vreg,
 
 	if (!of_find_property(vreg->of_node,
 			"qcom,cpr-open-loop-voltage-fuse-adjustment", NULL)) {
-		
+		/* No adjustment required. */
 		return 0;
 	}
 
@@ -1138,6 +1439,13 @@ done:
 	return rc;
 }
 
+/**
+ * cpr3_adjust_open_loop_voltages() - adjust the open-loop voltages for each
+ *		corner according to device tree values
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_adjust_open_loop_voltages(struct cpr3_regulator *vreg)
 {
 	int i, rc, prev_volt, min_volt;
@@ -1145,7 +1453,7 @@ int cpr3_adjust_open_loop_voltages(struct cpr3_regulator *vreg)
 
 	if (!of_find_property(vreg->of_node,
 			"qcom,cpr-open-loop-voltage-adjustment", NULL)) {
-		
+		/* No adjustment required. */
 		return 0;
 	}
 
@@ -1185,6 +1493,10 @@ int cpr3_adjust_open_loop_voltages(struct cpr3_regulator *vreg)
 		}
 	}
 
+	/*
+	 * Ensure that open-loop voltages increase monotonically with respect
+	 * to configurable minimum allowed differences.
+	 */
 	for (i = 1; i < vreg->corner_count; i++) {
 		min_volt = vreg->corner[i - 1].open_loop_volt + volt_diff[i];
 		if (vreg->corner[i].open_loop_volt < min_volt) {
@@ -1202,6 +1514,14 @@ done:
 	return rc;
 }
 
+/**
+ * cpr3_quot_adjustment() - returns the quotient adjustment value resulting from
+ *		the specified voltage adjustment and RO scaling factor
+ * @ro_scale:		The CPR ring oscillator (RO) scaling factor with units
+ *			of QUOT/V
+ * @volt_adjust:	The amount to adjust the voltage by in units of
+ *			microvolts.  This value may be positive or negative.
+ */
 int cpr3_quot_adjustment(int ro_scale, int volt_adjust)
 {
 	unsigned long long temp;
@@ -1227,6 +1547,14 @@ int cpr3_quot_adjustment(int ro_scale, int volt_adjust)
 	return quot_adjust;
 }
 
+/**
+ * cpr3_voltage_adjustment() - returns the voltage adjustment value resulting
+ *		from the specified quotient adjustment and RO scaling factor
+ * @ro_scale:		The CPR ring oscillator (RO) scaling factor with units
+ *			of QUOT/V
+ * @quot_adjust:	The amount to adjust the quotient by in units of
+ *			QUOT.  This value may be positive or negative.
+ */
 int cpr3_voltage_adjustment(int ro_scale, int quot_adjust)
 {
 	unsigned long long temp;
@@ -1255,6 +1583,22 @@ int cpr3_voltage_adjustment(int ro_scale, int quot_adjust)
 	return volt_adjust;
 }
 
+/**
+ * cpr3_parse_closed_loop_voltage_adjustments() - load per-fuse-corner and
+ *		per-corner closed-loop adjustment values from device tree
+ * @vreg:		Pointer to the CPR3 regulator
+ * @ro_sel:		Array of ring oscillator values selected for each
+ *			fuse corner
+ * @volt_adjust:	Pointer to array which will be filled with the
+ *			per-corner closed-loop adjustment voltages
+ * @volt_adjust_fuse:	Pointer to array which will be filled with the
+ *			per-fuse-corner closed-loop adjustment voltages
+ * @ro_scale:		Pointer to array which will be filled with the
+ *			per-fuse-corner RO scaling factor values with units of
+ *			QUOT/V
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_parse_closed_loop_voltage_adjustments(
 			struct cpr3_regulator *vreg, u64 *ro_sel,
 			int *volt_adjust, int *volt_adjust_fuse, int *ro_scale)
@@ -1267,7 +1611,7 @@ int cpr3_parse_closed_loop_voltage_adjustments(
 	    && !of_find_property(vreg->of_node,
 			"qcom,cpr-closed-loop-voltage-fuse-adjustment", NULL)
 	    && !vreg->aging_allowed) {
-		
+		/* No adjustment required. */
 		return 0;
 	} else if (!of_find_property(vreg->of_node,
 			"qcom,cpr-ro-scaling-factor", NULL)) {
@@ -1325,13 +1669,23 @@ done:
 	return rc;
 }
 
+/**
+ * cpr3_apm_init() - initialize APM data for a CPR3 controller
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * This function loads memory array power mux (APM) data from device tree
+ * if it is present and requests a handle to the appropriate APM controller
+ * device.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_apm_init(struct cpr3_controller *ctrl)
 {
 	struct device_node *node = ctrl->dev->of_node;
 	int rc;
 
 	if (!of_find_property(node, "qcom,apm-ctrl", NULL)) {
-		
+		/* No APM used */
 		return 0;
 	}
 
@@ -1353,7 +1707,7 @@ int cpr3_apm_init(struct cpr3_controller *ctrl)
 	ctrl->apm_threshold_volt
 		= CPR3_ROUND(ctrl->apm_threshold_volt, ctrl->step_volt);
 
-	
+	/* No error check since this is an optional property. */
 	of_property_read_u32(node, "qcom,apm-hysteresis-voltage",
 				&ctrl->apm_adj_volt);
 	ctrl->apm_adj_volt = CPR3_ROUND(ctrl->apm_adj_volt, ctrl->step_volt);
@@ -1364,6 +1718,13 @@ int cpr3_apm_init(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_mem_acc_init() - initialize mem-acc regulator data for
+ *		a CPR3 regulator
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr3_mem_acc_init(struct cpr3_regulator *vreg)
 {
 	struct cpr3_controller *ctrl = vreg->thread->ctrl;
@@ -1392,6 +1753,17 @@ int cpr3_mem_acc_init(struct cpr3_regulator *vreg)
 	return rc;
 }
 
+/**
+ * cpr4_load_core_and_temp_adj() - parse amount of voltage adjustment for
+ *		per-online-core and per-temperature voltage adjustment for a
+ *		given corner or corner band from device tree.
+ * @vreg:	Pointer to the CPR3 regulator
+ * @num:	Corner number or corner band number
+ * @use_corner_band:	Boolean indicating if the CPR3 regulator supports
+ *			adjustments per corner band
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr4_load_core_and_temp_adj(struct cpr3_regulator *vreg,
 					int num, bool use_corner_band)
 {
@@ -1406,7 +1778,7 @@ static int cpr4_load_core_and_temp_adj(struct cpr3_regulator *vreg,
 		vreg->corner[num].sdelta;
 
 	if (!sdelta->allow_core_count_adj && !sdelta->allow_temp_adj) {
-		
+		/* corner doesn't need sdelta table */
 		sdelta->max_core_count = 0;
 		sdelta->temp_band_count = 0;
 		return rc;
@@ -1438,6 +1810,10 @@ static int cpr4_load_core_and_temp_adj(struct cpr3_regulator *vreg,
 		return rc;
 	}
 
+	/*
+	 * Convert sdelta margins from uV to PMIC steps and apply negation to
+	 * follow the SDELTA register semantics.
+	 */
 	for (i = 0; i < sdelta_size; i++)
 		sdelta->table[i] = -(sdelta->table[i] / ctrl->step_volt);
 
@@ -1457,6 +1833,20 @@ static int cpr4_load_core_and_temp_adj(struct cpr3_regulator *vreg,
 	return rc;
 }
 
+/**
+ * cpr4_parse_core_count_temp_voltage_adj() - parse configuration data for
+ *		per-online-core and per-temperature voltage adjustment for
+ *		a CPR3 regulator from device tree.
+ * @vreg:	Pointer to the CPR3 regulator
+ * @use_corner_band:	Boolean indicating if the CPR3 regulator supports
+ *			adjustments per corner band
+ *
+ * This function supports parsing of per-online-core and per-temperature
+ * adjustments per corner or per corner band. CPR controllers which support
+ * corner bands apply the same adjustments to all corners within a corner band.
+ *
+ * Return: 0 on success, errno on failure
+ */
 int cpr4_parse_core_count_temp_voltage_adj(
 			struct cpr3_regulator *vreg, bool use_corner_band)
 {
@@ -1496,8 +1886,16 @@ int cpr4_parse_core_count_temp_voltage_adj(
 	}
 
 	if (!vreg->allow_temp_adj && !vreg->allow_core_count_adj) {
+		/*
+		 * Both per-online-core and temperature based adjustments are
+		 * disabled for this regulator.
+		 */
 		return 0;
 	} else if (!vreg->allow_core_count_adj) {
+		/*
+		 * Only per-temperature voltage adjusments are allowed.
+		 * Keep max core count value as 1 to allocate SDELTA.
+		 */
 		vreg->max_core_count = 1;
 	}
 
@@ -1586,6 +1984,21 @@ done:
 	return rc;
 }
 
+/**
+ * cpr3_parse_fuse_combo_map() - parse fuse combo map data for a CPR3 regulator
+ *		from device tree.
+ * @vreg:		Pointer to the CPR3 regulator
+ * @fuse_val:		Array of selection fuse parameter values
+ * @fuse_count:		Number of selection fuse parameters used in fuse combo
+ *			map
+ *
+ * This function reads the qcom,cpr-fuse-combo-map device tree property and
+ * populates the fuse_combo element of CPR3 regulator with the row number of
+ * fuse combo map data that matches with the data in fuse_val input array.
+ *
+ * Return: 0 on success, -ENODEV if qcom,cpr-fuse-combo-map property is not
+ *		specified in device node, other errno on failure
+ */
 int cpr3_parse_fuse_combo_map(struct cpr3_regulator *vreg, u64 *fuse_val,
 			int fuse_count)
 {
@@ -1594,7 +2007,7 @@ int cpr3_parse_fuse_combo_map(struct cpr3_regulator *vreg, u64 *fuse_val,
 	u32 *tmp;
 
 	if (!of_find_property(node, "qcom,cpr-fuse-combo-map", &len)) {
-		
+		/* property not specified */
 		return -ENODEV;
 	}
 

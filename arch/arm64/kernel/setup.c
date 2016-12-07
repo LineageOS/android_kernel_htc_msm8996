@@ -98,6 +98,9 @@ static const char *cpu_name;
 static const char *machine_name;
 phys_addr_t __fdt_pointer __initdata;
 
+/*
+ * Standard memory resources
+ */
 static struct resource mem_res[] = {
 	{
 		.name = "Kernel code",
@@ -130,6 +133,11 @@ void __init early_print(const char *str, ...)
 
 void __init smp_setup_processor_id(void)
 {
+	/*
+	 * clear __my_cpu_offset on boot CPU to avoid hang caused by
+	 * using percpu variable early, for example, lockdep will
+	 * access percpu variable inside lock_release
+	 */
 	set_my_cpu_offset(0);
 }
 
@@ -140,19 +148,48 @@ bool arch_match_cpu_phys_id(int cpu, u64 phys_id)
 
 struct mpidr_hash mpidr_hash;
 #ifdef CONFIG_SMP
+/**
+ * smp_build_mpidr_hash - Pre-compute shifts required at each affinity
+ *			  level in order to build a linear index from an
+ *			  MPIDR value. Resulting algorithm is a collision
+ *			  free hash carried out through shifting and ORing
+ */
 static void __init smp_build_mpidr_hash(void)
 {
 	u32 i, affinity, fs[4], bits[4], ls;
 	u64 mask = 0;
+	/*
+	 * Pre-scan the list of MPIDRS and filter out bits that do
+	 * not contribute to affinity levels, ie they never toggle.
+	 */
 	for_each_possible_cpu(i)
 		mask |= (cpu_logical_map(i) ^ cpu_logical_map(0));
 	pr_debug("mask of set bits %#llx\n", mask);
+	/*
+	 * Find and stash the last and first bit set at all affinity levels to
+	 * check how many bits are required to represent them.
+	 */
 	for (i = 0; i < 4; i++) {
 		affinity = MPIDR_AFFINITY_LEVEL(mask, i);
+		/*
+		 * Find the MSB bit and LSB bits position
+		 * to determine how many bits are required
+		 * to express the affinity level.
+		 */
 		ls = fls(affinity);
 		fs[i] = affinity ? ffs(affinity) - 1 : 0;
 		bits[i] = ls - fs[i];
 	}
+	/*
+	 * An index can be created from the MPIDR_EL1 by isolating the
+	 * significant bits at each affinity level and by shifting
+	 * them in order to compress the 32 bits values space to a
+	 * compressed set of values. This is equivalent to hashing
+	 * the MPIDR_EL1 through shifting and ORing. It is a collision free
+	 * hash though not minimal since some levels might contain a number
+	 * of CPUs that is not an exact power of 2 and their bit
+	 * representation might contain holes, eg MPIDR_EL1[7:0] = {0x2, 0x80}.
+	 */
 	mpidr_hash.shift_aff[0] = MPIDR_LEVEL_SHIFT(0) + fs[0];
 	mpidr_hash.shift_aff[1] = MPIDR_LEVEL_SHIFT(1) + fs[1] - bits[0];
 	mpidr_hash.shift_aff[2] = MPIDR_LEVEL_SHIFT(2) + fs[2] -
@@ -168,6 +205,10 @@ static void __init smp_build_mpidr_hash(void)
 		mpidr_hash.shift_aff[3],
 		mpidr_hash.mask,
 		mpidr_hash.bits);
+	/*
+	 * 4x is an arbitrary value used to warn on a hash table much bigger
+	 * than expected on most systems.
+	 */
 	if (mpidr_hash_size() > 4 * num_possible_cpus())
 		pr_warn("Large number of MPIDR hash buckets detected\n");
 	__flush_dcache_area(&mpidr_hash, sizeof(struct mpidr_hash));
@@ -198,6 +239,9 @@ static void __init setup_processor(void)
 
 	cpuinfo_store_boot_cpu();
 
+	/*
+	 * Check for sane CTR_EL0.CWG value.
+	 */
 	cwg = cache_type_cwg();
 	cls = cache_line_size();
 	if (!cwg)
@@ -207,6 +251,11 @@ static void __init setup_processor(void)
 		pr_warn("L1_CACHE_BYTES smaller than the Cache Writeback Granule (%d < %d)\n",
 			L1_CACHE_BYTES, cls);
 
+	/*
+	 * ID_AA64ISAR0_EL1 contains 4-bit wide signed feature blocks.
+	 * The blocks we test below represent incremental functionality
+	 * for non-negative values. Negative values are reserved.
+	 */
 	features = read_cpuid(ID_AA64ISAR0_EL1);
 	block = (features >> 4) & 0xf;
 	if (!(block & 0x8)) {
@@ -234,6 +283,10 @@ static void __init setup_processor(void)
 		elf_hwcap |= HWCAP_CRC32;
 
 #ifdef CONFIG_COMPAT
+	/*
+	 * ID_ISAR5_EL1 carries similar information as above, but pertaining to
+	 * the Aarch32 32-bit execution state.
+	 */
 	features = read_cpuid(ID_ISAR5_EL1);
 	block = (features >> 4) & 0xf;
 	if (!(block & 0x8)) {
@@ -282,6 +335,9 @@ static void __init setup_machine_fdt(phys_addr_t dt_phys)
 	}
 }
 
+/*
+ * Limit the memory size that was specified via FDT.
+ */
 static int __init early_mem(char *p)
 {
 	phys_addr_t limit;
@@ -327,6 +383,10 @@ static void __init request_standard_resources(void)
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
+/*
+ * Relocate initrd if it is not completely within the linear mapping.
+ * This would be the case if mem= cuts out all or part of it.
+ */
 static void __init relocate_initrd(void)
 {
 	phys_addr_t orig_start = __virt_to_phys(initrd_start);
@@ -339,6 +399,10 @@ static void __init relocate_initrd(void)
 	if (orig_end <= ram_end)
 		return;
 
+	/*
+	 * Any of the original initrd which overlaps the linear map should
+	 * be freed after relocating.
+	 */
 	if (orig_start < ram_end)
 		to_free = ram_end - orig_start;
 
@@ -346,7 +410,7 @@ static void __init relocate_initrd(void)
 	if (!size)
 		return;
 
-	
+	/* initrd needs to be relocated completely inside linear mapping */
 	new_start = memblock_find_in_range(0, PFN_PHYS(max_pfn),
 					   size, PAGE_SIZE);
 	if (!new_start)
@@ -403,6 +467,10 @@ void __init setup_arch(char **cmdline_p)
 
 	parse_early_param();
 
+	/*
+	 *  Unmask asynchronous aborts after bringing up possible earlycon.
+	 * (Report possible System Errors once we can report this occurred)
+	 */
 	local_async_enable();
 
 	efi_init();
@@ -582,6 +650,11 @@ static int c_show(struct seq_file *m, void *v)
 		struct cpuinfo_arm64 *cpuinfo = &per_cpu(cpu_data, i);
 		u32 midr = cpuinfo->reg_midr;
 
+		/*
+		 * glibc reads /proc/cpuinfo to determine the number of
+		 * online processors, looking for lines beginning with
+		 * "processor".  Give glibc what it expects.
+		 */
 #ifdef CONFIG_SMP
 		seq_printf(m, "processor\t: %d\n", i);
 #endif
@@ -592,6 +665,12 @@ static int c_show(struct seq_file *m, void *v)
 			   loops_per_jiffy / (500000UL/HZ),
 			   loops_per_jiffy / (5000UL/HZ) % 100);
 
+		/*
+		 * Dump out the common processor features in a single line.
+		 * Userspace should read the hwcaps with getauxval(AT_HWCAP)
+		 * rather than attempting to parse this, but there's a body of
+		 * software which does already (at least for 32-bit).
+		 */
 		seq_puts(m, "Features\t:");
 		if (personality(current->personality) == PER_LINUX32) {
 #ifdef CONFIG_COMPAT
@@ -602,7 +681,7 @@ static int c_show(struct seq_file *m, void *v)
 			for (j = 0; compat_hwcap2_str[j]; j++)
 				if (compat_elf_hwcap2 & (1 << j))
 					seq_printf(m, " %s", compat_hwcap2_str[j]);
-#endif 
+#endif /* CONFIG_COMPAT */
 		} else {
 			for (j = 0; hwcap_str[j]; j++)
 				if (elf_hwcap & (1 << j))

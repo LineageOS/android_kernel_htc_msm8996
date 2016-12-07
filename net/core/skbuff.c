@@ -32,6 +32,9 @@
  *	2 of the License, or (at your option) any later version.
  */
 
+/*
+ *	The functions in this file will not compile correctly with gcc 2.4.x
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -75,6 +78,18 @@
 struct kmem_cache *skbuff_head_cache __read_mostly;
 static struct kmem_cache *skbuff_fclone_cache __read_mostly;
 
+/**
+ *	skb_panic - private function for out-of-line support
+ *	@skb:	buffer
+ *	@sz:	size
+ *	@addr:	address
+ *	@msg:	skb_over_panic or skb_under_panic
+ *
+ *	Out-of-line support for skb_put() and skb_push().
+ *	Called via the wrapper skb_over_panic() or skb_under_panic().
+ *	Keep out of line to prevent kernel bloat.
+ *	__builtin_return_address is not used because it is not always reliable.
+ */
 static void skb_panic(struct sk_buff *skb, unsigned int sz, void *addr,
 		      const char msg[])
 {
@@ -95,6 +110,13 @@ static void skb_under_panic(struct sk_buff *skb, unsigned int sz, void *addr)
 	skb_panic(skb, sz, addr, __func__);
 }
 
+/*
+ * kmalloc_reserve is a wrapper around kmalloc_node_track_caller that tells
+ * the caller if emergency pfmemalloc reserves are being used. If it is and
+ * the socket is later found to be SOCK_MEMALLOC then PFMEMALLOC reserves
+ * may be used. Otherwise, the packet data may be discarded until enough
+ * memory is free
+ */
 #define kmalloc_reserve(size, gfp, node, pfmemalloc) \
 	 __kmalloc_reserve(size, gfp, node, _RET_IP_, pfmemalloc)
 
@@ -104,13 +126,17 @@ static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
 	void *obj;
 	bool ret_pfmemalloc = false;
 
+	/*
+	 * Try a regular allocation, when that fails and we're not entitled
+	 * to the reserves, fail.
+	 */
 	obj = kmalloc_node_track_caller(size,
 					flags | __GFP_NOMEMALLOC | __GFP_NOWARN,
 					node);
 	if (obj || !(gfp_pfmemalloc_allowed(flags)))
 		goto out;
 
-	
+	/* Try again but now we are using pfmemalloc reserves */
 	ret_pfmemalloc = true;
 	obj = kmalloc_node_track_caller(size, flags, node);
 
@@ -121,17 +147,27 @@ out:
 	return obj;
 }
 
+/* 	Allocate a new skbuff. We do this ourselves so we can fill in a few
+ *	'private' fields and also do memory statistics to find all the
+ *	[BEEP] leaks.
+ *
+ */
 
 struct sk_buff *__alloc_skb_head(gfp_t gfp_mask, int node)
 {
 	struct sk_buff *skb;
 
-	
+	/* Get the HEAD */
 	skb = kmem_cache_alloc_node(skbuff_head_cache,
 				    gfp_mask & ~__GFP_DMA, node);
 	if (!skb)
 		goto out;
 
+	/*
+	 * Only clear those fields we need to clear, not those that we will
+	 * actually initialise below. Hence, don't put any more fields after
+	 * the tail pointer in struct sk_buff!
+	 */
 	memset(skb, 0, offsetof(struct sk_buff, tail));
 	skb->head = NULL;
 	skb->truesize = sizeof(struct sk_buff);
@@ -142,6 +178,23 @@ out:
 	return skb;
 }
 
+/**
+ *	__alloc_skb	-	allocate a network buffer
+ *	@size: size to allocate
+ *	@gfp_mask: allocation mask
+ *	@flags: If SKB_ALLOC_FCLONE is set, allocate from fclone cache
+ *		instead of head cache and allocate a cloned (child) skb.
+ *		If SKB_ALLOC_RX is set, __GFP_MEMALLOC will be used for
+ *		allocations in case the data is required for writeback
+ *	@node: numa node to allocate memory on
+ *
+ *	Allocate a new &sk_buff. The returned buffer has no headroom and a
+ *	tail room of at least size bytes. The object has a reference count
+ *	of one. The return is the buffer. On a failure the return is %NULL.
+ *
+ *	Buffers may only be allocated from interrupts using a @gfp_mask of
+ *	%GFP_ATOMIC.
+ */
 struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 			    int flags, int node)
 {
@@ -160,22 +213,36 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	if (sk_memalloc_socks() && (flags & SKB_ALLOC_RX))
 		gfp_mask |= __GFP_MEMALLOC;
 
-	
+	/* Get the HEAD */
 	skb = kmem_cache_alloc_node(cache, gfp_mask & ~__GFP_DMA, node);
 	if (!skb)
 		goto out;
 	prefetchw(skb);
 
+	/* We do our best to align skb_shared_info on a separate cache
+	 * line. It usually works because kmalloc(X > SMP_CACHE_BYTES) gives
+	 * aligned memory blocks, unless SLUB/SLAB debug is enabled.
+	 * Both skb->head and skb_shared_info are cache line aligned.
+	 */
 	size = SKB_DATA_ALIGN(size);
 	size += SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
 	data = kmalloc_reserve(size, gfp_mask, node, &pfmemalloc);
 	if (!data)
 		goto nodata;
+	/* kmalloc(size) might give us more room than requested.
+	 * Put skb_shared_info exactly at the end of allocated zone,
+	 * to allow max possible filling before reallocation.
+	 */
 	size = SKB_WITH_OVERHEAD(ksize(data));
 	prefetchw(data + size);
 
+	/*
+	 * Only clear those fields we need to clear, not those that we will
+	 * actually initialise below. Hence, don't put any more fields after
+	 * the tail pointer in struct sk_buff!
+	 */
 	memset(skb, 0, offsetof(struct sk_buff, tail));
-	
+	/* Account for allocated memory : skb + skb->head */
 	skb->truesize = SKB_TRUESIZE(size);
 	skb->pfmemalloc = pfmemalloc;
 	atomic_set(&skb->users, 1);
@@ -186,7 +253,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	skb->mac_header = (typeof(skb->mac_header))~0U;
 	skb->transport_header = (typeof(skb->transport_header))~0U;
 
-	
+	/* make sure we initialize shinfo sequentially */
 	shinfo = skb_shinfo(skb);
 	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
 	atomic_set(&shinfo->dataref, 1);
@@ -213,6 +280,25 @@ nodata:
 }
 EXPORT_SYMBOL(__alloc_skb);
 
+/**
+ * __build_skb - build a network buffer
+ * @data: data buffer provided by caller
+ * @frag_size: size of data, or 0 if head was kmalloced
+ *
+ * Allocate a new &sk_buff. Caller provides space holding head and
+ * skb_shared_info. @data must have been allocated by kmalloc() only if
+ * @frag_size is 0, otherwise data should come from the page allocator
+ *  or vmalloc()
+ * The return is the new skb buffer.
+ * On a failure the return is %NULL, and @data is not freed.
+ * Notes :
+ *  Before IO, driver allocates only data buffer where NIC put incoming frame
+ *  Driver should add room at head (NET_SKB_PAD) and
+ *  MUST add room at tail (SKB_DATA_ALIGN(skb_shared_info))
+ *  After IO, driver calls build_skb(), to allocate sk_buff and populate it
+ *  before giving packet to stack.
+ *  RX rings only contains data buffers, not full skbs.
+ */
 struct sk_buff *__build_skb(void *data, unsigned int frag_size)
 {
 	struct skb_shared_info *shinfo;
@@ -235,7 +321,7 @@ struct sk_buff *__build_skb(void *data, unsigned int frag_size)
 	skb->mac_header = (typeof(skb->mac_header))~0U;
 	skb->transport_header = (typeof(skb->transport_header))~0U;
 
-	
+	/* make sure we initialize shinfo sequentially */
 	shinfo = skb_shinfo(skb);
 	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
 	atomic_set(&shinfo->dataref, 1);
@@ -244,6 +330,11 @@ struct sk_buff *__build_skb(void *data, unsigned int frag_size)
 	return skb;
 }
 
+/* build_skb() is wrapper over __build_skb(), that specifically
+ * takes care of skb->head and skb->pfmemalloc
+ * This means that if @frag_size is not zero, then @data must be backed
+ * by a page fragment, not kmalloc() or vmalloc()
+ */
 struct sk_buff *build_skb(void *data, unsigned int frag_size)
 {
 	struct sk_buff *skb = __build_skb(data, frag_size);
@@ -259,6 +350,9 @@ EXPORT_SYMBOL(build_skb);
 
 struct netdev_alloc_cache {
 	struct page_frag	frag;
+	/* we maintain a pagecount bias, so that we dont dirty cache line
+	 * containing page->_count every time we allocate a fragment.
+	 */
 	unsigned int		pagecnt_bias;
 };
 static DEFINE_PER_CPU(struct netdev_alloc_cache, netdev_alloc_cache);
@@ -290,6 +384,9 @@ refill:
 				goto end;
 		}
 		nc->frag.size = PAGE_SIZE << order;
+		/* Even if we own the page, we do not use atomic_set().
+		 * This would break get_page_unless_zero() users.
+		 */
 		atomic_add(NETDEV_PAGECNT_MAX_BIAS - 1,
 			   &nc->frag.page->_count);
 		nc->pagecnt_bias = NETDEV_PAGECNT_MAX_BIAS;
@@ -301,7 +398,7 @@ refill:
 			if (!atomic_sub_and_test(nc->pagecnt_bias,
 						 &nc->frag.page->_count))
 				goto refill;
-			
+			/* OK, page count is 0, we can safely set it */
 			atomic_set(&nc->frag.page->_count,
 				   NETDEV_PAGECNT_MAX_BIAS);
 		} else {
@@ -320,12 +417,32 @@ end:
 	return data;
 }
 
+/**
+ * netdev_alloc_frag - allocate a page fragment
+ * @fragsz: fragment size
+ *
+ * Allocates a frag from a page for receive buffer.
+ * Uses GFP_ATOMIC allocations.
+ */
 void *netdev_alloc_frag(unsigned int fragsz)
 {
 	return __netdev_alloc_frag(fragsz, GFP_ATOMIC | __GFP_COLD);
 }
 EXPORT_SYMBOL(netdev_alloc_frag);
 
+/**
+ *	__netdev_alloc_skb - allocate an skbuff for rx on a specific device
+ *	@dev: network device to receive on
+ *	@length: length to allocate
+ *	@gfp_mask: get_free_pages mask, passed to alloc_skb
+ *
+ *	Allocate a new &sk_buff and assign it a usage count of one. The
+ *	buffer has unspecified headroom built in. Users should allocate
+ *	the headroom they think they need without accounting for the
+ *	built in space. The built in space is used for optimisations.
+ *
+ *	%NULL is returned if there is no free memory.
+ */
 #ifndef CONFIG_DISABLE_NET_SKB_FRAG_CACHE
 struct sk_buff *__netdev_alloc_skb(struct net_device *dev,
 				   unsigned int length, gfp_t gfp_mask)
@@ -437,6 +554,10 @@ static void skb_release_data(struct sk_buff *skb)
 	for (i = 0; i < shinfo->nr_frags; i++)
 		__skb_frag_unref(&shinfo->frags[i]);
 
+	/*
+	 * If skb buf is from userspace, we need to notify the caller
+	 * the lower device DMA has done;
+	 */
 	if (shinfo->tx_flags & SKBTX_DEV_ZEROCOPY) {
 		struct ubuf_info *uarg;
 
@@ -451,6 +572,9 @@ static void skb_release_data(struct sk_buff *skb)
 	skb_free_head(skb);
 }
 
+/*
+ *	Free an skbuff by memory without cleaning the state.
+ */
 static void kfree_skbmem(struct sk_buff *skb)
 {
 	struct sk_buff_fclones *fclones;
@@ -469,6 +593,9 @@ static void kfree_skbmem(struct sk_buff *skb)
 	case SKB_FCLONE_CLONE:
 		fclones = container_of(skb, struct sk_buff_fclones, skb2);
 
+		/* The clone portion is available for
+		 * fast-cloning again.
+		 */
 		skb->fclone = SKB_FCLONE_FREE;
 
 		if (atomic_dec_and_test(&fclones->fclone_ref))
@@ -493,6 +620,7 @@ static void skb_release_head_state(struct sk_buff *skb)
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 	nf_bridge_put(skb->nf_bridge);
 #endif
+/* XXX: IS this still necessary? - JHS */
 #ifdef CONFIG_NET_SCHED
 	skb->tc_index = 0;
 #ifdef CONFIG_NET_CLS_ACT
@@ -501,6 +629,7 @@ static void skb_release_head_state(struct sk_buff *skb)
 #endif
 }
 
+/* Free everything but the sk_buff shell. */
 static void skb_release_all(struct sk_buff *skb)
 {
 	skb_release_head_state(skb);
@@ -508,6 +637,14 @@ static void skb_release_all(struct sk_buff *skb)
 		skb_release_data(skb);
 }
 
+/**
+ *	__kfree_skb - private function
+ *	@skb: buffer
+ *
+ *	Free an sk_buff. Release anything attached to the buffer.
+ *	Clean the state. This is an internal helper function. Users should
+ *	always call kfree_skb
+ */
 
 void __kfree_skb(struct sk_buff *skb)
 {
@@ -516,6 +653,13 @@ void __kfree_skb(struct sk_buff *skb)
 }
 EXPORT_SYMBOL(__kfree_skb);
 
+/**
+ *	kfree_skb - free an sk_buff
+ *	@skb: buffer to free
+ *
+ *	Drop a reference to the buffer and free it if the usage count has
+ *	hit zero.
+ */
 void kfree_skb(struct sk_buff *skb)
 {
 	if (unlikely(!skb))
@@ -540,6 +684,13 @@ void kfree_skb_list(struct sk_buff *segs)
 }
 EXPORT_SYMBOL(kfree_skb_list);
 
+/**
+ *	skb_tx_error - report an sk_buff xmit error
+ *	@skb: buffer that triggered an error
+ *
+ *	Report xmit error if a device callback is tracking this skb.
+ *	skb must be freed afterwards.
+ */
 void skb_tx_error(struct sk_buff *skb)
 {
 	if (skb_shinfo(skb)->tx_flags & SKBTX_DEV_ZEROCOPY) {
@@ -553,6 +704,14 @@ void skb_tx_error(struct sk_buff *skb)
 }
 EXPORT_SYMBOL(skb_tx_error);
 
+/**
+ *	consume_skb - free an skbuff
+ *	@skb: buffer to free
+ *
+ *	Drop a ref to the buffer and free it if the usage count has hit zero
+ *	Functions identically to kfree_skb, but kfree_skb assumes that the frame
+ *	is being dropped after a failure and notes that
+ */
 void consume_skb(struct sk_buff *skb)
 {
 	if (unlikely(!skb))
@@ -566,6 +725,7 @@ void consume_skb(struct sk_buff *skb)
 }
 EXPORT_SYMBOL(consume_skb);
 
+/* Make sure a field is enclosed inside headers_start/headers_end section */
 #define CHECK_SKB_FIELD(field) \
 	BUILD_BUG_ON(offsetof(struct sk_buff, field) <		\
 		     offsetof(struct sk_buff, headers_start));	\
@@ -575,7 +735,7 @@ EXPORT_SYMBOL(consume_skb);
 static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 {
 	new->tstamp		= old->tstamp;
-	
+	/* We do not copy old->sk */
 	new->dev		= old->dev;
 	memcpy(new->cb, old->cb, sizeof(old->cb));
 	skb_dst_copy(new, old);
@@ -584,6 +744,9 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 #endif
 	__nf_copy(new, old, false);
 
+	/* Note : this field could be in headers_start/headers_end section
+	 * It is not yet because we do not want to have a 16 bit hole
+	 */
 	new->queue_mapping = old->queue_mapping;
 
 	memcpy(&new->headers_start, &old->headers_start,
@@ -619,6 +782,10 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 
 }
 
+/*
+ * You should not add any new code to this function.  Add it to
+ * __copy_skb_header above instead.
+ */
 static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 {
 #define C(x) n->x = skb->x
@@ -649,6 +816,16 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 #undef C
 }
 
+/**
+ *	skb_morph	-	morph one skb into another
+ *	@dst: the skb to receive the contents
+ *	@src: the skb to supply the contents
+ *
+ *	This is identical to skb_clone except that the target skb is
+ *	supplied by the user.
+ *
+ *	The target skb is returned upon exit.
+ */
 struct sk_buff *skb_morph(struct sk_buff *dst, struct sk_buff *src)
 {
 	skb_release_all(dst);
@@ -656,6 +833,21 @@ struct sk_buff *skb_morph(struct sk_buff *dst, struct sk_buff *src)
 }
 EXPORT_SYMBOL_GPL(skb_morph);
 
+/**
+ *	skb_copy_ubufs	-	copy userspace skb frags buffers to kernel
+ *	@skb: the skb to modify
+ *	@gfp_mask: allocation priority
+ *
+ *	This must be called on SKBTX_DEV_ZEROCOPY skb.
+ *	It will copy all frags into kernel and drop the reference
+ *	to userspace pages.
+ *
+ *	If this function is called from an interrupt gfp_mask() must be
+ *	%GFP_ATOMIC.
+ *
+ *	Returns 0 on success or a negative error code on failure
+ *	to allocate kernel memory to copy to.
+ */
 int skb_copy_ubufs(struct sk_buff *skb, gfp_t gfp_mask)
 {
 	int i;
@@ -684,13 +876,13 @@ int skb_copy_ubufs(struct sk_buff *skb, gfp_t gfp_mask)
 		head = page;
 	}
 
-	
+	/* skb frags release userspace buffers */
 	for (i = 0; i < num_frags; i++)
 		skb_frag_unref(skb, i);
 
 	uarg->callback(uarg, false);
 
-	
+	/* skb frags point to kernel buffers */
 	for (i = num_frags - 1; i >= 0; i--) {
 		__skb_fill_page_desc(skb, i, head, 0,
 				     skb_shinfo(skb)->frags[i].size);
@@ -702,6 +894,19 @@ int skb_copy_ubufs(struct sk_buff *skb, gfp_t gfp_mask)
 }
 EXPORT_SYMBOL_GPL(skb_copy_ubufs);
 
+/**
+ *	skb_clone	-	duplicate an sk_buff
+ *	@skb: buffer to clone
+ *	@gfp_mask: allocation priority
+ *
+ *	Duplicate an &sk_buff. The new one is not owned by a socket. Both
+ *	copies share the same packet data but not structure. The new
+ *	buffer has a reference count of 1. If the allocation fails the
+ *	function returns %NULL otherwise the new buffer is returned.
+ *
+ *	If this function is called from an interrupt gfp_mask() must be
+ *	%GFP_ATOMIC.
+ */
 
 struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
 {
@@ -735,10 +940,10 @@ EXPORT_SYMBOL(skb_clone);
 
 static void skb_headers_offset_update(struct sk_buff *skb, int off)
 {
-	
+	/* Only adjust this if it actually is csum_start rather than csum */
 	if (skb->ip_summed == CHECKSUM_PARTIAL)
 		skb->csum_start += off;
-	
+	/* {transport,network,mac}_header and tail are relative to skb->head */
 	skb->transport_header += off;
 	skb->network_header   += off;
 	if (skb_mac_header_was_set(skb))
@@ -764,6 +969,22 @@ static inline int skb_alloc_rx_flag(const struct sk_buff *skb)
 	return 0;
 }
 
+/**
+ *	skb_copy	-	create private copy of an sk_buff
+ *	@skb: buffer to copy
+ *	@gfp_mask: allocation priority
+ *
+ *	Make a copy of both an &sk_buff and its data. This is used when the
+ *	caller wishes to modify the data and needs a private copy of the
+ *	data to alter. Returns %NULL on failure or the pointer to the buffer
+ *	on success. The returned buffer has a reference count of 1.
+ *
+ *	As by-product this function converts non-linear &sk_buff to linear
+ *	one, so that &sk_buff becomes completely private and caller is allowed
+ *	to modify all the data of returned buffer. This means that this
+ *	function is not recommended for use in circumstances when only
+ *	header is going to be modified. Use pskb_copy() instead.
+ */
 
 struct sk_buff *skb_copy(const struct sk_buff *skb, gfp_t gfp_mask)
 {
@@ -775,9 +996,9 @@ struct sk_buff *skb_copy(const struct sk_buff *skb, gfp_t gfp_mask)
 	if (!n)
 		return NULL;
 
-	
+	/* Set the data pointer */
 	skb_reserve(n, headerlen);
-	
+	/* Set the tail pointer and length */
 	skb_put(n, skb->len);
 
 	if (skb_copy_bits(skb, -headerlen, n->head, headerlen + skb->len))
@@ -788,6 +1009,22 @@ struct sk_buff *skb_copy(const struct sk_buff *skb, gfp_t gfp_mask)
 }
 EXPORT_SYMBOL(skb_copy);
 
+/**
+ *	__pskb_copy_fclone	-  create copy of an sk_buff with private head.
+ *	@skb: buffer to copy
+ *	@headroom: headroom of new skb
+ *	@gfp_mask: allocation priority
+ *	@fclone: if true allocate the copy of the skb from the fclone
+ *	cache instead of the head cache; it is recommended to set this
+ *	to true for the cases where the copy will likely be cloned
+ *
+ *	Make a copy of both an &sk_buff and part of its data, located
+ *	in header. Fragmented data remain shared. This is used when
+ *	the caller wishes to modify only header of &sk_buff and needs
+ *	private copy of the header to alter. Returns %NULL on failure
+ *	or the pointer to the buffer on success.
+ *	The returned buffer has a reference count of 1.
+ */
 
 struct sk_buff *__pskb_copy_fclone(struct sk_buff *skb, int headroom,
 				   gfp_t gfp_mask, bool fclone)
@@ -799,11 +1036,11 @@ struct sk_buff *__pskb_copy_fclone(struct sk_buff *skb, int headroom,
 	if (!n)
 		goto out;
 
-	
+	/* Set the data pointer */
 	skb_reserve(n, headroom);
-	
+	/* Set the tail pointer and length */
 	skb_put(n, skb_headlen(skb));
-	
+	/* Copy the bytes */
 	skb_copy_from_linear_data(skb, n->data, n->len);
 
 	n->truesize += skb->data_len;
@@ -836,6 +1073,21 @@ out:
 }
 EXPORT_SYMBOL(__pskb_copy_fclone);
 
+/**
+ *	pskb_expand_head - reallocate header of &sk_buff
+ *	@skb: buffer to reallocate
+ *	@nhead: room to add at head
+ *	@ntail: room to add at tail
+ *	@gfp_mask: allocation priority
+ *
+ *	Expands (or creates identical copy, if @nhead and @ntail are zero)
+ *	header of @skb. &sk_buff itself is not changed. &sk_buff MUST have
+ *	reference count of 1. Returns zero in the case of success or error,
+ *	if expansion failed. In the last case, &sk_buff is not changed.
+ *
+ *	All the pointers pointing into skb header may change and must be
+ *	reloaded after call to this function.
+ */
 
 int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 		     gfp_t gfp_mask)
@@ -860,14 +1112,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 		goto nodata;
 	size = SKB_WITH_OVERHEAD(ksize(data));
 
+	/* Copy only real data... and, alas, header. This should be
+	 * optimized for the cases when header is void.
+	 */
 	memcpy(data + nhead, skb->head, skb_tail_pointer(skb) - skb->head);
 
 	memcpy((struct skb_shared_info *)(data + size),
 	       skb_shinfo(skb),
 	       offsetof(struct skb_shared_info, frags[skb_shinfo(skb)->nr_frags]));
 
+	/*
+	 * if shinfo is shared we must drop the old head gracefully, but if it
+	 * is not we can just drop the old head and let the existing refcount
+	 * be since all we did is relocate the values
+	 */
 	if (skb_cloned(skb)) {
-		
+		/* copy this zero copy skb frags */
 		if (skb_orphan_frags(skb, gfp_mask))
 			goto nofrags;
 		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
@@ -906,6 +1166,7 @@ nodata:
 }
 EXPORT_SYMBOL(pskb_expand_head);
 
+/* Make private copy of skb with writable head and some headroom */
 
 struct sk_buff *skb_realloc_headroom(struct sk_buff *skb, unsigned int headroom)
 {
@@ -926,10 +1187,31 @@ struct sk_buff *skb_realloc_headroom(struct sk_buff *skb, unsigned int headroom)
 }
 EXPORT_SYMBOL(skb_realloc_headroom);
 
+/**
+ *	skb_copy_expand	-	copy and expand sk_buff
+ *	@skb: buffer to copy
+ *	@newheadroom: new free bytes at head
+ *	@newtailroom: new free bytes at tail
+ *	@gfp_mask: allocation priority
+ *
+ *	Make a copy of both an &sk_buff and its data and while doing so
+ *	allocate additional space.
+ *
+ *	This is used when the caller wishes to modify the data and needs a
+ *	private copy of the data to alter as well as more space for new fields.
+ *	Returns %NULL on failure or the pointer to the buffer
+ *	on success. The returned buffer has a reference count of 1.
+ *
+ *	You must pass %GFP_ATOMIC as the allocation priority if this function
+ *	is called from an interrupt.
+ */
 struct sk_buff *skb_copy_expand(const struct sk_buff *skb,
 				int newheadroom, int newtailroom,
 				gfp_t gfp_mask)
 {
+	/*
+	 *	Allocate the copy buffer
+	 */
 	struct sk_buff *n = __alloc_skb(newheadroom + skb->len + newtailroom,
 					gfp_mask, skb_alloc_rx_flag(skb),
 					NUMA_NO_NODE);
@@ -941,7 +1223,7 @@ struct sk_buff *skb_copy_expand(const struct sk_buff *skb,
 
 	skb_reserve(n, newheadroom);
 
-	
+	/* Set the tail pointer and length */
 	skb_put(n, skb->len);
 
 	head_copy_len = oldheadroom;
@@ -951,7 +1233,7 @@ struct sk_buff *skb_copy_expand(const struct sk_buff *skb,
 	else
 		head_copy_off = newheadroom - head_copy_len;
 
-	
+	/* Copy the linear header and data. */
 	if (skb_copy_bits(skb, -head_copy_len, n->head + head_copy_off,
 			  skb->len + head_copy_len))
 		BUG();
@@ -964,13 +1246,24 @@ struct sk_buff *skb_copy_expand(const struct sk_buff *skb,
 }
 EXPORT_SYMBOL(skb_copy_expand);
 
+/**
+ *	skb_pad			-	zero pad the tail of an skb
+ *	@skb: buffer to pad
+ *	@pad: space to pad
+ *
+ *	Ensure that a buffer is followed by a padding area that is zero
+ *	filled. Used by network drivers which may DMA or transfer data
+ *	beyond the buffer end onto the wire.
+ *
+ *	May return error in out of memory cases. The skb is freed on error.
+ */
 
 int skb_pad(struct sk_buff *skb, int pad)
 {
 	int err;
 	int ntail;
 
-	
+	/* If the skbuff is non linear tailroom is always zero.. */
 	if (!skb_cloned(skb) && skb_tailroom(skb) >= pad) {
 		memset(skb->data+skb->len, 0, pad);
 		return 0;
@@ -983,6 +1276,9 @@ int skb_pad(struct sk_buff *skb, int pad)
 			goto free_skb;
 	}
 
+	/* FIXME: The use of this function with non-linear skb's really needs
+	 * to be audited.
+	 */
 	err = skb_linearize(skb);
 	if (unlikely(err))
 		goto free_skb;
@@ -996,6 +1292,18 @@ free_skb:
 }
 EXPORT_SYMBOL(skb_pad);
 
+/**
+ *	pskb_put - add data to the tail of a potentially fragmented buffer
+ *	@skb: start of the buffer to use
+ *	@tail: tail fragment of the buffer to use
+ *	@len: amount of data to add
+ *
+ *	This function extends the used data area of the potentially
+ *	fragmented buffer. @tail must be the last fragment of @skb -- or
+ *	@skb itself. If this would exceed the total buffer size the kernel
+ *	will panic. A pointer to the first byte of the extra data is
+ *	returned.
+ */
 
 unsigned char *pskb_put(struct sk_buff *skb, struct sk_buff *tail, int len)
 {
@@ -1007,6 +1315,15 @@ unsigned char *pskb_put(struct sk_buff *skb, struct sk_buff *tail, int len)
 }
 EXPORT_SYMBOL_GPL(pskb_put);
 
+/**
+ *	skb_put - add data to a buffer
+ *	@skb: buffer to use
+ *	@len: amount of data to add
+ *
+ *	This function extends the used data area of the buffer. If this would
+ *	exceed the total buffer size the kernel will panic. A pointer to the
+ *	first byte of the extra data is returned.
+ */
 unsigned char *skb_put(struct sk_buff *skb, unsigned int len)
 {
 	unsigned char *tmp = skb_tail_pointer(skb);
@@ -1019,6 +1336,15 @@ unsigned char *skb_put(struct sk_buff *skb, unsigned int len)
 }
 EXPORT_SYMBOL(skb_put);
 
+/**
+ *	skb_push - add data to the start of a buffer
+ *	@skb: buffer to use
+ *	@len: amount of data to add
+ *
+ *	This function extends the used data area of the buffer at the buffer
+ *	start. If this would exceed the total buffer headroom the kernel will
+ *	panic. A pointer to the first byte of the extra data is returned.
+ */
 unsigned char *skb_push(struct sk_buff *skb, unsigned int len)
 {
 	skb->data -= len;
@@ -1029,12 +1355,31 @@ unsigned char *skb_push(struct sk_buff *skb, unsigned int len)
 }
 EXPORT_SYMBOL(skb_push);
 
+/**
+ *	skb_pull - remove data from the start of a buffer
+ *	@skb: buffer to use
+ *	@len: amount of data to remove
+ *
+ *	This function removes data from the start of a buffer, returning
+ *	the memory to the headroom. A pointer to the next data in the buffer
+ *	is returned. Once the data has been pulled future pushes will overwrite
+ *	the old data.
+ */
 unsigned char *skb_pull(struct sk_buff *skb, unsigned int len)
 {
 	return skb_pull_inline(skb, len);
 }
 EXPORT_SYMBOL(skb_pull);
 
+/**
+ *	skb_trim - remove end from a buffer
+ *	@skb: buffer to alter
+ *	@len: new length
+ *
+ *	Cut the length of a buffer down by removing data from the tail. If
+ *	the buffer is already under the length specified it is not modified.
+ *	The skb must be linear.
+ */
 void skb_trim(struct sk_buff *skb, unsigned int len)
 {
 	if (skb->len > len)
@@ -1042,6 +1387,8 @@ void skb_trim(struct sk_buff *skb, unsigned int len)
 }
 EXPORT_SYMBOL(skb_trim);
 
+/* Trims skb to length len. It can change skb pointers.
+ */
 
 int ___pskb_trim(struct sk_buff *skb, unsigned int len)
 {
@@ -1126,9 +1473,37 @@ done:
 }
 EXPORT_SYMBOL(___pskb_trim);
 
+/**
+ *	__pskb_pull_tail - advance tail of skb header
+ *	@skb: buffer to reallocate
+ *	@delta: number of bytes to advance tail
+ *
+ *	The function makes a sense only on a fragmented &sk_buff,
+ *	it expands header moving its tail forward and copying necessary
+ *	data from fragmented part.
+ *
+ *	&sk_buff MUST have reference count of 1.
+ *
+ *	Returns %NULL (and &sk_buff does not change) if pull failed
+ *	or value of new tail of skb in the case of success.
+ *
+ *	All the pointers pointing into skb header may change and must be
+ *	reloaded after call to this function.
+ */
 
+/* Moves tail of skb head forward, copying data from fragmented part,
+ * when it is necessary.
+ * 1. It may fail due to malloc failure.
+ * 2. It may change skb pointers.
+ *
+ * It is pretty complicated. Luckily, it is called only in exceptional cases.
+ */
 unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
 {
+	/* If skb has not enough free space at tail, get new one
+	 * plus 128 bytes for future expansions. If we have enough
+	 * room at tail, reallocate without expansion only if skb is cloned.
+	 */
 	int i, k, eat = (skb->tail + delta) - skb->end;
 
 	if (eat > 0 || skb_cloned(skb)) {
@@ -1140,10 +1515,13 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
 	if (skb_copy_bits(skb, skb_headlen(skb), skb_tail_pointer(skb), delta))
 		BUG();
 
+	/* Optimization: no fragments, no reasons to preestimate
+	 * size of pulled pages. Superb.
+	 */
 	if (!skb_has_frag_list(skb))
 		goto pull_pages;
 
-	
+	/* Estimate size of pulled pages. */
 	eat = delta;
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
 		int size = skb_frag_size(&skb_shinfo(skb)->frags[i]);
@@ -1153,6 +1531,13 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
 		eat -= size;
 	}
 
+	/* If we need update frag list, we are in troubles.
+	 * Certainly, it possible to add an offset to skb data,
+	 * but taking into account that pulling is expected to
+	 * be very rare operation, it is worth to fight against
+	 * further bloating skb head and crucify ourselves here instead.
+	 * Pure masohism, indeed. 8)8)
+	 */
 	if (eat) {
 		struct sk_buff *list = skb_shinfo(skb)->frag_list;
 		struct sk_buff *clone = NULL;
@@ -1162,21 +1547,23 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
 			BUG_ON(!list);
 
 			if (list->len <= eat) {
-				
+				/* Eaten as whole. */
 				eat -= list->len;
 				list = list->next;
 				insp = list;
 			} else {
-				
+				/* Eaten partially. */
 
 				if (skb_shared(list)) {
-					
+					/* Sucks! We need to fork list. :-( */
 					clone = skb_clone(list, GFP_ATOMIC);
 					if (!clone)
 						return NULL;
 					insp = list->next;
 					list = clone;
 				} else {
+					/* This may be pulled without
+					 * problems. */
 					insp = list;
 				}
 				if (!pskb_pull(list, eat)) {
@@ -1187,18 +1574,18 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
 			}
 		} while (eat);
 
-		
+		/* Free pulled out fragments. */
 		while ((list = skb_shinfo(skb)->frag_list) != insp) {
 			skb_shinfo(skb)->frag_list = list->next;
 			kfree_skb(list);
 		}
-		
+		/* And insert new clone at head. */
 		if (clone) {
 			clone->next = list;
 			skb_shinfo(skb)->frag_list = clone;
 		}
 	}
-	
+	/* Success! Now we may commit changes to skb data. */
 
 pull_pages:
 	eat = delta;
@@ -1228,6 +1615,21 @@ pull_pages:
 }
 EXPORT_SYMBOL(__pskb_pull_tail);
 
+/**
+ *	skb_copy_bits - copy bits from skb to kernel buffer
+ *	@skb: source skb
+ *	@offset: offset in source
+ *	@to: destination buffer
+ *	@len: number of bytes to copy
+ *
+ *	Copy the specified number of bytes from the source skb to the
+ *	destination buffer.
+ *
+ *	CAUTION ! :
+ *		If its prototype is ever changed,
+ *		check arch/{*}/net/{*}.S files,
+ *		since it is called from BPF assembly code.
+ */
 int skb_copy_bits(const struct sk_buff *skb, int offset, void *to, int len)
 {
 	int start = skb_headlen(skb);
@@ -1237,7 +1639,7 @@ int skb_copy_bits(const struct sk_buff *skb, int offset, void *to, int len)
 	if (offset > (int)skb->len - len)
 		goto fault;
 
-	
+	/* Copy header. */
 	if ((copy = start - offset) > 0) {
 		if (copy > len)
 			copy = len;
@@ -1302,6 +1704,10 @@ fault:
 }
 EXPORT_SYMBOL(skb_copy_bits);
 
+/*
+ * Callback from splice_to_pipe(), if we need to release some pages
+ * at the end of the spd in case we error'ed out in filling the pipe.
+ */
 static void sock_spd_release(struct splice_pipe_desc *spd, unsigned int i)
 {
 	put_page(spd->pages[i]);
@@ -1336,6 +1742,9 @@ static bool spd_can_coalesce(const struct splice_pipe_desc *spd,
 		 spd->partial[spd->nr_pages - 1].len == offset);
 }
 
+/*
+ * Fill page/offset/length into spd, if it can hold more pages.
+ */
 static bool spd_fill_page(struct splice_pipe_desc *spd,
 			  struct pipe_inode_info *pipe, struct page *page,
 			  unsigned int *len, unsigned int offset,
@@ -1373,13 +1782,13 @@ static bool __splice_segment(struct page *page, unsigned int poff,
 	if (!*len)
 		return true;
 
-	
+	/* skip this segment if already processed */
 	if (*off >= plen) {
 		*off -= plen;
 		return false;
 	}
 
-	
+	/* ignore any bits we already processed */
 	poff += *off;
 	plen -= *off;
 	*off = 0;
@@ -1398,12 +1807,21 @@ static bool __splice_segment(struct page *page, unsigned int poff,
 	return false;
 }
 
+/*
+ * Map linear and fragment data from the skb to spd. It reports true if the
+ * pipe is full or if we already spliced the requested length.
+ */
 static bool __skb_splice_bits(struct sk_buff *skb, struct pipe_inode_info *pipe,
 			      unsigned int *offset, unsigned int *len,
 			      struct splice_pipe_desc *spd, struct sock *sk)
 {
 	int seg;
 
+	/* map the linear part :
+	 * If skb->head_frag is set, this 'linear' part is backed by a
+	 * fragment, and if the head is not shared with any clones then
+	 * we can avoid a copy since we own the head portion of this page.
+	 */
 	if (__splice_segment(virt_to_page(skb->data),
 			     (unsigned long) skb->data & (PAGE_SIZE - 1),
 			     skb_headlen(skb),
@@ -1412,6 +1830,9 @@ static bool __skb_splice_bits(struct sk_buff *skb, struct pipe_inode_info *pipe,
 			     sk, pipe))
 		return true;
 
+	/*
+	 * then map the fragments
+	 */
 	for (seg = 0; seg < skb_shinfo(skb)->nr_frags; seg++) {
 		const skb_frag_t *f = &skb_shinfo(skb)->frags[seg];
 
@@ -1424,6 +1845,12 @@ static bool __skb_splice_bits(struct sk_buff *skb, struct pipe_inode_info *pipe,
 	return false;
 }
 
+/*
+ * Map data from the skb to a pipe. Should handle both the linear part,
+ * the fragments, and the frag list. It does NOT handle frag lists within
+ * the frag list, if such a thing exists. We'd probably need to recurse to
+ * handle that cleanly.
+ */
 int skb_splice_bits(struct sk_buff *skb, unsigned int offset,
 		    struct pipe_inode_info *pipe, unsigned int tlen,
 		    unsigned int flags)
@@ -1442,11 +1869,18 @@ int skb_splice_bits(struct sk_buff *skb, unsigned int offset,
 	struct sock *sk = skb->sk;
 	int ret = 0;
 
+	/*
+	 * __skb_splice_bits() only fails if the output has no room left,
+	 * so no point in going over the frag_list for the error case.
+	 */
 	if (__skb_splice_bits(skb, pipe, &offset, &tlen, &spd, sk))
 		goto done;
 	else if (!tlen)
 		goto done;
 
+	/*
+	 * now see if we have a frag_list to map
+	 */
 	skb_walk_frags(skb, frag_iter) {
 		if (!tlen)
 			break;
@@ -1456,6 +1890,15 @@ int skb_splice_bits(struct sk_buff *skb, unsigned int offset,
 
 done:
 	if (spd.nr_pages) {
+		/*
+		 * Drop the socket lock, otherwise we have reverse
+		 * locking dependencies between sk_lock and i_mutex
+		 * here as compared to sendfile(). We enter here
+		 * with the socket lock held, and splice_to_pipe() will
+		 * grab the pipe inode lock. For sendfile() emulation,
+		 * we call into ->sendpage() with the i_mutex lock held
+		 * and networking will grab the socket lock.
+		 */
 		release_sock(sk);
 		ret = splice_to_pipe(pipe, &spd);
 		lock_sock(sk);
@@ -1464,6 +1907,17 @@ done:
 	return ret;
 }
 
+/**
+ *	skb_store_bits - store bits from kernel buffer to skb
+ *	@skb: destination buffer
+ *	@offset: offset in destination
+ *	@from: source buffer
+ *	@len: number of bytes to copy
+ *
+ *	Copy the specified number of bytes from the source buffer to the
+ *	destination skb.  This function handles all the messy bits of
+ *	traversing fragment lists and such.
+ */
 
 int skb_store_bits(struct sk_buff *skb, int offset, const void *from, int len)
 {
@@ -1537,6 +1991,7 @@ fault:
 }
 EXPORT_SYMBOL(skb_store_bits);
 
+/* Checksum skb data. */
 __wsum __skb_checksum(const struct sk_buff *skb, int offset, int len,
 		      __wsum csum, const struct skb_checksum_ops *ops)
 {
@@ -1545,7 +2000,7 @@ __wsum __skb_checksum(const struct sk_buff *skb, int offset, int len,
 	struct sk_buff *frag_iter;
 	int pos = 0;
 
-	
+	/* Checksum header. */
 	if (copy > 0) {
 		if (copy > len)
 			copy = len;
@@ -1620,6 +2075,7 @@ __wsum skb_checksum(const struct sk_buff *skb, int offset,
 }
 EXPORT_SYMBOL(skb_checksum);
 
+/* Both of above in one bottle. */
 
 __wsum skb_copy_and_csum_bits(const struct sk_buff *skb, int offset,
 				    u8 *to, int len, __wsum csum)
@@ -1629,7 +2085,7 @@ __wsum skb_copy_and_csum_bits(const struct sk_buff *skb, int offset,
 	struct sk_buff *frag_iter;
 	int pos = 0;
 
-	
+	/* Copy header. */
 	if (copy > 0) {
 		if (copy > len)
 			copy = len;
@@ -1698,6 +2154,13 @@ __wsum skb_copy_and_csum_bits(const struct sk_buff *skb, int offset,
 }
 EXPORT_SYMBOL(skb_copy_and_csum_bits);
 
+ /**
+ *	skb_zerocopy_headlen - Calculate headroom needed for skb_zerocopy()
+ *	@from: source buffer
+ *
+ *	Calculates the amount of linear headroom needed in the 'to' skb passed
+ *	into skb_zerocopy().
+ */
 unsigned int
 skb_zerocopy_headlen(const struct sk_buff *from)
 {
@@ -1715,18 +2178,36 @@ skb_zerocopy_headlen(const struct sk_buff *from)
 }
 EXPORT_SYMBOL_GPL(skb_zerocopy_headlen);
 
+/**
+ *	skb_zerocopy - Zero copy skb to skb
+ *	@to: destination buffer
+ *	@from: source buffer
+ *	@len: number of bytes to copy from source buffer
+ *	@hlen: size of linear headroom in destination buffer
+ *
+ *	Copies up to `len` bytes from `from` to `to` by creating references
+ *	to the frags in the source buffer.
+ *
+ *	The `hlen` as calculated by skb_zerocopy_headlen() specifies the
+ *	headroom in the `to` buffer.
+ *
+ *	Return value:
+ *	0: everything is OK
+ *	-ENOMEM: couldn't orphan frags of @from due to lack of memory
+ *	-EFAULT: skb_copy_bits() found some problem with skb geometry
+ */
 int
 skb_zerocopy(struct sk_buff *to, struct sk_buff *from, int len, int hlen)
 {
 	int i, j = 0;
-	int plen = 0; 
+	int plen = 0; /* length of skb->head fragment */
 	int ret;
 	struct page *page;
 	unsigned int offset;
 
 	BUG_ON(!from->head_frag && !hlen);
 
-	
+	/* dont bother with small payloads */
 	if (len <= skb_tailroom(to))
 		return skb_copy_bits(from, 0, skb_put(to, len), len);
 
@@ -1798,6 +2279,14 @@ void skb_copy_and_csum_dev(const struct sk_buff *skb, u8 *to)
 }
 EXPORT_SYMBOL(skb_copy_and_csum_dev);
 
+/**
+ *	skb_dequeue - remove from the head of the queue
+ *	@list: list to dequeue from
+ *
+ *	Remove the head of the list. The list lock is taken so the function
+ *	may be used safely with other locking list functions. The head item is
+ *	returned or %NULL if the list is empty.
+ */
 
 struct sk_buff *skb_dequeue(struct sk_buff_head *list)
 {
@@ -1811,6 +2300,14 @@ struct sk_buff *skb_dequeue(struct sk_buff_head *list)
 }
 EXPORT_SYMBOL(skb_dequeue);
 
+/**
+ *	skb_dequeue_tail - remove from the tail of the queue
+ *	@list: list to dequeue from
+ *
+ *	Remove the tail of the list. The list lock is taken so the function
+ *	may be used safely with other locking list functions. The tail item is
+ *	returned or %NULL if the list is empty.
+ */
 struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list)
 {
 	unsigned long flags;
@@ -1823,6 +2320,14 @@ struct sk_buff *skb_dequeue_tail(struct sk_buff_head *list)
 }
 EXPORT_SYMBOL(skb_dequeue_tail);
 
+/**
+ *	skb_queue_purge - empty a list
+ *	@list: list to empty
+ *
+ *	Delete all buffers on an &sk_buff list. Each buffer is removed from
+ *	the list and one reference dropped. This function takes the list
+ *	lock and is atomic with respect to other list locking functions.
+ */
 void skb_queue_purge(struct sk_buff_head *list)
 {
 	struct sk_buff *skb;
@@ -1831,6 +2336,17 @@ void skb_queue_purge(struct sk_buff_head *list)
 }
 EXPORT_SYMBOL(skb_queue_purge);
 
+/**
+ *	skb_queue_head - queue a buffer at the list head
+ *	@list: list to use
+ *	@newsk: buffer to queue
+ *
+ *	Queue a buffer at the start of the list. This function takes the
+ *	list lock and can be used safely with other locking &sk_buff functions
+ *	safely.
+ *
+ *	A buffer cannot be placed on two lists at the same time.
+ */
 void skb_queue_head(struct sk_buff_head *list, struct sk_buff *newsk)
 {
 	unsigned long flags;
@@ -1841,6 +2357,17 @@ void skb_queue_head(struct sk_buff_head *list, struct sk_buff *newsk)
 }
 EXPORT_SYMBOL(skb_queue_head);
 
+/**
+ *	skb_queue_tail - queue a buffer at the list tail
+ *	@list: list to use
+ *	@newsk: buffer to queue
+ *
+ *	Queue a buffer at the tail of the list. This function takes the
+ *	list lock and can be used safely with other locking &sk_buff functions
+ *	safely.
+ *
+ *	A buffer cannot be placed on two lists at the same time.
+ */
 void skb_queue_tail(struct sk_buff_head *list, struct sk_buff *newsk)
 {
 	unsigned long flags;
@@ -1851,6 +2378,16 @@ void skb_queue_tail(struct sk_buff_head *list, struct sk_buff *newsk)
 }
 EXPORT_SYMBOL(skb_queue_tail);
 
+/**
+ *	skb_unlink	-	remove a buffer from a list
+ *	@skb: buffer to remove
+ *	@list: list to use
+ *
+ *	Remove a packet from a list. The list locks are taken and this
+ *	function is atomic with respect to other list locked calls
+ *
+ *	You must know what list the SKB is on.
+ */
 void skb_unlink(struct sk_buff *skb, struct sk_buff_head *list)
 {
 	unsigned long flags;
@@ -1861,6 +2398,16 @@ void skb_unlink(struct sk_buff *skb, struct sk_buff_head *list)
 }
 EXPORT_SYMBOL(skb_unlink);
 
+/**
+ *	skb_append	-	append a buffer
+ *	@old: buffer to insert after
+ *	@newsk: buffer to insert
+ *	@list: list to use
+ *
+ *	Place a packet after a given packet in a list. The list locks are taken
+ *	and this function is atomic with respect to other list locked calls.
+ *	A buffer cannot be placed on two lists at the same time.
+ */
 void skb_append(struct sk_buff *old, struct sk_buff *newsk, struct sk_buff_head *list)
 {
 	unsigned long flags;
@@ -1871,6 +2418,18 @@ void skb_append(struct sk_buff *old, struct sk_buff *newsk, struct sk_buff_head 
 }
 EXPORT_SYMBOL(skb_append);
 
+/**
+ *	skb_insert	-	insert a buffer
+ *	@old: buffer to insert before
+ *	@newsk: buffer to insert
+ *	@list: list to use
+ *
+ *	Place a packet before a given packet in a list. The list locks are
+ * 	taken and this function is atomic with respect to other list locked
+ *	calls.
+ *
+ *	A buffer cannot be placed on two lists at the same time.
+ */
 void skb_insert(struct sk_buff *old, struct sk_buff *newsk, struct sk_buff_head *list)
 {
 	unsigned long flags;
@@ -1889,7 +2448,7 @@ static inline void skb_split_inside_header(struct sk_buff *skb,
 
 	skb_copy_from_linear_data_offset(skb, len, skb_put(skb1, pos - len),
 					 pos - len);
-	
+	/* And move data appendix as is. */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
 		skb_shinfo(skb1)->frags[i] = skb_shinfo(skb)->frags[i];
 
@@ -1921,6 +2480,14 @@ static inline void skb_split_no_header(struct sk_buff *skb,
 			skb_shinfo(skb1)->frags[k] = skb_shinfo(skb)->frags[i];
 
 			if (pos < len) {
+				/* Split frag.
+				 * We have two variants in this case:
+				 * 1. Move all the frag to the second
+				 *    part, if it is possible. F.e.
+				 *    this approach is mandatory for TUX,
+				 *    where splitting is expensive.
+				 * 2. Split is accurately. We make this.
+				 */
 				skb_frag_ref(skb, i);
 				skb_shinfo(skb1)->frags[0].page_offset += len - pos;
 				skb_frag_size_sub(&skb_shinfo(skb1)->frags[0], len - pos);
@@ -1935,36 +2502,67 @@ static inline void skb_split_no_header(struct sk_buff *skb,
 	skb_shinfo(skb1)->nr_frags = k;
 }
 
+/**
+ * skb_split - Split fragmented skb to two parts at length len.
+ * @skb: the buffer to split
+ * @skb1: the buffer to receive the second part
+ * @len: new length for skb
+ */
 void skb_split(struct sk_buff *skb, struct sk_buff *skb1, const u32 len)
 {
 	int pos = skb_headlen(skb);
 
 	skb_shinfo(skb1)->tx_flags = skb_shinfo(skb)->tx_flags & SKBTX_SHARED_FRAG;
-	if (len < pos)	
+	if (len < pos)	/* Split line is inside header. */
 		skb_split_inside_header(skb, skb1, len, pos);
-	else		
+	else		/* Second chunk has no header, nothing to copy. */
 		skb_split_no_header(skb, skb1, len, pos);
 }
 EXPORT_SYMBOL(skb_split);
 
+/* Shifting from/to a cloned skb is a no-go.
+ *
+ * Caller cannot keep skb_shinfo related pointers past calling here!
+ */
 static int skb_prepare_for_shift(struct sk_buff *skb)
 {
 	return skb_cloned(skb) && pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
 }
 
+/**
+ * skb_shift - Shifts paged data partially from skb to another
+ * @tgt: buffer into which tail data gets added
+ * @skb: buffer from which the paged data comes from
+ * @shiftlen: shift up to this many bytes
+ *
+ * Attempts to shift up to shiftlen worth of bytes, which may be less than
+ * the length of the skb, from skb to tgt. Returns number bytes shifted.
+ * It's up to caller to free skb if everything was shifted.
+ *
+ * If @tgt runs out of frags, the whole operation is aborted.
+ *
+ * Skb cannot include anything else but paged data while tgt is allowed
+ * to have non-paged data as well.
+ *
+ * TODO: full sized shift could be optimized but that would need
+ * specialized skb free'er to handle frags without up-to-date nr_frags.
+ */
 int skb_shift(struct sk_buff *tgt, struct sk_buff *skb, int shiftlen)
 {
 	int from, to, merge, todo;
 	struct skb_frag_struct *fragfrom, *fragto;
 
 	BUG_ON(shiftlen > skb->len);
-	BUG_ON(skb_headlen(skb));	
+	BUG_ON(skb_headlen(skb));	/* Would corrupt stream */
 
 	todo = shiftlen;
 	from = 0;
 	to = skb_shinfo(tgt)->nr_frags;
 	fragfrom = &skb_shinfo(skb)->frags[from];
 
+	/* Actual merge is delayed until the point when we know we can
+	 * commit all, so that we don't have to undo partial changes
+	 */
 	if (!to ||
 	    !skb_can_coalesce(tgt, to, skb_frag_page(fragfrom),
 			      fragfrom->page_offset)) {
@@ -1978,7 +2576,7 @@ int skb_shift(struct sk_buff *tgt, struct sk_buff *skb, int shiftlen)
 			    skb_prepare_for_shift(tgt))
 				return 0;
 
-			
+			/* All previous frag pointers might be stale! */
 			fragfrom = &skb_shinfo(skb)->frags[from];
 			fragto = &skb_shinfo(tgt)->frags[merge];
 
@@ -1992,7 +2590,7 @@ int skb_shift(struct sk_buff *tgt, struct sk_buff *skb, int shiftlen)
 		from++;
 	}
 
-	
+	/* Skip full, not-fitting skb to avoid expensive operations */
 	if ((shiftlen == skb->len) &&
 	    (skb_shinfo(skb)->nr_frags - from) > (MAX_SKB_FRAGS - to))
 		return 0;
@@ -2028,7 +2626,7 @@ int skb_shift(struct sk_buff *tgt, struct sk_buff *skb, int shiftlen)
 		}
 	}
 
-	
+	/* Ready to "commit" this state change to tgt */
 	skb_shinfo(tgt)->nr_frags = to;
 
 	if (merge >= 0) {
@@ -2039,7 +2637,7 @@ int skb_shift(struct sk_buff *tgt, struct sk_buff *skb, int shiftlen)
 		__skb_frag_unref(fragfrom);
 	}
 
-	
+	/* Reposition in the original skb */
 	to = 0;
 	while (from < skb_shinfo(skb)->nr_frags)
 		skb_shinfo(skb)->frags[to++] = skb_shinfo(skb)->frags[from++];
@@ -2048,10 +2646,13 @@ int skb_shift(struct sk_buff *tgt, struct sk_buff *skb, int shiftlen)
 	BUG_ON(todo > 0 && !skb_shinfo(skb)->nr_frags);
 
 onlymerged:
+	/* Most likely the tgt won't ever need its checksum anymore, skb on
+	 * the other hand might need it if it needs to be resent
+	 */
 	tgt->ip_summed = CHECKSUM_PARTIAL;
 	skb->ip_summed = CHECKSUM_PARTIAL;
 
-	
+	/* Yak, is it really working this way? Some helper please? */
 	skb->len -= shiftlen;
 	skb->data_len -= shiftlen;
 	skb->truesize -= shiftlen;
@@ -2063,6 +2664,16 @@ onlymerged:
 	return shiftlen;
 }
 
+/**
+ * skb_prepare_seq_read - Prepare a sequential read of skb data
+ * @skb: the buffer to read
+ * @from: lower offset of data to be read
+ * @to: upper offset of data to be read
+ * @st: state variable
+ *
+ * Initializes the specified state variable. Must be called before
+ * invoking skb_seq_read() for the first time.
+ */
 void skb_prepare_seq_read(struct sk_buff *skb, unsigned int from,
 			  unsigned int to, struct skb_seq_state *st)
 {
@@ -2074,6 +2685,31 @@ void skb_prepare_seq_read(struct sk_buff *skb, unsigned int from,
 }
 EXPORT_SYMBOL(skb_prepare_seq_read);
 
+/**
+ * skb_seq_read - Sequentially read skb data
+ * @consumed: number of bytes consumed by the caller so far
+ * @data: destination pointer for data to be returned
+ * @st: state variable
+ *
+ * Reads a block of skb data at @consumed relative to the
+ * lower offset specified to skb_prepare_seq_read(). Assigns
+ * the head of the data block to @data and returns the length
+ * of the block or 0 if the end of the skb data or the upper
+ * offset has been reached.
+ *
+ * The caller is not required to consume all of the data
+ * returned, i.e. @consumed is typically set to the number
+ * of bytes already consumed and the next call to
+ * skb_seq_read() will return the remaining part of the block.
+ *
+ * Note 1: The size of each block of data returned can be arbitrary,
+ *       this limitation is the cost for zerocopy sequential
+ *       reads of potentially non linear data.
+ *
+ * Note 2: Fragment lists within fragments are not implemented
+ *       at the moment, state->root_skb could be replaced with
+ *       a stack for this purpose.
+ */
 unsigned int skb_seq_read(unsigned int consumed, const u8 **data,
 			  struct skb_seq_state *st)
 {
@@ -2141,6 +2777,13 @@ next_skb:
 }
 EXPORT_SYMBOL(skb_seq_read);
 
+/**
+ * skb_abort_seq_read - Abort a sequential read of skb data
+ * @st: state variable
+ *
+ * Must be called if skb_seq_read() was not called until it
+ * returned 0.
+ */
 void skb_abort_seq_read(struct skb_seq_state *st)
 {
 	if (st->frag_data)
@@ -2162,6 +2805,19 @@ static void skb_ts_finish(struct ts_config *conf, struct ts_state *state)
 	skb_abort_seq_read(TS_SKB_CB(state));
 }
 
+/**
+ * skb_find_text - Find a text pattern in skb data
+ * @skb: the buffer to look in
+ * @from: search offset
+ * @to: search limit
+ * @config: textsearch configuration
+ * @state: uninitialized textsearch state variable
+ *
+ * Finds a pattern in the skb data according to the specified
+ * textsearch configuration. Use textsearch_next() to retrieve
+ * subsequent occurrences of the pattern. Returns the offset
+ * to the first occurrence or UINT_MAX if no match was found.
+ */
 unsigned int skb_find_text(struct sk_buff *skb, unsigned int from,
 			   unsigned int to, struct ts_config *config,
 			   struct ts_state *state)
@@ -2178,6 +2834,17 @@ unsigned int skb_find_text(struct sk_buff *skb, unsigned int from,
 }
 EXPORT_SYMBOL(skb_find_text);
 
+/**
+ * skb_append_datato_frags - append the user data to a skb
+ * @sk: sock  structure
+ * @skb: skb structure to be appended with user data.
+ * @getfrag: call back function to be used for getting the user data
+ * @from: pointer to user message iov
+ * @length: length of the iov message
+ *
+ * Description: This procedure append the user data in the fragment part
+ * of the skb if any page alloc fails user this procedure returns  -ENOMEM
+ */
 int skb_append_datato_frags(struct sock *sk, struct sk_buff *skb,
 			int (*getfrag)(void *from, char *to, int offset,
 					int len, int odd, struct sk_buff *skb),
@@ -2190,14 +2857,14 @@ int skb_append_datato_frags(struct sock *sk, struct sk_buff *skb,
 	struct page_frag *pfrag = &current->task_frag;
 
 	do {
-		
+		/* Return error if we don't have space for new frag */
 		if (frg_cnt >= MAX_SKB_FRAGS)
 			return -EMSGSIZE;
 
 		if (!sk_page_frag_refill(sk, pfrag))
 			return -ENOMEM;
 
-		
+		/* copy the user data to page */
 		copy = min_t(int, length, pfrag->size - pfrag->offset);
 
 		ret = getfrag(from, page_address(pfrag->page) + pfrag->offset,
@@ -2205,7 +2872,7 @@ int skb_append_datato_frags(struct sock *sk, struct sk_buff *skb,
 		if (ret < 0)
 			return -EFAULT;
 
-		
+		/* copy was successful so update the size parameters */
 		skb_fill_page_desc(skb, frg_cnt, pfrag->page, pfrag->offset,
 				   copy);
 		frg_cnt++;
@@ -2225,6 +2892,17 @@ int skb_append_datato_frags(struct sock *sk, struct sk_buff *skb,
 }
 EXPORT_SYMBOL(skb_append_datato_frags);
 
+/**
+ *	skb_pull_rcsum - pull skb and update receive checksum
+ *	@skb: buffer to update
+ *	@len: length of data pulled
+ *
+ *	This function performs an skb_pull on the packet and updates
+ *	the CHECKSUM_COMPLETE checksum.  It should be used on
+ *	receive path processing instead of skb_pull unless you know
+ *	that the checksum difference is zero (e.g., a valid IP header)
+ *	or you are setting ip_summed to CHECKSUM_NONE.
+ */
 unsigned char *skb_pull_rcsum(struct sk_buff *skb, unsigned int len)
 {
 	unsigned char *data = skb->data;
@@ -2236,6 +2914,15 @@ unsigned char *skb_pull_rcsum(struct sk_buff *skb, unsigned int len)
 }
 EXPORT_SYMBOL_GPL(skb_pull_rcsum);
 
+/**
+ *	skb_segment - Perform protocol segmentation on skb.
+ *	@head_skb: buffer to segment
+ *	@features: features for the output path (see dev->features)
+ *
+ *	This function performs segmentation on the given skb.  It returns
+ *	a pointer to the first in a list of new skbs for the segments.
+ *	In case of error it returns ERR_PTR(err).
+ */
 struct sk_buff *skb_segment(struct sk_buff *head_skb,
 			    netdev_features_t features)
 {
@@ -2439,6 +3126,10 @@ perform_csum_check:
 		}
 	} while ((offset += len) < head_skb->len);
 
+	/* Some callers want to get the end of the list.
+	 * Put it in segs->prev to avoid walking the list.
+	 * (see validate_xmit_skb_list() for example)
+	 */
 	segs->prev = tail;
 	return segs;
 
@@ -2486,7 +3177,7 @@ int skb_gro_receive(struct sk_buff **head, struct sk_buff *skb)
 		frag->page_offset += offset;
 		skb_frag_size_sub(frag, offset);
 
-		
+		/* all fragments truesize : remove (head size + sk_buff) */
 		delta_truesize = skb->truesize -
 				 SKB_TRUESIZE(skb_end_offset(skb));
 
@@ -2517,13 +3208,13 @@ int skb_gro_receive(struct sk_buff **head, struct sk_buff *skb)
 		skb_frag_size_set(frag, first_size);
 
 		memcpy(frag + 1, skbinfo->frags, sizeof(*frag) * skbinfo->nr_frags);
-		
+		/* We dont need to clear skbinfo->nr_frags here */
 
 		delta_truesize = skb->truesize - SKB_DATA_ALIGN(sizeof(struct sk_buff));
 		NAPI_GRO_CB(skb)->free = NAPI_GRO_FREE_STOLEN_HEAD;
 		goto done;
 	}
-	
+	/* switch back to head shinfo */
 	pinfo = skb_shinfo(p);
 
 	if (pinfo->frag_list)
@@ -2616,6 +3307,16 @@ void __init skb_init(void)
 						NULL);
 }
 
+/**
+ *	skb_to_sgvec - Fill a scatter-gather list from a socket buffer
+ *	@skb: Socket buffer containing the buffers to be mapped
+ *	@sg: The scatter-gather list to map into
+ *	@offset: The offset into the buffer's contents to start mapping
+ *	@len: Length of buffer space to be mapped
+ *
+ *	Fill the specified scatter-gather list with mappings/pointers into a
+ *	region of the buffer space attached to a socket buffer.
+ */
 static int
 __skb_to_sgvec(struct sk_buff *skb, struct scatterlist *sg, int offset, int len)
 {
@@ -2676,6 +3377,25 @@ __skb_to_sgvec(struct sk_buff *skb, struct scatterlist *sg, int offset, int len)
 	return elt;
 }
 
+/* As compared with skb_to_sgvec, skb_to_sgvec_nomark only map skb to given
+ * sglist without mark the sg which contain last skb data as the end.
+ * So the caller can mannipulate sg list as will when padding new data after
+ * the first call without calling sg_unmark_end to expend sg list.
+ *
+ * Scenario to use skb_to_sgvec_nomark:
+ * 1. sg_init_table
+ * 2. skb_to_sgvec_nomark(payload1)
+ * 3. skb_to_sgvec_nomark(payload2)
+ *
+ * This is equivalent to:
+ * 1. sg_init_table
+ * 2. skb_to_sgvec(payload1)
+ * 3. sg_unmark_end
+ * 4. skb_to_sgvec(payload2)
+ *
+ * When mapping mutilple payload conditionally, skb_to_sgvec_nomark
+ * is more preferable.
+ */
 int skb_to_sgvec_nomark(struct sk_buff *skb, struct scatterlist *sg,
 			int offset, int len)
 {
@@ -2693,29 +3413,54 @@ int skb_to_sgvec(struct sk_buff *skb, struct scatterlist *sg, int offset, int le
 }
 EXPORT_SYMBOL_GPL(skb_to_sgvec);
 
+/**
+ *	skb_cow_data - Check that a socket buffer's data buffers are writable
+ *	@skb: The socket buffer to check.
+ *	@tailbits: Amount of trailing space to be added
+ *	@trailer: Returned pointer to the skb where the @tailbits space begins
+ *
+ *	Make sure that the data buffers attached to a socket buffer are
+ *	writable. If they are not, private copies are made of the data buffers
+ *	and the socket buffer is set to use these instead.
+ *
+ *	If @tailbits is given, make sure that there is space to write @tailbits
+ *	bytes of data beyond current end of socket buffer.  @trailer will be
+ *	set to point to the skb in which this space begins.
+ *
+ *	The number of scatterlist elements required to completely map the
+ *	COW'd and extended socket buffer will be returned.
+ */
 int skb_cow_data(struct sk_buff *skb, int tailbits, struct sk_buff **trailer)
 {
 	int copyflag;
 	int elt;
 	struct sk_buff *skb1, **skb_p;
 
+	/* If skb is cloned or its head is paged, reallocate
+	 * head pulling out all the pages (pages are considered not writable
+	 * at the moment even if they are anonymous).
+	 */
 	if ((skb_cloned(skb) || skb_shinfo(skb)->nr_frags) &&
 	    __pskb_pull_tail(skb, skb_pagelen(skb)-skb_headlen(skb)) == NULL)
 		return -ENOMEM;
 
-	
+	/* Easy case. Most of packets will go this way. */
 	if (!skb_has_frag_list(skb)) {
+		/* A little of trouble, not enough of space for trailer.
+		 * This should not happen, when stack is tuned to generate
+		 * good frames. OK, on miss we reallocate and reserve even more
+		 * space, 128 bytes is fair. */
 
 		if (skb_tailroom(skb) < tailbits &&
 		    pskb_expand_head(skb, 0, tailbits-skb_tailroom(skb)+128, GFP_ATOMIC))
 			return -ENOMEM;
 
-		
+		/* Voila! */
 		*trailer = skb;
 		return 1;
 	}
 
-	
+	/* Misery. We are in troubles, going to mincer fragments... */
 
 	elt = 1;
 	skb_p = &skb_shinfo(skb)->frag_list;
@@ -2724,11 +3469,14 @@ int skb_cow_data(struct sk_buff *skb, int tailbits, struct sk_buff **trailer)
 	while ((skb1 = *skb_p) != NULL) {
 		int ntail = 0;
 
+		/* The fragment is partially pulled by someone,
+		 * this can happen on input. Copy it and everything
+		 * after it. */
 
 		if (skb_shared(skb1))
 			copyflag = 1;
 
-		
+		/* If the skb is the last, worry about trailer. */
 
 		if (skb1->next == NULL && tailbits) {
 			if (skb_shinfo(skb1)->nr_frags ||
@@ -2744,7 +3492,7 @@ int skb_cow_data(struct sk_buff *skb, int tailbits, struct sk_buff **trailer)
 		    skb_has_frag_list(skb1)) {
 			struct sk_buff *skb2;
 
-			
+			/* Fuck, we are miserable poor guys... */
 			if (ntail == 0)
 				skb2 = skb_copy(skb1, GFP_ATOMIC);
 			else
@@ -2758,6 +3506,8 @@ int skb_cow_data(struct sk_buff *skb, int tailbits, struct sk_buff **trailer)
 			if (skb1->sk)
 				skb_set_owner_w(skb2, skb1->sk);
 
+			/* Looking around. Are we still alive?
+			 * OK, link new skb, drop old one */
 
 			skb2->next = skb1->next;
 			*skb_p = skb2;
@@ -2781,6 +3531,9 @@ static void sock_rmem_free(struct sk_buff *skb)
     BUG_ON(skb->truesize == 0x6B6B6B6A);
 }
 
+/*
+ * Note: We dont mem charge error packets (no sk_forward_alloc changes)
+ */
 int sock_queue_err_skb(struct sock *sk, struct sk_buff *skb)
 {
 	if (atomic_read(&sk->sk_rmem_alloc) + skb->truesize >=
@@ -2792,7 +3545,7 @@ int sock_queue_err_skb(struct sock *sk, struct sk_buff *skb)
 	skb->destructor = sock_rmem_free;
 	atomic_add(skb->truesize, &sk->sk_rmem_alloc);
 
-	
+	/* before exiting rcu section, make sure dst is refcounted */
 	skb_dst_force(skb);
 
 	skb_queue_tail(&sk->sk_error_queue, skb);
@@ -2823,6 +3576,19 @@ struct sk_buff *sock_dequeue_err_skb(struct sock *sk)
 }
 EXPORT_SYMBOL(sock_dequeue_err_skb);
 
+/**
+ * skb_clone_sk - create clone of skb, and take reference to socket
+ * @skb: the skb to clone
+ *
+ * This function creates a clone of a buffer that holds a reference on
+ * sk_refcnt.  Buffers created via this function are meant to be
+ * returned using sock_queue_err_skb, or free via kfree_skb.
+ *
+ * When passing buffers allocated with this function to sock_queue_err_skb
+ * it is necessary to wrap the call with sock_hold/sock_put in order to
+ * prevent the socket from being released prior to being enqueued on
+ * the sk_error_queue.
+ */
 struct sk_buff *skb_clone_sk(struct sk_buff *skb)
 {
 	struct sock *sk = skb->sk;
@@ -2874,7 +3640,7 @@ void skb_complete_tx_timestamp(struct sk_buff *skb,
 {
 	struct sock *sk = skb->sk;
 
-	
+	/* take a reference to prevent skb_orphan() from freeing the socket */
 	sock_hold(sk);
 
 	*skb_hwtstamps(skb) = *hwtstamps;
@@ -2928,7 +3694,7 @@ void skb_complete_wifi_ack(struct sk_buff *skb, bool acked)
 	serr->ee.ee_errno = ENOMSG;
 	serr->ee.ee_origin = SO_EE_ORIGIN_TXSTATUS;
 
-	
+	/* take a reference to prevent skb_orphan() from freeing the socket */
 	sock_hold(sk);
 
 	err = sock_queue_err_skb(sk, skb);
@@ -2940,6 +3706,18 @@ void skb_complete_wifi_ack(struct sk_buff *skb, bool acked)
 EXPORT_SYMBOL_GPL(skb_complete_wifi_ack);
 
 
+/**
+ * skb_partial_csum_set - set up and verify partial csum values for packet
+ * @skb: the skb to set
+ * @start: the number of bytes after skb->data to start checksumming.
+ * @off: the offset from start to place the checksum.
+ *
+ * For untrusted partially-checksummed packets, we need to make sure the values
+ * for skb->csum_start and skb->csum_offset are valid so we don't oops.
+ *
+ * This function checks and sets those values and skb->ip_summed: if this
+ * returns false you should drop the packet.
+ */
 bool skb_partial_csum_set(struct sk_buff *skb, u16 start, u16 off)
 {
 	if (unlikely(start > skb_headlen(skb)) ||
@@ -2962,6 +3740,9 @@ static int skb_maybe_pull_tail(struct sk_buff *skb, unsigned int len,
 	if (skb_headlen(skb) >= len)
 		return 0;
 
+	/* If we need to pullup then pullup to the max, so we
+	 * won't need to do it again.
+	 */
 	if (max > skb->len)
 		max = skb->len;
 
@@ -3005,6 +3786,9 @@ static __sum16 *skb_checksum_setup_ip(struct sk_buff *skb,
 	return ERR_PTR(-EPROTO);
 }
 
+/* This value should be large enough to cover a tagged ethernet header plus
+ * maximally sized IP and TCP or UDP headers.
+ */
 #define MAX_IP_HDR_LEN 128
 
 static int skb_checksum_setup_ipv4(struct sk_buff *skb, bool recalculate)
@@ -3047,6 +3831,9 @@ out:
 	return err;
 }
 
+/* This value should be large enough to cover a tagged ethernet header plus
+ * an IPv6 header, all options, and a maximal TCP or UDP header.
+ */
 #define MAX_IPV6_HDR_LEN 256
 
 #define OPT_HDR(type, skb, off) \
@@ -3152,6 +3939,11 @@ out:
 	return err;
 }
 
+/**
+ * skb_checksum_setup - set up partial checksum offset
+ * @skb: the skb to set up
+ * @recalculate: if true the pseudo-header checksum will be recalculated
+ */
 int skb_checksum_setup(struct sk_buff *skb, bool recalculate)
 {
 	int err;
@@ -3192,6 +3984,13 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
 }
 EXPORT_SYMBOL(kfree_skb_partial);
 
+/**
+ * skb_try_coalesce - try to merge skb to prior one
+ * @to: prior buffer
+ * @from: buffer to add
+ * @fragstolen: pointer to boolean
+ * @delta_truesize: how much more was allocated than was requested
+ */
 bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
 		      bool *fragstolen, int *delta_truesize)
 {
@@ -3249,6 +4048,9 @@ bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
 	if (!skb_cloned(from))
 		skb_shinfo(from)->nr_frags = 0;
 
+	/* if the skb is not cloned this does nothing
+	 * since we set nr_frags to 0.
+	 */
 	for (i = 0; i < skb_shinfo(from)->nr_frags; i++)
 		skb_frag_ref(from, i);
 
@@ -3261,6 +4063,19 @@ bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
 }
 EXPORT_SYMBOL(skb_try_coalesce);
 
+/**
+ * skb_scrub_packet - scrub an skb
+ *
+ * @skb: buffer to clean
+ * @xnet: packet is crossing netns
+ *
+ * skb_scrub_packet can be used after encapsulating or decapsulting a packet
+ * into/from a tunnel. Some information have to be cleared during these
+ * operations.
+ * skb_scrub_packet can also be used to clean a skb before injecting it in
+ * another namespace (@xnet == true). We have to clear all information in the
+ * skb that could impact namespace isolation.
+ */
 void skb_scrub_packet(struct sk_buff *skb, bool xnet)
 {
 	skb->tstamp.tv64 = 0;
@@ -3280,6 +4095,16 @@ void skb_scrub_packet(struct sk_buff *skb, bool xnet)
 }
 EXPORT_SYMBOL_GPL(skb_scrub_packet);
 
+/**
+ * skb_gso_transport_seglen - Return length of individual segments of a gso packet
+ *
+ * @skb: GSO skb
+ *
+ * skb_gso_transport_seglen is used to determine the real size of the
+ * individual segments, including Layer4 headers (TCP/UDP).
+ *
+ * The MAC/L2 or network (IP, IPv6) headers are not accounted for.
+ */
 unsigned int skb_gso_transport_seglen(const struct sk_buff *skb)
 {
 	const struct skb_shared_info *shinfo = skb_shinfo(skb);
@@ -3294,6 +4119,10 @@ unsigned int skb_gso_transport_seglen(const struct sk_buff *skb)
 	} else if (likely(shinfo->gso_type & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6))) {
 		thlen = tcp_hdrlen(skb);
 	}
+	/* UFO sets gso_size to the size of the fragmentation
+	 * payload, i.e. the size of the L4 (UDP) header is already
+	 * accounted for.
+	 */
 	return thlen + shinfo->gso_size;
 }
 EXPORT_SYMBOL_GPL(skb_gso_transport_seglen);
@@ -3317,7 +4146,7 @@ struct sk_buff *skb_vlan_untag(struct sk_buff *skb)
 	u16 vlan_tci;
 
 	if (unlikely(vlan_tx_tag_present(skb))) {
-		
+		/* vlan_tci is already set-up so leave this for another time */
 		return skb;
 	}
 
@@ -3351,6 +4180,17 @@ err_free:
 }
 EXPORT_SYMBOL(skb_vlan_untag);
 
+/**
+ * alloc_skb_with_frags - allocate skb with page frags
+ *
+ * @header_len: size of linear part
+ * @data_len: needed length in frags
+ * @max_page_order: max page order desired.
+ * @errcode: pointer to error code if any
+ * @gfp_mask: allocation mask
+ *
+ * This can be used to allocate a paged skb, given a maximal order for frags.
+ */
 struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 				     unsigned long data_len,
 				     int max_page_order,
@@ -3365,6 +4205,9 @@ struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 	int i;
 
 	*errcode = -EMSGSIZE;
+	/* Note this test could be relaxed, if we succeed to allocate
+	 * high order pages...
+	 */
 	if (npages > MAX_SKB_FRAGS)
 		return NULL;
 
@@ -3391,7 +4234,7 @@ struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 						   order);
 				if (page)
 					goto fill_page;
-				
+				/* Do not retry other high order allocations */
 				order = 1;
 				max_page_order = 0;
 			}

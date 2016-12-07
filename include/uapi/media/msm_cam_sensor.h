@@ -34,14 +34,14 @@
 #define MAX_NUMBER_OF_STEPS 47
 #define MAX_REGULATOR 5
 
-#define MSM_V4L2_PIX_FMT_META v4l2_fourcc('M', 'E', 'T', 'A') 
-#define MSM_V4L2_PIX_FMT_META10 v4l2_fourcc('M', 'E', '1', '0') 
+#define MSM_V4L2_PIX_FMT_META v4l2_fourcc('M', 'E', 'T', 'A') /* META */
+#define MSM_V4L2_PIX_FMT_META10 v4l2_fourcc('M', 'E', '1', '0') /* META10 */
 #define MSM_V4L2_PIX_FMT_SBGGR14 v4l2_fourcc('B', 'G', '1', '4')
-	
+	/* 14  BGBG.. GRGR.. */
 #define MSM_V4L2_PIX_FMT_SGBRG14 v4l2_fourcc('G', 'B', '1', '4')
-	
+	/* 14  GBGB.. RGRG.. */
 #define MSM_V4L2_PIX_FMT_SGRBG14 v4l2_fourcc('B', 'A', '1', '4')
-	
+	/* 14  GRGR.. BGBG.. */
 #define MSM_V4L2_PIX_FMT_SRGGB14 v4l2_fourcc('R', 'G', '1', '4')
 	
 
@@ -630,6 +630,7 @@ struct msm_flash_cfg_data_t {
 	} cfg;
 };
 
+/* sensor init structures and enums */
 enum msm_sensor_init_cfg_type_t {
 	CFG_SINIT_PROBE,
 	CFG_SINIT_PROBE_DONE,

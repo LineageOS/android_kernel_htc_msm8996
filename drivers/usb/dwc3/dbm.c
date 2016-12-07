@@ -20,6 +20,10 @@
 
 #include "dbm.h"
 
+/**
+*  USB DBM Hardware registers.
+*
+*/
 enum dbm_reg {
 	DBM_EP_CFG,
 	DBM_DATA_FIFO,
@@ -113,6 +117,16 @@ static const struct dbm_reg_data dbm_1_5_regtable[] = {
 
 static LIST_HEAD(dbm_list);
 
+/**
+ * Write register masked field with debug info.
+ *
+ * @dbm - DBM specific data
+ * @reg - DBM register, used to look up the offset value
+ * @ep - endpoint number
+ * @mask - register bitmask.
+ * @val - value to write.
+ *
+ */
 static inline void msm_dbm_write_ep_reg_field(struct dbm *dbm,
 					      enum dbm_reg reg, int ep,
 					      const u32 mask, u32 val)
@@ -130,6 +144,16 @@ static inline void msm_dbm_write_ep_reg_field(struct dbm *dbm,
 #define msm_dbm_write_reg_field(d, r, m, v) \
 	msm_dbm_write_ep_reg_field(d, r, 0, m, v)
 
+/**
+ *
+ * Read register with debug info.
+ *
+ * @dbm - DBM specific data
+ * @reg - DBM register, used to look up the offset value
+ * @ep - endpoint number
+ *
+ * @return u32
+ */
 static inline u32 msm_dbm_read_ep_reg(struct dbm *dbm, enum dbm_reg reg, int ep)
 {
 	u32 offset = dbm->reg_table[reg].offset +
@@ -139,6 +163,15 @@ static inline u32 msm_dbm_read_ep_reg(struct dbm *dbm, enum dbm_reg reg, int ep)
 
 #define msm_dbm_read_reg(d, r) msm_dbm_read_ep_reg(d, r, 0)
 
+/**
+ *
+ * Write register with debug info.
+ *
+ * @dbm - DBM specific data
+ * @reg - DBM register, used to look up the offset value
+ * @ep - endpoint number
+ *
+ */
 static inline void msm_dbm_write_ep_reg(struct dbm *dbm, enum dbm_reg reg,
 					int ep, u32 val)
 {
@@ -149,6 +182,10 @@ static inline void msm_dbm_write_ep_reg(struct dbm *dbm, enum dbm_reg reg,
 
 #define msm_dbm_write_reg(d, r, v) msm_dbm_write_ep_reg(d, r, 0, v)
 
+/**
+ * Return DBM EP number according to usb endpoint number.
+ *
+ */
 static int find_matching_dbm_ep(struct dbm *dbm, u8 usb_ep)
 {
 	int i;
@@ -158,10 +195,14 @@ static int find_matching_dbm_ep(struct dbm *dbm, u8 usb_ep)
 			return i;
 
 	pr_debug("%s: No DBM EP matches USB EP %d", __func__, usb_ep);
-	return -ENODEV; 
+	return -ENODEV; /* Not found */
 }
 
 
+/**
+ * Reset the DBM registers upon initialization.
+ *
+ */
 int dbm_soft_reset(struct dbm *dbm, bool reset)
 {
 	if (!dbm) {
@@ -176,6 +217,16 @@ int dbm_soft_reset(struct dbm *dbm, bool reset)
 	return 0;
 }
 
+/**
+ * Soft reset specific DBM ep.
+ * This function is called by the function driver upon events
+ * such as transfer aborting, USB re-enumeration and USB
+ * disconnection.
+ *
+ * @dbm_ep - DBM ep number.
+ * @enter_reset - should we enter a reset state or get out of it.
+ *
+ */
 static int ep_soft_reset(struct dbm *dbm, u8 dbm_ep, bool enter_reset)
 {
 	pr_debug("Setting DBM ep %d reset to %d\n", dbm_ep, enter_reset);
@@ -197,6 +248,19 @@ static int ep_soft_reset(struct dbm *dbm, u8 dbm_ep, bool enter_reset)
 }
 
 
+/**
+ * Soft reset specific DBM ep (by USB EP number).
+ * This function is called by the function driver upon events
+ * such as transfer aborting, USB re-enumeration and USB
+ * disconnection.
+ *
+ * The function relies on ep_soft_reset() for checking
+ * the legality of the resulting DBM ep number.
+ *
+ * @usb_ep - USB ep number.
+ * @enter_reset - should we enter a reset state or get out of it.
+ *
+ */
 int dbm_ep_soft_reset(struct dbm *dbm, u8 usb_ep, bool enter_reset)
 {
 	int dbm_ep;
@@ -212,6 +276,18 @@ int dbm_ep_soft_reset(struct dbm *dbm, u8 usb_ep, bool enter_reset)
 	return ep_soft_reset(dbm, dbm_ep, enter_reset);
 }
 
+/**
+ * Configure a USB DBM ep to work in BAM mode.
+ *
+ *
+ * @usb_ep - USB physical EP number.
+ * @producer - producer/consumer.
+ * @disable_wb - disable write back to system memory.
+ * @internal_mem - use internal USB memory for data fifo.
+ * @ioc - enable interrupt on completion.
+ *
+ * @return int - DBM ep number.
+ */
 int dbm_ep_config(struct dbm *dbm, u8 usb_ep, u8 bam_pipe, bool producer,
 		  bool disable_wb, bool internal_mem, bool ioc)
 {
@@ -233,13 +309,13 @@ int dbm_ep_config(struct dbm *dbm, u8 usb_ep, u8 bam_pipe, bool producer,
 		return -ENODEV;
 	}
 
-	
+	/* Due to HW issue, EP 7 can be set as IN EP only */
 	if (!dbm->is_1p4 && dbm_ep == 7 && producer) {
 		pr_err("last DBM EP can't be OUT EP\n");
 		return -ENODEV;
 	}
 
-	
+	/* Set ioc bit for dbm_ep if needed */
 	msm_dbm_write_reg_field(dbm, DBM_DBG_CNFG,
 		DBM_ENABLE_IOC_MASK & 1 << dbm_ep, ioc ? 1 : 0);
 
@@ -268,6 +344,9 @@ int dbm_ep_config(struct dbm *dbm, u8 usb_ep, u8 bam_pipe, bool producer,
 	return dbm_ep;
 }
 
+/**
+ * Return number of configured DBM endpoints.
+ */
 int dbm_get_num_of_eps_configured(struct dbm *dbm)
 {
 	int i;
@@ -285,6 +364,12 @@ int dbm_get_num_of_eps_configured(struct dbm *dbm)
 	return count;
 }
 
+/**
+ * Configure a USB DBM ep to work in normal mode.
+ *
+ * @usb_ep - USB ep number.
+ *
+ */
 int dbm_ep_unconfig(struct dbm *dbm, u8 usb_ep)
 {
 	int dbm_ep;
@@ -310,9 +395,21 @@ int dbm_ep_unconfig(struct dbm *dbm, u8 usb_ep)
 	data &= (~0x1);
 	msm_dbm_write_ep_reg(dbm, DBM_EP_CFG, dbm_ep, data);
 
+	/*
+	 * ep_soft_reset is not required during disconnect as pipe reset on
+	 * next connect will take care of the same.
+	 */
 	return 0;
 }
 
+/**
+ * Configure the DBM with the USB3 core event buffer.
+ * This function is called by the SNPS UDC upon initialization.
+ *
+ * @addr - address of the event buffer.
+ * @size - size of the event buffer.
+ *
+ */
 int dbm_event_buffer_config(struct dbm *dbm, u32 addr_lo, u32 addr_hi, int size)
 {
 	if (!dbm) {
@@ -327,7 +424,7 @@ int dbm_event_buffer_config(struct dbm *dbm, u32 addr_lo, u32 addr_hi, int size)
 		return -EINVAL;
 	}
 
-	
+	/* In case event buffer is already configured, Do nothing. */
 	if (msm_dbm_read_reg(dbm, DBM_GEVNTSIZ))
 		return 0;
 
@@ -343,6 +440,12 @@ int dbm_event_buffer_config(struct dbm *dbm, u32 addr_lo, u32 addr_hi, int size)
 	return 0;
 }
 
+/**
+ * Disable update xfer before queueing stop xfer command to USB3 core.
+ *
+ * @usb_ep - USB physical EP number.
+ *
+ */
 int dwc3_dbm_disable_update_xfer(struct dbm *dbm, u8 usb_ep)
 {
 	u32 data;
@@ -411,7 +514,7 @@ void dbm_enable(struct dbm *dbm)
 		return;
 	}
 
-	if (dbm->is_1p4) 
+	if (dbm->is_1p4) /* no-op */
 		return;
 
 	msm_dbm_write_reg(dbm, DBM_DATA_FIFO_ADDR_EN, 0x000000FF);

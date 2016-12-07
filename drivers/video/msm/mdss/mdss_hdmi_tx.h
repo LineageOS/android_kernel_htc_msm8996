@@ -36,6 +36,7 @@ enum hdmi_tx_power_module_type {
 	HDMI_TX_MAX_PM
 };
 
+/* Data filled from device tree */
 struct hdmi_tx_platform_data {
 	bool primary;
 	bool cont_splash_enabled;
@@ -43,7 +44,7 @@ struct hdmi_tx_platform_data {
 	struct dss_io_data io[HDMI_TX_MAX_IO];
 	struct dss_module_power power_data[HDMI_TX_MAX_PM];
 	struct reg_bus_client *reg_bus_clt[HDMI_TX_MAX_PM];
-	
+	/* bitfield representing each module's pin state */
 	u64 pin_states;
 	bool pluggable;
 };
@@ -140,4 +141,4 @@ struct hdmi_tx_ctrl {
 	int (*ds_eventctrl)(int event, int val);
 };
 
-#endif 
+#endif /* __MDSS_HDMI_TX_H__ */

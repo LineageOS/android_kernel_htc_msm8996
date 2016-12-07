@@ -45,6 +45,15 @@ static struct ecryptfs_kthread_ctl {
 
 static struct task_struct *ecryptfs_kthread;
 
+/**
+ * ecryptfs_threadfn
+ * @ignored: ignored
+ *
+ * The eCryptfs kernel thread that has the responsibility of getting
+ * the lower file with RW permissions.
+ *
+ * Returns zero on success; non-zero otherwise
+ */
 static int ecryptfs_threadfn(void *ignored)
 {
 	set_freezable();
@@ -109,6 +118,16 @@ void ecryptfs_destroy_kthread(void)
 	wake_up(&ecryptfs_kthread_ctl.wait);
 }
 
+/**
+ * ecryptfs_privileged_open
+ * @lower_file: Result of dentry_open by root on lower dentry
+ * @lower_dentry: Lower dentry for file to open
+ * @lower_mnt: Lower vfsmount for file to open
+ *
+ * This function gets a r/w file opened againt the lower dentry.
+ *
+ * Returns zero on success; non-zero otherwise
+ */
 int ecryptfs_privileged_open(struct file **lower_file,
 			     struct dentry *lower_dentry,
 			     struct vfsmount *lower_mnt,
@@ -123,6 +142,9 @@ int ecryptfs_privileged_open(struct file **lower_file,
 	req.path.dentry = lower_dentry;
 	req.path.mnt = lower_mnt;
 
+	/* Corresponding dput() and mntput() are done when the
+	 * lower file is fput() when all eCryptfs files for the inode are
+	 * released. */
 	flags |= IS_RDONLY(lower_dentry->d_inode) ? O_RDONLY : O_RDWR;
 	(*lower_file) = dentry_open(&req.path, flags, cred);
 	if (!IS_ERR(*lower_file))

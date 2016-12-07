@@ -24,14 +24,22 @@
 #include "video/msm_hdmi_hdcp_mgr.h"
 #include "mdss_hdmi_util.h"
 
-#define HDCP_SINK_DDC_SLAVE_ADDR 0x74            
-#define HDCP_SINK_DDC_HDCP2_VERSION 0x50         
-#define HDCP_SINK_DDC_HDCP2_WRITE_MESSAGE 0x60   
-#define HDCP_SINK_DDC_HDCP2_RXSTATUS 0x70        
-#define HDCP_SINK_DDC_HDCP2_READ_MESSAGE 0x80    
+/*
+ * Defined addresses and offsets of standard HDCP 2.2 sink registers
+ * for DDC, as defined in HDCP 2.2 spec section 2.14 table 2.7
+ */
+#define HDCP_SINK_DDC_SLAVE_ADDR 0x74            /* Sink DDC slave address */
+#define HDCP_SINK_DDC_HDCP2_VERSION 0x50         /* Does sink support HDCP2.2 */
+#define HDCP_SINK_DDC_HDCP2_WRITE_MESSAGE 0x60   /* HDCP Tx writes here */
+#define HDCP_SINK_DDC_HDCP2_RXSTATUS 0x70        /* RxStatus, 2 bytes */
+#define HDCP_SINK_DDC_HDCP2_READ_MESSAGE 0x80    /* HDCP Tx reads here */
 
 #define HDCP2P2_DEFAULT_TIMEOUT 500
 
+/*
+ * HDCP 2.2 encryption requires the data encryption block that is present in
+ * HDMI controller version 4.0.0 and above
+ */
 #define MIN_HDMI_TX_MAJOR_VERSION 4
 
 enum hdmi_hdcp2p2_sink_status {
@@ -47,14 +55,14 @@ enum hdmi_auth_status {
 struct hdmi_hdcp2p2_ctrl {
 	atomic_t auth_state;
 	bool tethered;
-	enum hdmi_hdcp2p2_sink_status sink_status; 
-	struct hdmi_hdcp_init_data init_data; 
-	struct mutex mutex; 
-	struct mutex msg_lock; 
-	struct mutex wakeup_mutex; 
+	enum hdmi_hdcp2p2_sink_status sink_status; /* Is sink connected */
+	struct hdmi_hdcp_init_data init_data; /* Feature data from HDMI drv */
+	struct mutex mutex; /* mutex to protect access to ctrl */
+	struct mutex msg_lock; /* mutex to protect access to msg buffer */
+	struct mutex wakeup_mutex; /* mutex to protect access to wakeup call*/
 	struct hdmi_hdcp_ops *ops;
-	void *lib_ctx; 
-	struct hdcp_txmtr_ops *lib; 
+	void *lib_ctx; /* Handle to HDCP 2.2 Trustzone library */
+	struct hdcp_txmtr_ops *lib; /* Ops for driver to call into TZ */
 
 	enum hdmi_hdcp_wakeup_cmd wakeup_cmd;
 	enum hdmi_auth_status auth_status;
@@ -298,7 +306,7 @@ static int hdmi_hdcp2p2_authenticate(void *input)
 	u32 regval;
 	int rc = 0;
 
-	
+	/* Enable authentication success interrupt */
 	regval = DSS_REG_R(ctrl->init_data.core_io, HDMI_HDCP_INT_CTRL2);
 	regval |= BIT(1) | BIT(2);
 
@@ -309,7 +317,7 @@ static int hdmi_hdcp2p2_authenticate(void *input)
 	ctrl->sink_status = SINK_CONNECTED;
 	atomic_set(&ctrl->auth_state, HDCP_STATE_AUTHENTICATING);
 
-	
+	/* make sure ddc is idle before starting hdcp 2.2 authentication */
 	hdmi_scrambler_ddc_disable(ctrl->init_data.ddc_ctrl);
 	hdmi_hdcp2p2_ddc_disable(ctrl->init_data.ddc_ctrl);
 
@@ -450,7 +458,7 @@ static void hdmi_hdcp2p2_auth_failed(struct hdmi_hdcp2p2_ctrl *ctrl)
 
 	hdmi_hdcp2p2_ddc_disable(ctrl->init_data.ddc_ctrl);
 
-	
+	/* notify hdmi tx about HDCP failure */
 	ctrl->init_data.notify_status(ctrl->init_data.cb_data,
 		HDCP_STATE_AUTH_FAIL);
 }
@@ -620,7 +628,7 @@ static void hdmi_hdcp2p2_send_msg(struct hdmi_hdcp2p2_ctrl *ctrl)
 	memcpy(msg, ctrl->send_msg_buf, msglen);
 	mutex_unlock(&ctrl->msg_lock);
 
-	
+	/* Forward the message to the sink */
 	rc = hdmi_hdcp2p2_ddc_write_message(ctrl, msg, (size_t)msglen);
 	if (rc) {
 		pr_err("Error sending msg to sink %d\n", rc);

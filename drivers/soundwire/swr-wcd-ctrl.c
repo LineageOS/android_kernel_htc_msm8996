@@ -30,11 +30,12 @@
 #include "swr-wcd-ctrl.h"
 
 #define SWR_BROADCAST_CMD_ID            0x0F
-#define SWR_AUTO_SUSPEND_DELAY          3 
+#define SWR_AUTO_SUSPEND_DELAY          3 /* delay in sec */
 #define SWR_DEV_ID_MASK			0xFFFFFFFF
 #define SWR_REG_VAL_PACK(data, dev, id, reg)	\
 			((reg) | ((id) << 16) | ((dev) << 20) | ((data) << 24))
 
+/* pm runtime auto suspend timer in msecs */
 static int auto_suspend_timer = SWR_AUTO_SUSPEND_DELAY * 1000;
 module_param(auto_suspend_timer, int,
 		S_IRUGO | S_IWUSR | S_IWGRP);
@@ -46,52 +47,52 @@ static u8 mstr_port_type[] = {SWR_DAC_PORT, SWR_COMP_PORT, SWR_BOOST_PORT,
 			      SWR_VISENSE_PORT, SWR_VISENSE_PORT};
 
 struct usecase uc[] = {
-	{0, 0, 0},		
-	{1, 1, 2400},		
-	{1, 4, 600},		
-	{1, 2, 300},		
-	{1, 2, 1200},		
-	{4, 9, 4500},		
-	{8, 18, 9000},		
-	{2, 2, 4800},		
-	{2, 5, 3000},		
-	{4, 10, 6000},		
-	{3, 7, 3300},		
-	{6, 14, 6600},		
-	{2, 3, 2700},		
-	{4, 6, 5400},		
+	{0, 0, 0},		/* UC0: no ports */
+	{1, 1, 2400},		/* UC1: Spkr */
+	{1, 4, 600},		/* UC2: Compander */
+	{1, 2, 300},		/* UC3: Smart Boost */
+	{1, 2, 1200},		/* UC4: VI Sense */
+	{4, 9, 4500},		/* UC5: Spkr + Comp + SB + VI */
+	{8, 18, 9000},		/* UC6: 2*(Spkr + Comp + SB + VI) */
+	{2, 2, 4800},		/* UC7: 2*Spkr */
+	{2, 5, 3000},		/* UC8: Spkr + Comp */
+	{4, 10, 6000},		/* UC9: 2*(Spkr + Comp) */
+	{3, 7, 3300},		/* UC10: Spkr + Comp + SB */
+	{6, 14, 6600},		/* UC11: 2*(Spkr + Comp + SB) */
+	{2, 3, 2700},		/* UC12: Spkr + SB */
+	{4, 6, 5400},		/* UC13: 2*(Spkr + SB) */
 };
 #define MAX_USECASE	ARRAY_SIZE(uc)
 
 struct port_params pp[MAX_USECASE][SWR_MSTR_PORT_LEN] = {
-	
+	/* UC 0 */
 	{
 		{0, 0, 0},
 	},
-	
+	/* UC 1 */
 	{
 		{7, 1, 0},
 	},
-	
+	/* UC 2 */
 	{
 		{31, 2, 0},
 	},
-	
+	/* UC 3 */
 	{
 		{63, 12, 31},
 	},
-	
+	/* UC 4 */
 	{
 		{15, 7, 0},
 	},
-	
+	/* UC 5 */
 	{
 		{7, 1, 0},
 		{31, 2, 0},
 		{63, 12, 31},
 		{15, 7, 0},
 	},
-	
+	/* UC 6 */
 	{
 		{7, 1, 0},
 		{31, 2, 0},
@@ -102,31 +103,31 @@ struct port_params pp[MAX_USECASE][SWR_MSTR_PORT_LEN] = {
 		{63, 13, 31},
 		{15, 10, 0},
 	},
-	
+	/* UC 7 */
 	{
 		{7, 1, 0},
 		{7, 6, 0},
 
 	},
-	
+	/* UC 8 */
 	{
 		{7, 1, 0},
 		{31, 2, 0},
 	},
-	
+	/* UC 9 */
 	{
 		{7, 1, 0},
 		{31, 2, 0},
 		{7, 6, 0},
 		{31, 18, 0},
 	},
-	
+	/* UC 10 */
 	{
 		{7, 1, 0},
 		{31, 2, 0},
 		{63, 12, 31},
 	},
-	
+	/* UC 11 */
 	{
 		{7, 1, 0},
 		{31, 2, 0},
@@ -135,12 +136,12 @@ struct port_params pp[MAX_USECASE][SWR_MSTR_PORT_LEN] = {
 		{31, 18, 0},
 		{63, 13, 31},
 	},
-	
+	/* UC 12 */
 	{
 		{7, 1, 0},
 		{63, 12, 31},
 	},
-	
+	/* UC 13 */
 	{
 		{7, 1, 0},
 		{63, 12, 31},
@@ -150,10 +151,10 @@ struct port_params pp[MAX_USECASE][SWR_MSTR_PORT_LEN] = {
 };
 
 enum {
-	SWR_NOT_PRESENT, 
-	SWR_ATTACHED_OK, 
-	SWR_ALERT,       
-	SWR_RESERVED,    
+	SWR_NOT_PRESENT, /* Device is detached/not present on the bus */
+	SWR_ATTACHED_OK, /* Device is attached */
+	SWR_ALERT,       /* Device alters master for any interrupts */
+	SWR_RESERVED,    /* Reserved */
 };
 
 #define SWRM_MAX_PORT_REG    40
@@ -281,7 +282,7 @@ static ssize_t swrm_debug_write(struct file *filp,
 
 	lbuf[cnt] = '\0';
 	if (!strcmp(access_str, "swrm_poke")) {
-		
+		/* write */
 		rc = get_parameters(lbuf, param, 2);
 		if ((param[0] <= SWR_MSTR_MAX_REG_ADDR) &&
 			(param[1] <= 0xFFFFFFFF) &&
@@ -291,7 +292,7 @@ static ssize_t swrm_debug_write(struct file *filp,
 		else
 			rc = -EINVAL;
 	} else if (!strcmp(access_str, "swrm_peek")) {
-		
+		/* read */
 		rc = get_parameters(lbuf, param, 1);
 		if ((param[0] <= SWR_MSTR_MAX_REG_ADDR) && (rc == 0))
 			read_data = dbgswrm->read(dbgswrm->handle, param[0]);
@@ -755,14 +756,25 @@ static void swrm_slvdev_datapath_control(struct swr_master *master,
 		__func__, enable, swrm->num_cfg_devs);
 
 	if (enable) {
-		
+		/* set Row = 48 and col = 16 */
 		n_col = SWR_MAX_COL;
 	} else {
+		/*
+		 * Do not change to 48x2 if number of channels configured
+		 * as stereo and if disable datapath is called for the
+		 * first slave device
+		 */
 		if (swrm->num_cfg_devs > 0)
 			n_col = SWR_MAX_COL;
 		else
 			n_col = SWR_MIN_COL;
 
+		/*
+		 * All ports are already disabled, no need to perform
+		 * bank-switch and copy operation. This case can arise
+		 * when speaker channels are enabled in stereo mode with
+		 * BROADCAST and disabled in GROUP_NONE
+		 */
 		if (master->num_port == 0)
 			return;
 	}
@@ -1246,7 +1258,7 @@ static int swrm_master_init(struct swr_mstr_ctrl *swrm)
 	u32 value[SWRM_MAX_INIT_REG];
 	int len = 0;
 
-	
+	/* Clear Rows and Cols */
 	val = ((row_ctrl << SWRM_MCP_FRAME_CTRL_BANK_ROW_CTRL_SHFT) |
 		(col_ctrl << SWRM_MCP_FRAME_CTRL_BANK_COL_CTRL_SHFT) |
 		(ssp_period << SWRM_MCP_FRAME_CTRL_BANK_SSP_PERIOD_SHFT));
@@ -1254,27 +1266,27 @@ static int swrm_master_init(struct swr_mstr_ctrl *swrm)
 	reg[len] = SWRM_MCP_FRAME_CTRL_BANK_ADDR(0);
 	value[len++] = val;
 
-	
+	/* Set Auto enumeration flag */
 	reg[len] = SWRM_ENUMERATOR_CFG_ADDR;
 	value[len++] = 1;
 
-	
+	/* Mask soundwire interrupts */
 	reg[len] = SWRM_INTERRUPT_MASK_ADDR;
 	value[len++] = 0x1FFFD;
 
-	
+	/* Configure No pings */
 	val = swrm->read(swrm->handle, SWRM_MCP_CFG_ADDR);
 	val &= ~SWRM_MCP_CFG_MAX_NUM_OF_CMD_NO_PINGS_BMSK;
 	val |= (0x1f << SWRM_MCP_CFG_MAX_NUM_OF_CMD_NO_PINGS_SHFT);
 	reg[len] = SWRM_MCP_CFG_ADDR;
 	value[len++] = val;
 
-	
+	/* Configure number of retries of a read/write cmd */
 	val = (retry_cmd_num << SWRM_CMD_FIFO_CFG_NUM_OF_CMD_RETRY_SHFT);
 	reg[len] = SWRM_CMD_FIFO_CFG_ADDR;
 	value[len++] = val;
 
-	
+	/* Set IRQ to PULSE */
 	reg[len] = SWRM_COMP_CFG_ADDR;
 	value[len++] = 0x02;
 
@@ -1296,7 +1308,7 @@ static int swrm_probe(struct platform_device *pdev)
 	struct swr_device *swr_dev, *safe;
 	int ret;
 
-	
+	/* Allocate soundwire master driver structure */
 	swrm = kzalloc(sizeof(struct swr_mstr_ctrl), GFP_KERNEL);
 	if (!swrm) {
 		dev_err(&pdev->dev, "%s: no memory for swr mstr controller\n",
@@ -1397,6 +1409,9 @@ static int swrm_probe(struct platform_device *pdev)
 	if (pdev->dev.of_node)
 		of_register_swr_devices(&swrm->master);
 
+	/* Add devices registered with board-info as the
+	   controller will be up now
+	 */
 	swr_master_add_boarddevices(&swrm->master);
 	mutex_lock(&swrm->mlock);
 	swrm_clk_request(swrm, true);
@@ -1409,7 +1424,7 @@ static int swrm_probe(struct platform_device *pdev)
 		goto err_mstr_fail;
 	}
 
-	
+	/* Enumerate slave devices */
 	list_for_each_entry_safe(swr_dev, safe, &swrm->master.devices,
 				 dev_list) {
 		ret = swr_startup_devices(swr_dev);
@@ -1557,7 +1572,7 @@ exit:
 	mutex_unlock(&swrm->reslock);
 	return ret;
 }
-#endif 
+#endif /* CONFIG_PM_RUNTIME */
 
 static int swrm_device_down(struct device *dev)
 {
@@ -1588,6 +1603,13 @@ static int swrm_device_down(struct device *dev)
 	return ret;
 }
 
+/**
+ * swrm_wcd_notify - parent device can notify to soundwire master through
+ * this function
+ * @pdev: pointer to platform device structure
+ * @id: command id from parent to the soundwire master
+ * @data: data from parent device to soundwire master
+ */
 int swrm_wcd_notify(struct platform_device *pdev, u32 id, void *data)
 {
 	struct swr_mstr_ctrl *swrm;
@@ -1705,12 +1727,30 @@ static int swrm_suspend(struct device *dev)
 	if (!pm_runtime_enabled(dev) || !pm_runtime_suspended(dev)) {
 		ret = swrm_runtime_suspend(dev);
 		if (!ret) {
+			/*
+			 * Synchronize runtime-pm and system-pm states:
+			 * At this point, we are already suspended. If
+			 * runtime-pm still thinks its active, then
+			 * make sure its status is in sync with HW
+			 * status. The three below calls let the
+			 * runtime-pm know that we are suspended
+			 * already without re-invoking the suspend
+			 * callback
+			 */
 			pm_runtime_disable(dev);
 			pm_runtime_set_suspended(dev);
 			pm_runtime_enable(dev);
 		}
 	}
 	if (ret == -EBUSY) {
+		/*
+		 * There is a possibility that some audio stream is active
+		 * during suspend. We dont want to return suspend failure in
+		 * that case so that display and relevant components can still
+		 * go to suspend.
+		 * If there is some other error, then it should be passed-on
+		 * to system level suspend
+		 */
 		ret = 0;
 	}
 	return ret;
@@ -1732,7 +1772,7 @@ static int swrm_resume(struct device *dev)
 	}
 	return ret;
 }
-#endif 
+#endif /* CONFIG_PM_SLEEP */
 
 static const struct dev_pm_ops swrm_dev_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(

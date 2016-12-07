@@ -38,6 +38,36 @@
 
 #define MSM8996_HMSS_FUSE_CORNERS	5
 
+/**
+ * struct cpr3_msm8996_hmss_fuses - HMSS specific fuse data for MSM8996
+ * @ro_sel:		Ring oscillator select fuse parameter value for each
+ *			fuse corner
+ * @init_voltage:	Initial (i.e. open-loop) voltage fuse parameter value
+ *			for each fuse corner (raw, not converted to a voltage)
+ * @target_quot:	CPR target quotient fuse parameter value for each fuse
+ *			corner
+ * @quot_offset:	CPR target quotient offset fuse parameter value for each
+ *			fuse corner (raw, not unpacked) used for target quotient
+ *			interpolation
+ * @speed_bin:		Application processor speed bin fuse parameter value for
+ *			the given chip
+ * @cbf_voltage_offset:	Voltage margin offset for the CBF regulator used on
+ *			MSM8996-Pro chips.
+ * @cpr_fusing_rev:	CPR fusing revision fuse parameter value
+ * @redundant_fusing:	Redundant fusing select fuse parameter value
+ * @limitation:		CPR limitation select fuse parameter value
+ * @partial_binning:	Chip partial binning fuse parameter value which defines
+ *			limitations found on a given chip
+ * @vdd_mx_ret_fuse:	Defines the logic retention voltage of VDD_MX
+ * @vdd_apcc_ret_fuse:	Defines the logic retention voltage of VDD_APCC
+ * @aging_init_quot_diff:	Initial quotient difference between CPR aging
+ *			min and max sensors measured at time of manufacturing
+ *
+ * This struct holds the values for all of the fuses read from memory.  The
+ * values for ro_sel, init_voltage, target_quot, and quot_offset come from
+ * either the primary or redundant fuse locations depending upon the value of
+ * redundant_fusing.
+ */
 struct cpr3_msm8996_hmss_fuses {
 	u64	ro_sel[MSM8996_HMSS_FUSE_CORNERS];
 	u64	init_voltage[MSM8996_HMSS_FUSE_CORNERS];
@@ -54,8 +84,17 @@ struct cpr3_msm8996_hmss_fuses {
 	u64	aging_init_quot_diff;
 };
 
+/*
+ * Fuse combos 0 -  7 map to CPR fusing revision 0 - 7 with speed bin fuse = 0.
+ * Fuse combos 8 - 15 map to CPR fusing revision 0 - 7 with speed bin fuse = 1.
+ */
 #define CPR3_MSM8996_HMSS_FUSE_COMBO_COUNT	16
 
+/*
+ * Constants which define the name of each fuse corner.  Note that no actual
+ * fuses are defined for LowSVS.  However, a mapping from corner to LowSVS
+ * is required in order to perform target quotient interpolation properly.
+ */
 enum cpr3_msm8996_hmss_fuse_corner {
 	CPR3_MSM8996_HMSS_FUSE_CORNER_MINSVS	= 0,
 	CPR3_MSM8996_HMSS_FUSE_CORNER_LOWSVS	= 1,
@@ -72,9 +111,31 @@ static const char * const cpr3_msm8996_hmss_fuse_corner_name[] = {
 	[CPR3_MSM8996_HMSS_FUSE_CORNER_TURBO]	= "TURBO",
 };
 
+/* CPR3 hardware thread IDs */
 #define MSM8996_HMSS_POWER_CLUSTER_THREAD_ID		0
 #define MSM8996_HMSS_PERFORMANCE_CLUSTER_THREAD_ID	1
 
+/*
+ * MSM8996 HMSS fuse parameter locations:
+ *
+ * Structs are organized with the following dimensions:
+ *	Outer:  0 or 1 for power or performance cluster
+ *	Middle: 0 to 3 for fuse corners from lowest to highest corner
+ *	Inner:  large enough to hold the longest set of parameter segments which
+ *		fully defines a fuse parameter, +1 (for NULL termination).
+ *		Each segment corresponds to a contiguous group of bits from a
+ *		single fuse row.  These segments are concatentated together in
+ *		order to form the full fuse parameter value.  The segments for
+ *		a given parameter may correspond to different fuse rows.
+ *
+ * Note that there are only physically 4 sets of fuse parameters which
+ * correspond to the MinSVS, SVS, NOM, and TURBO fuse corners.  However, the SVS
+ * quotient offset fuse is used to define the target quotient for the LowSVS
+ * fuse corner.  In order to utilize LowSVS, it must be treated as if it were a
+ * real fully defined fuse corner.  Thus, LowSVS fuse parameter locations are
+ * specified.  These locations duplicate the SVS values in order to simplify
+ * interpolation logic.
+ */
 static const struct cpr3_fuse_param
 msm8996_hmss_ro_sel_param[2][MSM8996_HMSS_FUSE_CORNERS][2] = {
 	[MSM8996_HMSS_POWER_CLUSTER_THREAD_ID] = {
@@ -147,6 +208,11 @@ msm8996_hmss_quot_offset_param[2][MSM8996_HMSS_FUSE_CORNERS][3] = {
 	},
 };
 
+/*
+ * This fuse is used to define if the redundant set of fuses should be used for
+ * any particular feature.  CPR is one such feature.  The redundant CPR fuses
+ * should be used if this fuse parameter has a value of 1.
+ */
 static const struct cpr3_fuse_param msm8996_redundant_fusing_param[] = {
 	{73, 61, 63},
 	{},
@@ -272,43 +338,61 @@ msm8996pro_hmss_voltage_offset_param[MSM8996_HMSS_FUSE_CORNERS][4] = {
 
 #define MSM8996PRO_SOC_ID			4
 
+/*
+ * Some initial msm8996 parts cannot be used in a meaningful way by software.
+ * Other parts can only be used when operating with CPR disabled (i.e. at the
+ * fused open-loop voltage) when no voltage interpolation is applied.  A fuse
+ * parameter is provided so that software can properly handle these limitations.
+ */
 enum msm8996_cpr_limitation {
 	MSM8996_CPR_LIMITATION_NONE = 0,
 	MSM8996_CPR_LIMITATION_UNSUPPORTED = 2,
 	MSM8996_CPR_LIMITATION_NO_CPR_OR_INTERPOLATION = 3,
 };
 
+/*
+ * Some initial msm8996 parts cannot be operated at low voltages.  A fuse
+ * parameter is provided so that software can properly handle these limitations.
+ */
 enum msm8996_cpr_partial_binning {
 	MSM8996_CPR_PARTIAL_BINNING_SVS = 11,
 	MSM8996_CPR_PARTIAL_BINNING_NOM = 12,
 };
 
+/* Additional MSM8996 specific data: */
 
+/* Open loop voltage fuse reference voltages in microvolts for MSM8996 v1/v2 */
 static const int msm8996_v1_v2_hmss_fuse_ref_volt[MSM8996_HMSS_FUSE_CORNERS] = {
 	605000,
-	745000, 
+	745000, /* Place holder entry for LowSVS */
 	745000,
 	905000,
 	1015000,
 };
 
+/* Open loop voltage fuse reference voltages in microvolts for MSM8996 v3 */
 static const int msm8996_v3_hmss_fuse_ref_volt[MSM8996_HMSS_FUSE_CORNERS] = {
 	605000,
-	745000, 
+	745000, /* Place holder entry for LowSVS */
 	745000,
 	905000,
 	1140000,
 };
 
+/*
+ * Open loop voltage fuse reference voltages in microvolts for MSM8996 v3 with
+ * speed_bin == 1 and cpr_fusing_rev >= 5.
+ */
 static const int msm8996_v3_speed_bin1_rev5_hmss_fuse_ref_volt[
 						MSM8996_HMSS_FUSE_CORNERS] = {
 	605000,
-	745000, 
+	745000, /* Place holder entry for LowSVS */
 	745000,
 	905000,
 	1040000,
 };
 
+/* Defines mapping from retention fuse values to voltages in microvolts */
 static const int msm8996_vdd_apcc_fuse_ret_volt[] = {
 	600000, 550000, 500000, 450000, 400000, 350000, 300000, 600000,
 };
@@ -336,8 +420,16 @@ static const int msm8996_vdd_mx_fuse_ret_volt[] = {
 #define MSM8996_HMSS_AGING_SENSOR_ID		11
 #define MSM8996_HMSS_AGING_BYPASS_MASK0		(GENMASK(7, 0) & ~BIT(3))
 
+/* Use scaled gate count (GCNT) for aging measurements */
 #define MSM8996_HMSS_AGING_GCNT_SCALING_FACTOR	1500
 
+/**
+ * cpr3_msm8996_hmss_use_voltage_offset_fuse() - return if this part utilizes
+ *		voltage offset fuses or not
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * Return: true if this part utilizes voltage offset fuses, else false
+ */
 static inline bool cpr3_msm8996_hmss_use_voltage_offset_fuse(
 					struct cpr3_regulator *vreg)
 {
@@ -348,6 +440,16 @@ static inline bool cpr3_msm8996_hmss_use_voltage_offset_fuse(
 	       && of_property_read_bool(vreg->of_node, "qcom,is-cbf-regulator");
 }
 
+/**
+ * cpr3_msm8996_hmss_read_fuse_data() - load HMSS specific fuse parameter values
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * This function allocates a cpr3_msm8996_hmss_fuses struct, fills it with
+ * values read out of hardware fuses, and finally copies common fuse values
+ * into the CPR3 regulator struct.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_msm8996_hmss_read_fuse_data(struct cpr3_regulator *vreg)
 {
 	void __iomem *base = vreg->thread->ctrl->fuse_base;
@@ -518,6 +620,17 @@ static int cpr3_msm8996_hmss_read_fuse_data(struct cpr3_regulator *vreg)
 	return 0;
 }
 
+/**
+ * cpr3_hmss_apply_fused_voltage_offset() - adjust the fused voltages for each
+ *		fuse corner according to voltage offset fuse values
+ * @vreg:		Pointer to the CPR3 regulator
+ * @fuse_volt:		Pointer to an array of the fused voltage values; must
+ *			have length equal to vreg->fuse_corner_count
+ *
+ * Voltage values in fuse_volt are modified in place.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_hmss_apply_fused_voltage_offset(struct cpr3_regulator *vreg,
 		int *fuse_volt)
 {
@@ -537,6 +650,13 @@ static int cpr3_hmss_apply_fused_voltage_offset(struct cpr3_regulator *vreg,
 	return 0;
 }
 
+/**
+ * cpr3_hmss_parse_corner_data() - parse HMSS corner data from device tree
+ *		properties of the CPR3 regulator's device node
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_hmss_parse_corner_data(struct cpr3_regulator *vreg)
 {
 	int rc;
@@ -550,6 +670,23 @@ static int cpr3_hmss_parse_corner_data(struct cpr3_regulator *vreg)
 	return rc;
 }
 
+/**
+ * cpr3_msm8996_hmss_calculate_open_loop_voltages() - calculate the open-loop
+ *		voltage for each corner of a CPR3 regulator
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * If open-loop voltage interpolation is allowed in both device tree and in
+ * hardware fuses, then this function calculates the open-loop voltage for a
+ * given corner using linear interpolation.  This interpolation is performed
+ * using the processor frequencies of the lower and higher Fmax corners along
+ * with their fused open-loop voltages.
+ *
+ * If open-loop voltage interpolation is not allowed, then this function uses
+ * the Fmax fused open-loop voltage for all of the corners associated with a
+ * given fuse corner.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_msm8996_hmss_calculate_open_loop_voltages(
 			struct cpr3_regulator *vreg)
 {
@@ -587,7 +724,7 @@ static int cpr3_msm8996_hmss_calculate_open_loop_voltages(
 			MSM8996_HMSS_FUSE_STEP_VOLT, fuse->init_voltage[i],
 			MSM8996_HMSS_VOLTAGE_FUSE_SIZE);
 
-		
+		/* Log fused open-loop voltage values for debugging purposes. */
 		if (i != CPR3_MSM8996_HMSS_FUSE_CORNER_LOWSVS)
 			cpr3_info(vreg, "fused %6s: open-loop=%7d uV\n",
 				cpr3_msm8996_hmss_fuse_corner_name[i],
@@ -618,6 +755,12 @@ static int cpr3_msm8996_hmss_calculate_open_loop_voltages(
 	allow_interpolation = of_property_read_bool(node,
 				"qcom,allow-voltage-interpolation");
 
+	/*
+	 * No LowSVS open-loop voltage fuse exists.  Instead, intermediate
+	 * voltages are interpolated between MinSVS and SVS.  Set the LowSVS
+	 * voltage to be equal to the adjusted SVS voltage in order to avoid
+	 * triggering an incorrect condition violation in the following loop.
+	 */
 	fuse_volt[CPR3_MSM8996_HMSS_FUSE_CORNER_LOWSVS]
 		= fuse_volt[CPR3_MSM8996_HMSS_FUSE_CORNER_SVS];
 
@@ -634,7 +777,7 @@ static int cpr3_msm8996_hmss_calculate_open_loop_voltages(
 		allow_interpolation = false;
 
 	if (!allow_interpolation) {
-		
+		/* Use fused open-loop voltage for lower frequencies. */
 		for (i = 0; i < vreg->corner_count; i++)
 			vreg->corner[i].open_loop_volt
 				= fuse_volt[vreg->corner[i].cpr_fuse_corner];
@@ -644,20 +787,33 @@ static int cpr3_msm8996_hmss_calculate_open_loop_voltages(
 	for (i = 0; i < vreg->fuse_corner_count; i++)
 		fmax_corner[i] = vreg->fuse_corner_map[i];
 
+	/*
+	 * Interpolation is not possible for corners mapped to the lowest fuse
+	 * corner so use the fuse corner value directly.
+	 */
 	for (i = 0; i <= fmax_corner[0]; i++)
 		vreg->corner[i].open_loop_volt = fuse_volt[0];
 
+	/*
+	 * Interpolation is not possible for corners mapped above the highest
+	 * fuse corner so use the fuse corner value directly.
+	 */
 	j = vreg->fuse_corner_count - 1;
 	for (i = fmax_corner[j] + 1; i < vreg->corner_count; i++)
 		vreg->corner[i].open_loop_volt = fuse_volt[j];
 
+	/*
+	 * Corner LowSVS should be skipped for voltage interpolation
+	 * since no fuse exists for it.  Instead, the lowest interpolation
+	 * should be between MinSVS and SVS.
+	 */
 	for (i = CPR3_MSM8996_HMSS_FUSE_CORNER_LOWSVS;
 	     i < vreg->fuse_corner_count - 1; i++) {
 		fmax_corner[i] = fmax_corner[i + 1];
 		fuse_volt[i] = fuse_volt[i + 1];
 	}
 
-	
+	/* Interpolate voltages for the higher fuse corners. */
 	for (i = 1; i < vreg->fuse_corner_count - 1; i++) {
 		freq_low = vreg->corner[fmax_corner[i - 1]].proc_freq;
 		volt_low = fuse_volt[i - 1];
@@ -688,6 +844,19 @@ done:
 	return rc;
 }
 
+/**
+ * cpr3_msm8996_hmss_set_no_interpolation_quotients() - use the fused target
+ *		quotient values for lower frequencies.
+ * @vreg:		Pointer to the CPR3 regulator
+ * @volt_adjust:	Pointer to array of per-corner closed-loop adjustment
+ *			voltages
+ * @volt_adjust_fuse:	Pointer to array of per-fuse-corner closed-loop
+ *			adjustment voltages
+ * @ro_scale:		Pointer to array of per-fuse-corner RO scaling factor
+ *			values with units of QUOT/V
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_msm8996_hmss_set_no_interpolation_quotients(
 			struct cpr3_regulator *vreg, int *volt_adjust,
 			int *volt_adjust_fuse, int *ro_scale)
@@ -713,6 +882,23 @@ static int cpr3_msm8996_hmss_set_no_interpolation_quotients(
 	return 0;
 }
 
+/**
+ * cpr3_msm8996_hmss_calculate_target_quotients() - calculate the CPR target
+ *		quotient for each corner of a CPR3 regulator
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * If target quotient interpolation is allowed in both device tree and in
+ * hardware fuses, then this function calculates the target quotient for a
+ * given corner using linear interpolation.  This interpolation is performed
+ * using the processor frequencies of the lower and higher Fmax corners along
+ * with the fused target quotient and quotient offset of the higher Fmax corner.
+ *
+ * If target quotient interpolation is not allowed, then this function uses
+ * the Fmax fused target quotient for all of the corners associated with a
+ * given fuse corner.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_msm8996_hmss_calculate_target_quotients(
 			struct cpr3_regulator *vreg)
 {
@@ -727,7 +913,7 @@ static int cpr3_msm8996_hmss_calculate_target_quotients(
 	int *fmax_corner;
 	int *volt_adjust, *volt_adjust_fuse, *ro_scale;
 
-	
+	/* Log fused quotient values for debugging purposes. */
 	cpr3_info(vreg, "fused MinSVS: quot[%2llu]=%4llu\n",
 		fuse->ro_sel[CPR3_MSM8996_HMSS_FUSE_CORNER_MINSVS],
 		fuse->target_quot[CPR3_MSM8996_HMSS_FUSE_CORNER_MINSVS]);
@@ -778,7 +964,7 @@ static int cpr3_msm8996_hmss_calculate_target_quotients(
 	}
 
 	if (!allow_interpolation) {
-		
+		/* Use fused target quotients for lower frequencies. */
 		return cpr3_msm8996_hmss_set_no_interpolation_quotients(vreg,
 				volt_adjust, volt_adjust_fuse, ro_scale);
 	}
@@ -786,6 +972,10 @@ static int cpr3_msm8996_hmss_calculate_target_quotients(
 	for (i = 0; i < vreg->fuse_corner_count; i++)
 		fmax_corner[i] = vreg->fuse_corner_map[i];
 
+	/*
+	 * Interpolation is not possible for corners mapped to the lowest fuse
+	 * corner so use the fuse corner value directly.
+	 */
 	i = CPR3_MSM8996_HMSS_FUSE_CORNER_MINSVS;
 	quot_adjust = cpr3_quot_adjustment(ro_scale[i], volt_adjust_fuse[i]);
 	quot = fuse->target_quot[i] + quot_adjust;
@@ -797,6 +987,10 @@ static int cpr3_msm8996_hmss_calculate_target_quotients(
 	for (i = 0; i <= fmax_corner[CPR3_MSM8996_HMSS_FUSE_CORNER_MINSVS]; i++)
 		vreg->corner[i].target_quot[ro] = quot;
 
+	/*
+	 * Interpolation is not possible for corners mapped above the highest
+	 * fuse corner so use the fuse corner value directly.
+	 */
 	j = vreg->fuse_corner_count - 1;
 	quot_adjust = cpr3_quot_adjustment(ro_scale[j], volt_adjust_fuse[j]);
 	quot = fuse->target_quot[j] + quot_adjust;
@@ -804,6 +998,12 @@ static int cpr3_msm8996_hmss_calculate_target_quotients(
 	for (i = fmax_corner[j] + 1; i < vreg->corner_count; i++)
 		vreg->corner[i].target_quot[ro] = quot;
 
+	/*
+	 * The LowSVS target quotient is defined as:
+	 *	(SVS target quotient) - (the unpacked SVS quotient offset)
+	 * MinSVS, LowSVS, and SVS fuse corners all share the same RO so it is
+	 * possible to interpolate between their target quotient values.
+	 */
 	i = CPR3_MSM8996_HMSS_FUSE_CORNER_LOWSVS;
 	quot_high[i] = fuse->target_quot[CPR3_MSM8996_HMSS_FUSE_CORNER_SVS]
 			- fuse->quot_offset[CPR3_MSM8996_HMSS_FUSE_CORNER_SVS]
@@ -839,7 +1039,7 @@ static int cpr3_msm8996_hmss_calculate_target_quotients(
 		}
 	}
 
-	
+	/* Perform per-fuse-corner target quotient adjustment */
 	for (i = 1; i < vreg->fuse_corner_count; i++) {
 		quot_adjust = cpr3_quot_adjustment(ro_scale[i],
 						   volt_adjust_fuse[i]);
@@ -865,7 +1065,7 @@ static int cpr3_msm8996_hmss_calculate_target_quotients(
 		}
 	}
 
-	
+	/* Interpolate voltages for the higher fuse corners. */
 	for (i = 1; i < vreg->fuse_corner_count; i++) {
 		freq_low = vreg->corner[fmax_corner[i - 1]].proc_freq;
 		freq_high = vreg->corner[fmax_corner[i]].proc_freq;
@@ -877,7 +1077,7 @@ static int cpr3_msm8996_hmss_calculate_target_quotients(
 				vreg->corner[j].proc_freq);
 	}
 
-	
+	/* Perform per-corner target quotient adjustment */
 	for (i = 0; i < vreg->corner_count; i++) {
 		fuse_corner = vreg->corner[i].cpr_fuse_corner;
 		ro = fuse->ro_sel[fuse_corner];
@@ -893,7 +1093,7 @@ static int cpr3_msm8996_hmss_calculate_target_quotients(
 		}
 	}
 
-	
+	/* Ensure that target quotients increase monotonically */
 	for (i = 1; i < vreg->corner_count; i++) {
 		ro = fuse->ro_sel[vreg->corner[i].cpr_fuse_corner];
 		if (fuse->ro_sel[vreg->corner[i - 1].cpr_fuse_corner] == ro
@@ -918,6 +1118,17 @@ done:
 	return rc;
 }
 
+/**
+ * cpr3_msm8996_partial_binning_override() - override the voltage and quotient
+ *		settings for low corners based upon the value of the partial
+ *		binning fuse
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * Some parts are not able to operate at low voltages.  The partial binning
+ * fuse specifies if a given part has such limitations.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_msm8996_partial_binning_override(struct cpr3_regulator *vreg)
 {
 	struct cpr3_msm8996_hmss_fuses *fuse = vreg->platform_fuses;
@@ -952,6 +1163,11 @@ static int cpr3_msm8996_partial_binning_override(struct cpr3_regulator *vreg)
 	return 0;
 }
 
+/**
+ * cpr3_hmss_print_settings() - print out HMSS CPR configuration settings into
+ *		the kernel log for debugging purposes
+ * @vreg:		Pointer to the CPR3 regulator
+ */
 static void cpr3_hmss_print_settings(struct cpr3_regulator *vreg)
 {
 	struct cpr3_corner *corner;
@@ -972,6 +1188,13 @@ static void cpr3_hmss_print_settings(struct cpr3_regulator *vreg)
 			vreg->thread->ctrl->apm_adj_volt);
 }
 
+/**
+ * cpr3_hmss_init_thread() - perform steps necessary to initialize the
+ *		configuration data for a CPR3 thread
+ * @thread:		Pointer to the CPR3 thread
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_hmss_init_thread(struct cpr3_thread *thread)
 {
 	int rc;
@@ -987,6 +1210,19 @@ static int cpr3_hmss_init_thread(struct cpr3_thread *thread)
 }
 
 #define MAX_VREG_NAME_SIZE 25
+/**
+ * cpr3_hmss_kvreg_init() - initialize HMSS Kryo Regulator data for a CPR3
+ *		regulator
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * This function loads Kryo Regulator data from device tree if it is present
+ * and requests a handle to the appropriate Kryo regulator device. In addition,
+ * it initializes Kryo Regulator data originating from hardware fuses, such as
+ * the LDO retention voltage, and requests the Kryo retention regulator to
+ * be configured to that value.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_hmss_kvreg_init(struct cpr3_regulator *vreg)
 {
 	struct cpr3_msm8996_hmss_fuses *fuse = vreg->platform_fuses;
@@ -1058,7 +1294,7 @@ static int cpr3_hmss_kvreg_init(struct cpr3_regulator *vreg)
 		return rc;
 	}
 
-	
+	/* Determine the CPU retention voltage based on fused data */
 	vreg->ldo_ret_volt =
 		max(msm8996_vdd_apcc_fuse_ret_volt[fuse->vdd_apcc_ret_fuse],
 		    msm8996_vdd_mx_fuse_ret_volt[fuse->vdd_mx_ret_fuse]);
@@ -1071,7 +1307,7 @@ static int cpr3_hmss_kvreg_init(struct cpr3_regulator *vreg)
 		return rc;
 	}
 
-	
+	/* optional properties, do not error out if missing */
 	of_property_read_u32(node, "qcom,ldo-adjust-voltage",
 			     &vreg->ldo_adjust_volt);
 
@@ -1088,6 +1324,17 @@ static int cpr3_hmss_kvreg_init(struct cpr3_regulator *vreg)
 	return 0;
 }
 
+/**
+ * cpr3_hmss_mem_acc_init() - initialize mem-acc regulator data for
+ *		a CPR3 regulator
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * This function loads mem-acc data from device tree to enable
+ * the control of mem-acc settings based upon the CPR3 regulator
+ * output voltage.
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_hmss_mem_acc_init(struct cpr3_regulator *vreg)
 {
 	struct cpr3_controller *ctrl = vreg->thread->ctrl;
@@ -1122,6 +1369,13 @@ static int cpr3_hmss_mem_acc_init(struct cpr3_regulator *vreg)
 	return 0;
 }
 
+/**
+ * cpr3_hmss_init_regulator() - perform all steps necessary to initialize the
+ *		configuration data for a CPR3 regulator
+ * @vreg:		Pointer to the CPR3 regulator
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_hmss_init_regulator(struct cpr3_regulator *vreg)
 {
 	struct cpr3_msm8996_hmss_fuses *fuse;
@@ -1240,6 +1494,13 @@ static int cpr3_hmss_init_regulator(struct cpr3_regulator *vreg)
 	return 0;
 }
 
+/**
+ * cpr3_hmss_init_aging() - perform HMSS CPR3 controller specific
+ *		aging initializations
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_hmss_init_aging(struct cpr3_controller *ctrl)
 {
 	struct cpr3_msm8996_hmss_fuses *fuse = NULL;
@@ -1300,6 +1561,13 @@ static int cpr3_hmss_init_aging(struct cpr3_controller *ctrl)
 	return 0;
 }
 
+/**
+ * cpr3_hmss_init_controller() - perform HMSS CPR3 controller specific
+ *		initializations
+ * @ctrl:		Pointer to the CPR3 controller
+ *
+ * Return: 0 on success, errno on failure
+ */
 static int cpr3_hmss_init_controller(struct cpr3_controller *ctrl)
 {
 	int i, rc;
@@ -1330,12 +1598,12 @@ static int cpr3_hmss_init_controller(struct cpr3_controller *ctrl)
 		return rc;
 	}
 
-	
+	/* No error check since this is an optional property. */
 	of_property_read_u32(ctrl->dev->of_node,
 			     "qcom,system-supply-max-voltage",
 			     &ctrl->system_supply_max_volt);
 
-	
+	/* No error check since this is an optional property. */
 	of_property_read_u32(ctrl->dev->of_node, "qcom,cpr-clock-throttling",
 			&ctrl->proc_clock_throttle);
 
@@ -1354,7 +1622,7 @@ static int cpr3_hmss_init_controller(struct cpr3_controller *ctrl)
 	if (!ctrl->sensor_owner)
 		return -ENOMEM;
 
-	
+	/* Specify sensor ownership */
 	for (i = MSM8996_HMSS_THREAD0_SENSOR_MIN;
 	     i <= MSM8996_HMSS_THREAD0_SENSOR_MAX; i++)
 		ctrl->sensor_owner[i] = 0;
@@ -1411,6 +1679,7 @@ static int cpr3_hmss_regulator_resume(struct platform_device *pdev)
 	return cpr3_regulator_resume(ctrl);
 }
 
+/* Data corresponds to the SoC revision */
 static struct of_device_id cpr_regulator_match_table[] = {
 	{
 		.compatible = "qcom,cpr3-msm8996-v1-hmss-regulator",
@@ -1478,7 +1747,7 @@ static int cpr3_hmss_regulator_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	ctrl->dev = dev;
-	
+	/* Set to false later if anything precludes CPR operation. */
 	ctrl->cpr_allowed_hw = true;
 
 	rc = of_property_read_string(dev->of_node, "qcom,cpr-ctrl-name",

@@ -9,6 +9,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  */
+/*
+ * MHI RMNET Network interface
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -156,7 +159,7 @@ static int rmnet_mhi_process_fragment(struct rmnet_mhi_private *rmnet_mhi_ptr,
 {
 	struct sk_buff *temp_skb;
 	if (rmnet_mhi_ptr->frag_skb) {
-		
+		/* Merge the new skb into the old fragment */
 		temp_skb = skb_copy_expand(rmnet_mhi_ptr->frag_skb,
 					MHI_RX_HEADROOM,
 						skb->len,
@@ -173,13 +176,13 @@ static int rmnet_mhi_process_fragment(struct rmnet_mhi_private *rmnet_mhi_ptr,
 			skb->len);
 		kfree_skb(skb);
 		if (!frag) {
-			
+			/* Last fragmented piece was received, ship it */
 			netif_receive_skb(rmnet_mhi_ptr->frag_skb);
 			rmnet_mhi_ptr->frag_skb = NULL;
 		}
 	} else {
 		if (frag) {
-			
+			/* This is the first fragment */
 			rmnet_mhi_ptr->frag_skb = skb;
 			rx_fragmentation[rmnet_mhi_ptr->dev_index]++;
 		} else {
@@ -209,7 +212,7 @@ static __be16 rmnet_mhi_ip_type_trans(struct sk_buff *skb)
 {
 	__be16 protocol = 0;
 
-	
+	/* Determine L3 protocol */
 	switch (skb->data[0] & 0xf0) {
 	case 0x40:
 		protocol = htons(ETH_P_IP);
@@ -218,7 +221,7 @@ static __be16 rmnet_mhi_ip_type_trans(struct sk_buff *skb)
 		protocol = htons(ETH_P_IPV6);
 		break;
 	default:
-		
+		/* Default is QMAP */
 		protocol = htons(ETH_P_MAP);
 		break;
 	}
@@ -254,7 +257,7 @@ static int rmnet_mhi_poll(struct napi_struct *napi, int budget)
 			break;
 		}
 
-		
+		/* Nothing more to read, or out of buffers in MHI layer */
 		if (unlikely(!result->buf_addr || !result->bytes_xferd)) {
 			should_reschedule = false;
 			break;
@@ -269,7 +272,7 @@ static int rmnet_mhi_poll(struct napi_struct *napi, int budget)
 
 		skb_priv = (struct mhi_skb_priv *)(skb->cb);
 
-		
+		/* Setup the tail to the end of data */
 		skb_put(skb, result->bytes_xferd);
 
 		skb->dev = dev;
@@ -286,12 +289,12 @@ static int rmnet_mhi_poll(struct napi_struct *napi, int budget)
 			BUG();
 		}
 
-		
+		/* Statistics */
 		received_packets++;
 		dev->stats.rx_packets++;
 		dev->stats.rx_bytes += result->bytes_xferd;
 
-		
+		/* Need to allocate a new buffer instead of this one */
 		cur_mru = rmnet_mhi_ptr->mru;
 		skb = alloc_skb(cur_mru, GFP_ATOMIC);
 		if (unlikely(!skb)) {
@@ -305,7 +308,7 @@ static int rmnet_mhi_poll(struct napi_struct *napi, int budget)
 		rmnet_log(MSG_VERBOSE,
 		  "Allocated SKB of MRU 0x%x, SKB_DATA 0%p SKB_LEN 0x%x\n",
 				rmnet_mhi_ptr->mru, skb->data, skb->len);
-		
+		/* Reserve headroom, tail == data */
 		skb_reserve(skb, MHI_RX_HEADROOM);
 		skb_priv->dma_size -= MHI_RX_HEADROOM;
 		skb_priv->dma_addr = 0;
@@ -328,11 +331,11 @@ static int rmnet_mhi_poll(struct napi_struct *napi, int budget)
 			break;
 		}
 		skb_queue_tail(&rmnet_mhi_ptr->rx_buffers, skb);
-	} 
+	} /* while (received_packets < budget) or any other error */
 
 	napi_complete(napi);
 
-	
+	/* We got a NULL descriptor back */
 	if (should_reschedule == false) {
 		if (atomic_read(&rmnet_mhi_ptr->irq_masked_cntr)) {
 			atomic_dec(&rmnet_mhi_ptr->irq_masked_cntr);
@@ -361,12 +364,12 @@ void rmnet_mhi_clean_buffers(struct net_device *dev)
 	struct rmnet_mhi_private *rmnet_mhi_ptr =
 		*(struct rmnet_mhi_private **)netdev_priv(dev);
 	rmnet_log(MSG_INFO, "Entered\n");
-	
+	/* Clean TX buffers */
 	rmnet_mhi_internal_clean_unmap_buffers(dev,
 					       &rmnet_mhi_ptr->tx_buffers,
 					       DMA_TO_DEVICE);
 
-	
+	/* Clean RX buffers */
 	rmnet_mhi_internal_clean_unmap_buffers(dev,
 					       &rmnet_mhi_ptr->rx_buffers,
 					       DMA_FROM_DEVICE);
@@ -418,7 +421,7 @@ static int rmnet_mhi_init_inbound(struct rmnet_mhi_private *rmnet_mhi_ptr)
 		skb_queue_tail(&rmnet_mhi_ptr->rx_buffers, skb);
 	}
 
-	
+	/* Submit the RX buffers */
 	for (i = 0; i < rmnet_mhi_ptr->rx_buffers_max; i++) {
 		skb = skb_dequeue(&rmnet_mhi_ptr->rx_buffers);
 		rx_priv = (struct mhi_skb_priv *)(skb->cb);
@@ -451,7 +454,7 @@ static void rmnet_mhi_tx_cb(struct mhi_result *result)
 	rmnet_log(MSG_VERBOSE, "Entered\n");
 	if (!result->buf_addr || !result->bytes_xferd)
 		return;
-	
+	/* Free the buffers which are TX'd up to the provided address */
 	while (!skb_queue_empty(&(rmnet_mhi_ptr->tx_buffers))) {
 		struct sk_buff *skb =
 			skb_dequeue(&(rmnet_mhi_ptr->tx_buffers));
@@ -467,12 +470,16 @@ static void rmnet_mhi_tx_cb(struct mhi_result *result)
 			kfree_skb(skb);
 			burst_counter++;
 
-			
+			/* Update statistics */
 			dev->stats.tx_packets++;
 			dev->stats.tx_bytes += skb->len;
 
+			/* The payload is expected to be the phy addr.
+			   Comparing to see if it's the last skb to
+			   replenish
+			*/
 		}
-	} 
+	} /* While TX queue is not empty */
 	tx_cb_skb_free_burst_min[rmnet_mhi_ptr->dev_index] =
 		min(burst_counter,
 		    tx_cb_skb_free_burst_min[rmnet_mhi_ptr->dev_index]);
@@ -481,7 +488,7 @@ static void rmnet_mhi_tx_cb(struct mhi_result *result)
 		max(burst_counter,
 		    tx_cb_skb_free_burst_max[rmnet_mhi_ptr->dev_index]);
 
-	
+	/* In case we couldn't write again, now we can! */
 	read_lock_irqsave(&rmnet_mhi_ptr->out_chan_full_lock, flags);
 	rmnet_log(MSG_VERBOSE, "Waking up queue\n");
 	netif_wake_queue(dev);
@@ -520,6 +527,9 @@ static int rmnet_mhi_open(struct net_device *dev)
 			rmnet_mhi_ptr->rx_channel);
 	netif_start_queue(dev);
 
+	/* Poll to check if any buffers are accumulated in the
+	 * transport buffers
+	 */
 	if (napi_schedule_prep(&(rmnet_mhi_ptr->napi))) {
 		mhi_mask_irq(rmnet_mhi_ptr->rx_client_handle);
 		atomic_inc(&rmnet_mhi_ptr->irq_masked_cntr);
@@ -609,7 +619,7 @@ static int rmnet_mhi_xmit(struct sk_buff *skb, struct net_device *dev)
 									flags);
 			if (!mhi_get_free_desc(
 					    rmnet_mhi_ptr->tx_client_handle)) {
-				
+				/* Stop writing until we can write again */
 				tx_ring_full_count[rmnet_mhi_ptr->dev_index]++;
 				netif_stop_queue(dev);
 				rmnet_log(MSG_VERBOSE, "Stopping Queue\n");
@@ -721,15 +731,15 @@ static int rmnet_mhi_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	struct rmnet_ioctl_data_s ioctl_data;
 
 	switch (cmd) {
-	case RMNET_IOCTL_SET_LLP_IP:        
+	case RMNET_IOCTL_SET_LLP_IP:        /* Set RAWIP protocol */
 		break;
-	case RMNET_IOCTL_GET_LLP:           
+	case RMNET_IOCTL_GET_LLP:           /* Get link protocol state */
 		ioctl_data.u.operation_mode = RMNET_MODE_LLP_IP;
 		if (copy_to_user(ifr->ifr_ifru.ifru_data, &ioctl_data,
 		    sizeof(struct rmnet_ioctl_data_s)))
 			rc = -EFAULT;
 		break;
-	case RMNET_IOCTL_GET_OPMODE:        
+	case RMNET_IOCTL_GET_OPMODE:        /* Get operation mode      */
 		ioctl_data.u.operation_mode = RMNET_MODE_LLP_IP;
 		if (copy_to_user(ifr->ifr_ifru.ifru_data, &ioctl_data,
 		    sizeof(struct rmnet_ioctl_data_s)))
@@ -743,14 +753,14 @@ static int rmnet_mhi_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		break;
 	case RMNET_IOCTL_OPEN:
 	case RMNET_IOCTL_CLOSE:
-		
+		/* We just ignore them and return success */
 		rc = 0;
 		break;
 	case RMNET_IOCTL_EXTENDED:
 		rc = rmnet_mhi_ioctl_extended(dev, ifr);
 		break;
 	default:
-		
+		/* Don't fail any IOCTL right now */
 		rc = 0;
 		break;
 	}
@@ -773,8 +783,8 @@ static void rmnet_mhi_setup(struct net_device *dev)
 	dev->netdev_ops = &rmnet_mhi_ops_ip;
 	ether_setup(dev);
 
-	
-	dev->header_ops = 0;  
+	/* set this after calling ether_setup */
+	dev->header_ops = 0;  /* No header */
 	dev->type = ARPHRD_RAWIP;
 	dev->hard_header_len = 0;
 	dev->mtu = MHI_DEFAULT_MTU;
@@ -914,7 +924,7 @@ static void rmnet_mhi_cb(struct mhi_cb_info *cb_info)
 			"Got MHI_DISABLED notification. Stopping stack\n");
 		if (rmnet_mhi_ptr->mhi_enabled) {
 			rmnet_mhi_ptr->mhi_enabled = 0;
-			
+			/* Ensure MHI is disabled before other mem ops */
 			wmb();
 			while (atomic_read(&rmnet_mhi_ptr->pending_data)) {
 				rmnet_log(MSG_CRITICAL,
@@ -949,7 +959,7 @@ static void rmnet_mhi_cb(struct mhi_cb_info *cb_info)
 		break;
 	case MHI_CB_XFER:
 		atomic_inc(&rmnet_mhi_ptr->pending_data);
-		
+		/* Flush pending data is set before any other mem operations */
 		wmb();
 		if (rmnet_mhi_ptr->mhi_enabled) {
 			if (IS_INBOUND(cb_info->chan))

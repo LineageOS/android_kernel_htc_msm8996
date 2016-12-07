@@ -29,6 +29,10 @@
 #include <media/videobuf2-dma-contig.h>
 #include <media/msmb_camera.h>
 
+/* Setting MAX timeout to 6.5seconds considering
+ * backend will operate @ .6fps in certain usecases
+ * like Long exposure usecase and isp needs max of 2 frames
+ * to stop the hardware which will be around 3 seconds*/
 #define MSM_POST_EVT_TIMEOUT 6500
 #define MSM_POST_EVT_NOTIMEOUT 0xFFFFFFFF
 #define MSM_CAMERA_STREAM_CNT_BITS  32
@@ -50,6 +54,10 @@ struct msm_queue_head {
 	int max;
 };
 
+/** msm_event:
+ *
+ *  event sent by imaging server
+ **/
 struct msm_event {
 	struct video_device *vdev;
 	atomic_t on_heap;
@@ -61,6 +69,13 @@ struct msm_command {
 	atomic_t on_heap;
 };
 
+/** struct msm_command_ack
+ *
+ *  Object of command_ack_q, which is
+ *  created per open operation
+ *
+ *  contains struct msm_command
+ **/
 struct msm_command_ack {
 	struct list_head list;
 	struct msm_queue_head command_q;
@@ -69,20 +84,28 @@ struct msm_command_ack {
 };
 
 struct msm_v4l2_subdev {
+	/* FIXME: for session close and error handling such
+	 * as daemon shutdown */
 	int    close_sequence;
 };
 
 struct msm_session {
 	struct list_head list;
 
-	
+	/* session index */
 	unsigned int session_id;
 
-	
+	/* event queue sent by imaging server */
 	struct msm_event event_q;
 
+	/* ACK by imaging server. Object type of
+	 * struct msm_command_ack per open,
+	 * assumption is application can send
+	 * command on every opened video node */
 	struct msm_queue_head command_ack_q;
 
+	/* real streams(either data or metadate) owned by one
+	 * session struct msm_stream */
 	struct msm_queue_head stream_q;
 	struct mutex lock;
 	struct mutex lock_q;
@@ -115,4 +138,4 @@ long msm_copy_camera_private_ioctl_args(unsigned long arg,
 	struct msm_camera_private_ioctl_arg *k_ioctl,
 	void __user **tmp_compat_ioctl_ptr);
 #endif
-#endif 
+#endif /*_MSM_H */

@@ -30,7 +30,7 @@ enum {
 	Opt_debug,
 	Opt_lower_fs,
 	Opt_mask,
-	Opt_multiuser, 
+	Opt_multiuser, // May need?
 	Opt_userid,
 	Opt_reserved_mb,
 	Opt_err,
@@ -55,14 +55,14 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 	substring_t args[MAX_OPT_ARGS];
 	int option;
 
-	
+	/* by default, we use AID_MEDIA_RW as uid, gid */
 	opts->fs_low_uid = AID_MEDIA_RW;
 	opts->fs_low_gid = AID_MEDIA_RW;
 	opts->mask = 0;
 	opts->multiuser = false;
 	opts->fs_user_id = 0;
 	opts->gid = 0;
-	
+	/* by default, 0MB is reserved */
 	opts->reserved_mb = 0;
 
 	*debug = 0;
@@ -114,7 +114,7 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 				return 0;
 			opts->reserved_mb = option;
 			break;
-		
+		/* unknown option */
 		default:
 			if (!silent) {
 				printk( KERN_ERR "Unrecognized mount option \"%s\" "
@@ -136,6 +136,12 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 }
 
 #if 0
+/*
+ * our custom d_alloc_root work-alike
+ *
+ * we can't use d_alloc_root if we want to use our own interpose function
+ * unchanged, so we simply call our own "fake" d_alloc_root
+ */
 static struct dentry *sdcardfs_d_alloc_root(struct super_block *sb)
 {
 	struct dentry *ret = NULL;
@@ -162,6 +168,10 @@ LIST_HEAD(sdcardfs_super_list);
 EXPORT_SYMBOL_GPL(sdcardfs_super_list_lock);
 EXPORT_SYMBOL_GPL(sdcardfs_super_list);
 
+/*
+ * There is no need to lock the sdcardfs_super_info's rwsem as there is no
+ * way anyone can have a reference to the superblock at this point in time.
+ */
 static int sdcardfs_read_super(struct super_block *sb, const char *dev_name,
 						void *raw_data, int silent)
 {
@@ -184,7 +194,7 @@ static int sdcardfs_read_super(struct super_block *sb, const char *dev_name,
 	printk(KERN_INFO "sdcardfs: dev_name -> %s\n", dev_name);
 	printk(KERN_INFO "sdcardfs: options -> %s\n", (char *)raw_data);
 
-	
+	/* parse lower path */
 	err = kern_path(dev_name, LOOKUP_FOLLOW | LOOKUP_DIRECTORY,
 			&lower_path);
 	if (err) {
@@ -192,7 +202,7 @@ static int sdcardfs_read_super(struct super_block *sb, const char *dev_name,
 		goto out;
 	}
 
-	
+	/* allocate superblock private data */
 	sb->s_fs_info = kzalloc(sizeof(struct sdcardfs_sb_info), GFP_KERNEL);
 	if (!SDCARDFS_SB(sb)) {
 		printk(KERN_CRIT "sdcardfs: read_super: out of memory\n");
@@ -201,27 +211,31 @@ static int sdcardfs_read_super(struct super_block *sb, const char *dev_name,
 	}
 
 	sb_info = sb->s_fs_info;
-	
+	/* parse options */
 	err = parse_options(sb, raw_data, silent, &debug, &sb_info->options);
 	if (err) {
 		printk(KERN_ERR	"sdcardfs: invalid options\n");
 		goto out_freesbi;
 	}
 
-	
+	/* set the lower superblock field of upper superblock */
 	lower_sb = lower_path.dentry->d_sb;
 	atomic_inc(&lower_sb->s_active);
 	sdcardfs_set_lower_super(sb, lower_sb);
 
-	
+	/* inherit maxbytes from lower file system */
 	sb->s_maxbytes = lower_sb->s_maxbytes;
 
+	/*
+	 * Our c/m/atime granularity is 1 ns because we may stack on file
+	 * systems whose granularity is as good.
+	 */
 	sb->s_time_gran = 1;
 
 	sb->s_magic = SDCARDFS_SUPER_MAGIC;
 	sb->s_op = &sdcardfs_sops;
 
-	
+	/* get a new inode and allocate our root dentry */
 	inode = sdcardfs_iget(sb, lower_path.dentry->d_inode, 0);
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
@@ -234,23 +248,31 @@ static int sdcardfs_read_super(struct super_block *sb, const char *dev_name,
 	}
 	d_set_d_op(sb->s_root, &sdcardfs_ci_dops);
 
-	
+	/* link the upper and lower dentries */
 	sb->s_root->d_fsdata = NULL;
 	err = new_dentry_private_data(sb->s_root);
 	if (err)
 		goto out_freeroot;
 
-	
+	/* set the lower dentries for s_root */
 	sdcardfs_set_lower_path(sb->s_root, &lower_path);
 
+	/*
+	 * No need to call interpose because we already have a positive
+	 * dentry, which was instantiated by d_make_root.  Just need to
+	 * d_rehash it.
+	 */
 	d_rehash(sb->s_root);
 
-	
+	/* setup permission policy */
 	sb_info->obbpath_s = kzalloc(PATH_MAX, GFP_KERNEL);
 	mutex_lock(&sdcardfs_super_list_lock);
 	if(sb_info->options.multiuser) {
 		setup_derived_state(sb->s_root->d_inode, PERM_PRE_ROOT, sb_info->options.fs_user_id, AID_ROOT, false, sb->s_root->d_inode);
 		snprintf(sb_info->obbpath_s, PATH_MAX, "%s/obb", dev_name);
+		/*err =  prepare_dir(sb_info->obbpath_s,
+					sb_info->options.fs_low_uid,
+					sb_info->options.fs_low_gid, 00755);*/
 	} else {
 		setup_derived_state(sb->s_root->d_inode, PERM_ROOT, sb_info->options.fs_user_id, AID_ROOT, false, sb->s_root->d_inode);
 		snprintf(sb_info->obbpath_s, PATH_MAX, "%s/Android/obb", dev_name);
@@ -263,15 +285,15 @@ static int sdcardfs_read_super(struct super_block *sb, const char *dev_name,
 	if (!silent)
 		printk(KERN_INFO "sdcardfs: mounted on top of %s type %s\n",
 				dev_name, lower_sb->s_type->name);
-	goto out; 
+	goto out; /* all is well */
 
-	
+	/* no longer needed: free_dentry_private_data(sb->s_root); */
 out_freeroot:
 	dput(sb->s_root);
 out_iput:
 	iput(inode);
 out_sput:
-	
+	/* drop refs we took earlier */
 	atomic_dec(&lower_sb->s_active);
 out_freesbi:
 	kfree(SDCARDFS_SB(sb));
@@ -283,6 +305,7 @@ out:
 	return err;
 }
 
+/* A feature which supports mount_nodev() with options */
 static struct dentry *mount_nodev_with_options(struct file_system_type *fs_type,
         int flags, const char *dev_name, void *data,
         int (*fill_super)(struct super_block *, const char *, void *, int))
@@ -308,6 +331,10 @@ static struct dentry *mount_nodev_with_options(struct file_system_type *fs_type,
 struct dentry *sdcardfs_mount(struct file_system_type *fs_type, int flags,
 			    const char *dev_name, void *raw_data)
 {
+	/*
+	 * dev_name is a lower_path_name,
+	 * raw_data is a option string.
+	 */
 	return mount_nodev_with_options(fs_type, flags, dev_name,
 					raw_data, sdcardfs_read_super);
 }
