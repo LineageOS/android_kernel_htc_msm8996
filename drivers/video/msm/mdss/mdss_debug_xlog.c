@@ -472,6 +472,7 @@ void mdss_dump_reg(const char *dump_name, u32 reg_dump_flag, char *addr,
 static void mdss_dump_reg_by_ranges(struct mdss_debug_base *dbg,
 	u32 reg_dump_flag)
 {
+#if 0
 	char *addr;
 	int len;
 	struct range_dump_node *xlog_node, *xlog_tmp;
@@ -507,6 +508,7 @@ static void mdss_dump_reg_by_ranges(struct mdss_debug_base *dbg,
 		mdss_dump_reg((const char *)dbg->name, reg_dump_flag, addr,
 			len, &dbg->reg_dump, false);
 	}
+#endif
 }
 
 static void mdss_dump_reg_by_blk(const char *blk_name)
