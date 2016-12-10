@@ -14,16 +14,6 @@
 
 #include <linux/types.h>
 
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-/* exported from arch/arm/mach-msm/msm_watchdog_v2.c */
-int htc_debug_watchdog_enabled(void);
-
-void htc_debug_watchdog_check_pet(unsigned long long timestamp);
-void htc_debug_watchdog_update_last_pet(unsigned long long last_pet);
-void htc_debug_watchdog_dump_irqs(unsigned int dump);
-void arch_trigger_different_cpu_backtrace_dump_timeout(unsigned int time_out);
-#endif /* CONFIG_HTC_DEBUG_WATCHDOG */
-
 #if defined(CONFIG_HTC_DEBUG_WORKQUEUE)
 /* exported from kernel/workqueue.c */
 void workqueue_show_pending_work(void);

@@ -604,11 +604,7 @@ static DEFINE_RAW_SPINLOCK(backtrace_lock);
 /* "in progress" flag of arch_trigger_all_cpu_backtrace */
 static unsigned long backtrace_flag;
 
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-static void smp_send_all_cpu_backtrace(unsigned int backtrace_timeout)
-#else
 static void smp_send_all_cpu_backtrace(void)
-#endif
 {
 	unsigned int this_cpu = smp_processor_id();
 	int i;
@@ -631,21 +627,12 @@ static void smp_send_all_cpu_backtrace(void)
 		smp_cross_call_common(&backtrace_mask, IPI_CPU_BACKTRACE);
 
 	/* Wait for up to 10 seconds for all other CPUs to do the backtrace */
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-	for (i = 0; i < backtrace_timeout * 1000; i++)
-#else
 	for (i = 0; i < 10 * 1000; i++)
-#endif
 	{
 		if (cpumask_empty(&backtrace_mask))
 			break;
 		mdelay(1);
 	}
-
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-	if(i == backtrace_timeout * 1000)
-		pr_info( " dump cpu backtrace timeout \n");
-#endif
 
 	clear_bit(0, &backtrace_flag);
 	smp_mb__after_atomic();
@@ -668,24 +655,12 @@ static void ipi_cpu_backtrace(unsigned int cpu, struct pt_regs *regs)
 #ifdef CONFIG_SMP
 void arch_trigger_all_cpu_backtrace(void)
 {
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-	smp_send_all_cpu_backtrace(10);
-#else
 	smp_send_all_cpu_backtrace();
-#endif
 }
 #else
 void arch_trigger_all_cpu_backtrace(void)
 {
 	dump_stack();
-}
-#endif
-
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-void arch_trigger_different_cpu_backtrace_dump_timeout(unsigned int time_out)
-{
-	pr_info(" dump cpu backtrace with timeout %u sec \n", time_out);
-	smp_send_all_cpu_backtrace(time_out);
 }
 #endif
 

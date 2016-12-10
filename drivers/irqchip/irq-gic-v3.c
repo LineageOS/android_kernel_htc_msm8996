@@ -36,10 +36,6 @@
 #include "irq-gic-common.h"
 #include "irqchip.h"
 
-#ifdef CONFIG_HTC_DEBUG_WATCHDOG
-#include <linux/htc_debug_tools.h>
-#endif
-
 struct redist_region {
 	void __iomem		*redist_base;
 	phys_addr_t		phys_base;
@@ -454,13 +450,6 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 		if (likely(irqnr > 15 && irqnr < 1020) || irqnr >= 8192) {
 			int err;
 
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-			
-			if (irqnr == 27 && smp_processor_id() == 0) {
-				unsigned long long timestamp = sched_clock();
-				htc_debug_watchdog_check_pet(timestamp);
-			}
-#endif 
 			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
 			err = handle_domain_irq(gic_data.domain, irqnr, regs);
 			if (err) {

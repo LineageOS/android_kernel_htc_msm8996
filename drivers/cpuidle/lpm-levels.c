@@ -53,13 +53,8 @@
 #include <trace/events/trace_msm_low_power.h>
 #include "../../drivers/clk/msm/clock.h"
 
-#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
-extern int msm_watchdog_suspend_deferred(void);
-extern int msm_watchdog_resume_deferred(void);
-#else
 static inline int msm_watchdog_suspend_deferred(void) { return 0; }
 static inline int msm_watchdog_resume_deferred(void) { return 0; }
-#endif
 
 #define SCLK_HZ (32768)
 #define SCM_HANDOFF_LOCK_ID "S:7"
