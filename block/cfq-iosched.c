@@ -16,7 +16,6 @@
 #include <linux/blktrace_api.h>
 #include "blk.h"
 #include "blk-cgroup.h"
-#include "../kernel/sched/sched.h"
 
 /*
  * tunables
@@ -36,8 +35,9 @@ static int cfq_group_idle = HZ / 125;
 static const int cfq_target_latency = HZ * 3/10; /* 300 ms */
 static const int cfq_hist_divisor = 4;
 
-extern int launch_event_enabled;
-
+/*
+ * offset from end of service tree
+ */
 #define CFQ_IDLE_DELAY		(HZ / 5)
 
 /*
@@ -66,8 +66,6 @@ static struct kmem_cache *cfq_pool;
 
 #define sample_valid(samples)	((samples) > 80)
 #define rb_entry_cfqg(node)	rb_entry((node), struct cfq_group, rb_node)
-
-#define DEFAULT_CPU_SHARE 1024
 
 struct cfq_ttime {
 	unsigned long last_end_request;
@@ -3456,20 +3454,6 @@ static void cfq_init_prio_data(struct cfq_queue *cfqq, struct cfq_io_cq *cic)
 	struct task_struct *tsk = current;
 	int ioprio_class;
 
-	if (launch_event_enabled)
-	{
-		int bg;
-		bg = (tsk->sched_task_group->shares < DEFAULT_CPU_SHARE)? 1 : 0;
-		if (bg) {
-			cfqq->ioprio_class = IOPRIO_CLASS_IDLE;
-			cfqq->ioprio = 7;
-			cfqq->org_ioprio = cfqq->ioprio;
-			cfq_clear_cfqq_idle_window(cfqq);
-			cfq_mark_cfqq_prio_changed(cfqq);
-			return;
-		}
-	}
-
 	if (!cfq_cfqq_prio_changed(cfqq))
 		return;
 
@@ -4638,8 +4622,6 @@ static int __init cfq_init(void)
 		cfq_slice_async = 1;
 	if (!cfq_slice_idle)
 		cfq_slice_idle = 1;
-
-	cfq_slice_idle = 0;
 
 #ifdef CONFIG_CFQ_GROUP_IOSCHED
 	if (!cfq_group_idle)
