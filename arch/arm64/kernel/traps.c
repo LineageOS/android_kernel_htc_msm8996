@@ -245,12 +245,6 @@ static unsigned long oops_begin(void)
 
 static void oops_end(unsigned long flags, struct pt_regs *regs, int notify)
 {
-#if defined(CONFIG_HTC_DEBUG_KP)
-	struct thread_info *thread = current_thread_info();
-	char sym_pc[KSYM_SYMBOL_LEN];
-	char sym_lr[KSYM_SYMBOL_LEN];
-#endif
-
 	if (regs && kexec_should_crash(current))
 		crash_kexec(regs);
 
@@ -264,23 +258,10 @@ static void oops_end(unsigned long flags, struct pt_regs *regs, int notify)
 	raw_local_irq_restore(flags);
 	oops_exit();
 
-#if defined(CONFIG_HTC_DEBUG_KP)
-	sprint_symbol(sym_pc, regs->pc);
-	sprint_symbol(sym_lr, (compat_user_mode(regs))? regs->compat_lr:regs->regs[30]);
-#endif
-
 	if (in_interrupt())
-#if defined(CONFIG_HTC_DEBUG_KP)
-		panic("%.*s PC:%s LR:%s", TASK_COMM_LEN, thread->task->comm, sym_pc, sym_lr);
-#else
 		panic("Fatal exception in interrupt");
-#endif
 	if (panic_on_oops)
-#if defined(CONFIG_HTC_DEBUG_KP)
-		panic("%.*s PC:%s LR:%s", TASK_COMM_LEN, thread->task->comm, sym_pc, sym_lr);
-#else
 		panic("Fatal exception");
-#endif
 	if (notify != NOTIFY_STOP)
 		do_exit(SIGSEGV);
 }
