@@ -6,13 +6,6 @@ menuconfig HTC_DEBUG
 	  Enable collection of debug features.
 	  This feature is enabled in defconfig.
 
-config HTC_DEBUG_RTB
-	default n
-	depends on HTC_DEBUG && MSM_RTB
-	bool "HTC style rtb debug features"
-	help
-	  Say Y here if you want the HTC style rtb debug features
-
 config HTC_DEBUG_SSR
 	bool "HTC style subsys restart debug features"
 	default n

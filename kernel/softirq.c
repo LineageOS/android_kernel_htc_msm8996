@@ -30,9 +30,6 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/irq.h>
 
-#if defined(CONFIG_HTC_DEBUG_RTB)
-#include <linux/msm_rtb.h>
-#endif
 /*
    - No shared variables, all the data are CPU local.
    - If a softirq needs serialization, let it serialize itself
@@ -269,9 +266,6 @@ restart:
 		kstat_incr_softirqs_this_cpu(vec_nr);
 
 		trace_softirq_entry(vec_nr);
-#if defined(CONFIG_HTC_DEBUG_RTB)
-		uncached_logk(LOGK_SOFTIRQ, (void *)(h->action));
-#endif
 		h->action(h);
 		trace_softirq_exit(vec_nr);
 		if (unlikely(prev_count != preempt_count())) {

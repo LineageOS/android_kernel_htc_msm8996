@@ -446,21 +446,13 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 		irqnr = irqstat & GICC_IAR_INT_ID_MASK;
 
 		if (likely(irqnr > 15 && irqnr < 1021)) {
-#if defined(CONFIG_HTC_DEBUG_RTB)
-			uncached_logk_pc(LOGK_IRQ, (void *)(uintptr_t)htc_debug_get_sched_clock_ms(), (void *)(uintptr_t)irqnr);
-#else
 			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
-#endif /* CONFIG_HTC_DEBUG_RTB */
 			handle_domain_irq(gic->domain, irqnr, regs);
 			continue;
 		}
 		if (irqnr < 16) {
 			writel_relaxed_no_log(irqstat, cpu_base + GIC_CPU_EOI);
-#if defined(CONFIG_HTC_DEBUG_RTB)
-			uncached_logk_pc(LOGK_IRQ, (void *)(uintptr_t)htc_debug_get_sched_clock_ms(), (void *)(uintptr_t)irqnr);
-#else
 			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
-#endif /* CONFIG_HTC_DEBUG_RTB */
 #ifdef CONFIG_SMP
 			handle_IPI(irqnr, regs);
 #endif

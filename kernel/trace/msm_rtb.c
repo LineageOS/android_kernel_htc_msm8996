@@ -80,26 +80,12 @@ static atomic_t msm_rtb_idx;
 #endif
 
 static struct msm_rtb_state msm_rtb = {
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	/* remove msm_rtb.filter from cmdline to control the filter here */
-	.filter = (1 << LOGK_READL)|(1 << LOGK_WRITEL)|(1 << LOGK_LOGBUF)|(1 << LOGK_HOTPLUG)|(1 << LOGK_CTXID)|(1 << LOGK_IRQ)|(1 << LOGK_DIE)|(1 << LOGK_INITCALL)|(1 << LOGK_SOFTIRQ),
-#else
 	.filter = 1 << LOGK_LOGBUF,
-#endif
 	.enabled = 1,
 };
 
 module_param_named(filter, msm_rtb.filter, uint, 0644);
 module_param_named(enable, msm_rtb.enabled, int, 0644);
-
-#if defined(CONFIG_HTC_DEBUG_RTB)
-void msm_rtb_disable(void)
-{
-	msm_rtb.enabled = 0;
-	return;
-}
-EXPORT_SYMBOL(msm_rtb_disable);
-#endif /* CONFIG_HTC_DEBUG_RTB */
 
 static int msm_rtb_panic_notifier(struct notifier_block *this,
 					unsigned long event, void *ptr)

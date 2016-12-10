@@ -42,10 +42,6 @@
 
 #include <trace/events/exception.h>
 
-#if defined(CONFIG_HTC_DEBUG_RTB)
-#include <linux/msm_rtb.h>
-#endif
-
 static const char *fault_name(unsigned int esr);
 
 /*
@@ -94,22 +90,9 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 static void __do_kernel_fault(struct mm_struct *mm, unsigned long addr,
 			      unsigned int esr, struct pt_regs *regs)
 {
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	static int enable_logk_die = 1;
-#endif
 	if (fixup_exception(regs))
 		return;
 
-#if defined(CONFIG_HTC_DEBUG_RTB)
-	if (enable_logk_die) {
-		uncached_logk(LOGK_DIE, (void *)regs->pc);
-		uncached_logk(LOGK_DIE, (void *)regs->regs[30]);
-		uncached_logk(LOGK_DIE, (void *)addr);
-		
-		msm_rtb_disable();
-		enable_logk_die = 0;
-	}
-#endif
 	bust_spinlocks(1);
 	pr_alert("Unable to handle kernel %s at virtual address %08lx\n",
 		 (addr < PAGE_SIZE) ? "NULL pointer dereference" :
