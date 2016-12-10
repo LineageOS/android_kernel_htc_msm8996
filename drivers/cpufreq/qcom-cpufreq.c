@@ -29,10 +29,6 @@
 #include <linux/of.h>
 #include <trace/events/power.h>
 
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT)
-#include <htc_mnemosyne/htc_footprint.h>
-#endif
-
 static DEFINE_MUTEX(l2bw_lock);
 
 static struct clk *cpu_clk[NR_CPUS];
@@ -62,25 +58,11 @@ static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq,
 	cpufreq_freq_transition_begin(policy, &freqs);
 
 	rate = new_freq * 1000;
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT)
-	set_acpuclk_footprint_by_clk(cpu_clk[policy->cpu], ACPU_ENTER);
-	set_acpuclk_cpu_freq_footprint_by_clk(FT_PREV_RATE, cpu_clk[policy->cpu], policy->cur * 1000);
-	set_acpuclk_cpu_freq_footprint_by_clk(FT_NEW_RATE, cpu_clk[policy->cpu], rate);
-#endif
-
 	rate = clk_round_rate(cpu_clk[policy->cpu], rate);
 	ret = clk_set_rate(cpu_clk[policy->cpu], rate);
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT)
-	set_acpuclk_footprint_by_clk(cpu_clk[policy->cpu], ACPU_BEFORE_UPDATE_L2_BW);
-#endif
 	cpufreq_freq_transition_end(policy, &freqs, ret);
 	if (!ret)
 		trace_cpu_frequency_switch_end(policy->cpu);
-
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT)
-	set_acpuclk_footprint_by_clk(cpu_clk[policy->cpu], ACPU_LEAVE);
-#endif
-
 	return ret;
 }
 
@@ -218,29 +200,17 @@ static int msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 		clk_unprepare(l2_clk);
 		break;
 	case CPU_UP_PREPARE:
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-		set_hotplug_on_footprint(cpu, HOF_ENTER);
-#endif
 		rc = clk_prepare(l2_clk);
 		if (rc < 0)
 			return NOTIFY_BAD;
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-		set_hotplug_on_footprint(cpu, HOF_AFTER_PREPARE_ENABLE_L2);
-#endif
 		rc = clk_prepare(cpu_clk[cpu]);
 		if (rc < 0) {
 			clk_unprepare(l2_clk);
 			return NOTIFY_BAD;
 		}
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-		set_hotplug_on_footprint(cpu, HOF_AFTER_PREPARE_ENABLE_CPU);
-#endif
 		break;
 
 	case CPU_STARTING:
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-		set_hotplug_on_footprint(cpu, HOF_BEFORE_UPDATE_L2_BW);
-#endif
 		rc = clk_enable(l2_clk);
 		if (rc < 0)
 			return NOTIFY_BAD;
@@ -249,9 +219,6 @@ static int msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 			clk_disable(l2_clk);
 			return NOTIFY_BAD;
 		}
-#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-		set_hotplug_on_footprint(cpu, HOF_LEAVE);
-#endif
 		break;
 
 	default:
