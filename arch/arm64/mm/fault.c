@@ -90,9 +90,15 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 static void __do_kernel_fault(struct mm_struct *mm, unsigned long addr,
 			      unsigned int esr, struct pt_regs *regs)
 {
+	/*
+	 * Are we prepared to handle this kernel fault?
+	 */
 	if (fixup_exception(regs))
 		return;
 
+	/*
+	 * No handler, we'll have to terminate things with extreme prejudice.
+	 */
 	bust_spinlocks(1);
 	pr_alert("Unable to handle kernel %s at virtual address %08lx\n",
 		 (addr < PAGE_SIZE) ? "NULL pointer dereference" :
@@ -378,6 +384,9 @@ static int do_alignment_fault(unsigned long addr, unsigned int esr,
 	return 0;
 }
 
+/*
+ * This abort handler always returns "fault".
+ */
 static int do_bad(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 {
 	arm64_check_cache_ecc(NULL);
