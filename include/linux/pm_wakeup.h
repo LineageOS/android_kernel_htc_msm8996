@@ -101,10 +101,6 @@ extern void pm_relax(struct device *dev);
 extern void __pm_wakeup_event(struct wakeup_source *ws, unsigned int msec);
 extern void pm_wakeup_event(struct device *dev, unsigned int msec);
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-void htc_print_active_wakeup_sources(bool print_embedded);
-#endif
-
 #else 
 
 static inline void device_set_wakeup_capable(struct device *dev, bool capable)
@@ -181,10 +177,6 @@ static inline void pm_relax(struct device *dev) {}
 static inline void __pm_wakeup_event(struct wakeup_source *ws, unsigned int msec) {}
 
 static inline void pm_wakeup_event(struct device *dev, unsigned int msec) {}
-
-#ifdef CONFIG_HTC_POWER_DEBUG
-static inline void htc_print_active_wakeup_sources(bool print_embedded) {}
-#endif
 
 #endif 
 

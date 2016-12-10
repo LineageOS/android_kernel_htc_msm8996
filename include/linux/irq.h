@@ -848,10 +848,6 @@ static inline void irq_gc_lock(struct irq_chip_generic *gc) { }
 static inline void irq_gc_unlock(struct irq_chip_generic *gc) { }
 #endif
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-void htc_show_interrupts(void);
-#endif
-
 static inline void irq_reg_writel(struct irq_chip_generic *gc,
 				  u32 val, int reg_offset)
 {

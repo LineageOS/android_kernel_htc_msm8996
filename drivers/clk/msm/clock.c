@@ -1029,10 +1029,6 @@ int msm_clock_register(struct clk_lookup *table, size_t size)
 	for (n = 0; n < size; n++)
 		__handoff_clk(table[n].clk);
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-	htc_clock_status_debug_init(table, size);
-#endif
-
 	
 	if (table[0].con_id || table[0].dev_id)
 		clkdev_add_table(table, size);

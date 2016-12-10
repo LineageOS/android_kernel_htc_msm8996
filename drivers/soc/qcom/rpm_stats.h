@@ -40,8 +40,4 @@ struct msm_rpm_master_stats_platform_data {
 	 u32 version;
 };
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-void msm_rpm_dump_stat(bool print_embedded);
-#endif
-
 #endif

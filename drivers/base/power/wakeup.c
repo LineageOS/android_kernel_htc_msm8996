@@ -945,35 +945,6 @@ static int print_wakeup_source_stats(struct seq_file *m,
 	return ret;
 }
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-void htc_print_active_wakeup_sources(bool print_embedded)
-{
-        struct wakeup_source *ws;
-        char output[512];
-        char piece[64];
-
-        rcu_read_lock();
-        memset(output, 0, sizeof(output));
-        list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
-            if (ws->active) {
-                memset(piece, 0, sizeof(piece));
-                if (ws->timer_expires) {
-                    long timeout = ws->timer_expires - jiffies;
-                    if (timeout > 0) {
-                        snprintf(piece, sizeof(piece), " '%s', time left %ld ticks; ", ws->name, timeout);
-                        safe_strcat(output, piece);
-                    }
-                } else {
-                    snprintf(piece, sizeof(piece), " '%s' ", ws->name);
-                    safe_strcat(output, piece);
-                }
-            }
-        }
-        rcu_read_unlock();
-        k_pr_embedded_cond(print_embedded, "[K] wakeup sources: %s\n", output);
-}
-#endif
-
 static int wakeup_sources_stats_show(struct seq_file *m, void *unused)
 {
 	struct wakeup_source *ws;

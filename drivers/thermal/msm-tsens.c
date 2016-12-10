@@ -881,14 +881,6 @@ static char dbg_buff[1024];
 static struct dentry *dent;
 static struct dentry *dfile_stats;
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-#define MONITOR_TSENS_NUM_CONTROLLER 2
-static struct workqueue_struct *monitor_tsense_wq = NULL;
-struct delayed_work monitor_tsens_status_worker;
-static void monitor_tsens_status(struct work_struct *work);
-struct tsens_tm_device *monitor_tsens_status_tmdev[MONITOR_TSENS_NUM_CONTROLLER];
-#endif
-
 static struct of_device_id tsens_match[] = {
 	{	.compatible = "qcom,msm-tsens",
 		.data = (void *)TSENS_CALIB_FUSE_MAP_8974,
@@ -2628,48 +2620,6 @@ static irqreturn_t tsens_tm_irq_thread(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
-
-#ifdef CONFIG_HTC_POWER_DEBUG
-#define MESSAGE_SIZE 100
-
-static void monitor_tsens_status(struct work_struct *work)
-{
-	unsigned int i, j, cntl;
-	int enable = 0;
-	long temp = 0;
-	unsigned int tsens_id = 0;
-	char message[MESSAGE_SIZE];
-	char thermal_message[256];
-
-	memset(thermal_message, 0, sizeof(thermal_message));
-	for(i = 0 ; i < MONITOR_TSENS_NUM_CONTROLLER ; i++) {
-		if(monitor_tsens_status_tmdev[i] == NULL) {
-			printk("[THERMAL] tsens%d_controller doesn't initialize yet\n", i);
-			continue;
-		}
-		cntl = readl_relaxed(MPM2_TSENS_CTRL(monitor_tsens_status_tmdev[i]->tsens_addr));
-		safe_strcat(thermal_message, "[THERMAL] ");
-		scnprintf(message, MESSAGE_SIZE, "Cntl_%d[0x%08X]: ", i, cntl);
-		safe_strcat(thermal_message, message);
-		cntl >>= TSENS_SENSOR_SHIFT;
-
-		for (j = 0 ; j < monitor_tsens_status_tmdev[i]->tsens_num_sensor; j++) {
-			enable = cntl & (0x1 << j);
-			if (enable > 0) {
-				msm_tsens_get_temp(tsens_id, &temp);
-				scnprintf(message, MESSAGE_SIZE, "%s(%d,%ld.%ld)", j > 0 ? "," : "", tsens_id, temp/10, abs(temp%10));
-				safe_strcat(thermal_message, message);
-			}
-			tsens_id++;
-		}
-		printk("%s\n", thermal_message);
-		memset(thermal_message, 0, sizeof(thermal_message));
-	}
-	if (monitor_tsense_wq) {
-		queue_delayed_work(monitor_tsense_wq, &monitor_tsens_status_worker, msecs_to_jiffies(60000));
-	}
-}
-#endif
 
 static irqreturn_t tsens_irq_thread(int irq, void *data)
 {
@@ -5857,28 +5807,6 @@ static int tsens_tm_probe(struct platform_device *pdev)
 	if (rc < 0)
 		pr_debug("Cannot create create_tsens_mtc_sysfs %d\n", rc);
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-	for(i = 0 ; i < MONITOR_TSENS_NUM_CONTROLLER ; i++) {
-		if(tmdev == monitor_tsens_status_tmdev[i])
-			break;
-		if(monitor_tsens_status_tmdev[i] == NULL) {
-			monitor_tsens_status_tmdev[i] = tmdev;
-			break;
-		}
-	}
-	if(!tsens_tm_probe_count) {
-		tsens_tm_probe_count++;
-		if (monitor_tsense_wq == NULL) {
-			
-			monitor_tsense_wq = create_workqueue("monitor_tsense_wq");
-			printk(KERN_INFO "Create monitor tsense workqueue(0x%p)...\n", monitor_tsense_wq);
-		}
-		if (monitor_tsense_wq) {
-			INIT_DELAYED_WORK(&monitor_tsens_status_worker, monitor_tsens_status);
-			queue_delayed_work(monitor_tsense_wq, &monitor_tsens_status_worker, msecs_to_jiffies(0));
-		}
-	}
-#endif
 	return 0;
 fail:
 	if (tmdev->tsens_critical_wq)

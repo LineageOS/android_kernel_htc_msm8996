@@ -29,10 +29,6 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/of_regulator.h>
 #include <linux/qpnp/power-on.h>
-#ifdef CONFIG_HTC_POWER_DEBUG
-#include <linux/htc_flags.h>
-#include <linux/reboot.h>
-#endif
 
 #include <../../power/reset/htc_restart_handler.h>
 
@@ -910,102 +906,6 @@ int qpnp_pon_wd_config(bool enable)
 }
 EXPORT_SYMBOL(qpnp_pon_wd_config);
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-static int qpnp_pon_readl(struct qpnp_pon *pon, u16 addr, u8 *reg)
-{
-	int rc = 0;
-
-	rc = spmi_ext_register_readl(pon->spmi->ctrl, pon->spmi->sid,
-			addr, reg, 1);
-	if (rc) {
-		dev_err(&pon->spmi->dev,
-			"Unable to read addr=%x, rc(%d)\n",
-			QPNP_PON_REVISION2(pon), rc);
-		return rc;
-	}
-
-	return rc;
-}
-
-#define SID_PMI 2
-static int qpnp_pon_readl_for_pmi(struct qpnp_pon *pon, u16 addr, u8 *reg)
-{
-	int rc = 0;
-
-	rc = spmi_ext_register_readl(pon->spmi->ctrl, SID_PMI,
-			addr, reg, 1);
-	if (rc) {
-		dev_err(&pon->spmi->dev,
-			"Unable to read addr=%x, rc(%d)\n",
-			QPNP_PON_REVISION2(pon), rc);
-		return rc;
-	}
-
-	return rc;
-}
-
-static u8 htc_dump_pon_reg[] =
-{
-	0x40,	
-	0x41,	
-	0x42,	
-	0x43,	
-	0x44,	
-	0x45,	
-	0x46,	
-	0x47,	
-	0x48,	
-	0x49,	
-	0x4A,	
-	0x4B,	
-	0x4C,	
-	0x4D,	
-	0x4E,	
-	0x4F,	
-	0x50,	
-	0x51,	
-	0x52,	
-	0x53,	
-	0x54,	
-	0x55,	
-	0x56,	
-	0x57,	
-	0x58,	
-	0x5A,	
-	0x5B,	
-	0x62,	
-	0x63,	
-	0x64,	
-	0x66,	
-	0x67,	
-	0x70,	
-	0x71,	
-	0x74,	
-	0x75,	
-	0x80,	
-	0x83,	
-	0x88,	
-	0xff
-};
-
-void debug_htc_dump_pon_reg(void)
-{
-	struct qpnp_pon *pon = sys_reset_dev;
-	int i = 0;
-	u8 offset = 0;
-	u8 pm_reg = 0, pmi_reg = 0;
-
-	for( i = 0; htc_dump_pon_reg[i] != 0xff; i++)
-	{
-		offset = htc_dump_pon_reg[i];
-		qpnp_pon_readl(pon, pon->base + (u16)offset, &pm_reg);
-		qpnp_pon_readl_for_pmi(pon, pon->base + (u16)offset, &pmi_reg);
-		pr_info("PON 0x%X: 0x%X 0x%X\n", pon->base + offset, pm_reg, pmi_reg);
-	}
-	pr_info("End of dump PMIC PON.\n");
-}
-#endif
-
 static int qpnp_pon_get_trigger_config(enum pon_trigger_source pon_src,
 							bool *enabled)
 {
@@ -1227,107 +1127,12 @@ static irqreturn_t qpnp_resin_irq(int irq, void *_pon)
 	return IRQ_HANDLED;
 }
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-struct pmic_dump_ranges {
-	const char *name;
-	unsigned char	sid_sel;
-	unsigned short	addr_start;
-	unsigned int	length;
-};
-
-#define PMIC_REG_DUMP_RANGE(_name, _sid_sel, _addr_start, _length) \
-	{ \
-		.name	= _name, \
-		.sid_sel	= _sid_sel, \
-		.addr_start	= _addr_start, \
-		.length	= _length, \
-	}
-
-static struct pmic_dump_ranges htc_dump_ranges[] = {
-	
-	PMIC_REG_DUMP_RANGE("PM_PON", 0, 0x800,  0x91),
-	PMIC_REG_DUMP_RANGE("PMI_PON", 2, 0x800, 0x91),
-	PMIC_REG_DUMP_RANGE("PMI_Charger_1", 2, 0x1000,  0x4FF),
-	PMIC_REG_DUMP_RANGE("PMI_Charger_2", 2, 0x1600, 0xFF),
-	PMIC_REG_DUMP_RANGE("PMI_Fuel_Gauge", 2, 0x4000, 0x4E4)
-};
-
-#define DUMP_COLS 16
-void pmic_reg_hexdump(unsigned char sid, unsigned short addr, unsigned int dump_len)
-{
-	struct qpnp_pon *pon = sys_reset_dev;
-	int i, buffer_size, end_col, rc = 0;
-	char buffer[DUMP_COLS * 4 + 9]; 
-	unsigned char reg = 0;
-	ssize_t len, ret = 0;
-
-	buffer_size = sizeof(buffer);
-	end_col = DUMP_COLS -1;
-	dump_len += ((dump_len % DUMP_COLS) ? (DUMP_COLS - dump_len % DUMP_COLS) : 0);
-
-	for(i = 0; i < dump_len; i++)
-	{
-		
-		if(i % DUMP_COLS == 0) {
-			len = snprintf(buffer + ret, buffer_size - ret, "0x%06x: ", addr + i);
-			ret += len;
-		}
-
-		
-		if(i < dump_len) {
-			rc = spmi_ext_register_readl(pon->spmi->ctrl, sid,
-					addr+i, &reg, 1);
-			if (rc) {
-				dev_err(&pon->spmi->dev,
-					"Unable to read addr=%x, rc(%d)\n",
-					addr + i, rc);
-			}
-			len = snprintf(buffer + ret, buffer_size - ret, "%02x ", 0xFF & reg);
-			ret += len;
-		}
-
-		
-		if(i % DUMP_COLS == end_col) {
-			printk(KERN_INFO "%s\n", buffer);
-			len = 0;
-			ret = 0;
-		}
-	}
-}
-
-static void do_htc_pmic_reg_dump(void)
-{
-	int i;
-	for(i = 0; i < ARRAY_SIZE(htc_dump_ranges); i++)
-	{
-		printk(KERN_INFO "++++++ %s start_addr=0x%06x, len=0x%06x ++++++\n",
-			htc_dump_ranges[i].name, htc_dump_ranges[i].addr_start, htc_dump_ranges[i].length);
-		pmic_reg_hexdump(htc_dump_ranges[i].sid_sel, htc_dump_ranges[i].addr_start, htc_dump_ranges[i].length);
-		printk(KERN_INFO "------ %s start_addr=0x%06x, len=0x%06x ------\n",
-			htc_dump_ranges[i].name, htc_dump_ranges[i].addr_start, htc_dump_ranges[i].length);
-	}
-}
-#endif
-
 static irqreturn_t qpnp_kpdpwr_resin_bark_irq(int irq, void *_pon)
 {
 	struct qpnp_pon *pon = _pon;
 
 	dev_err(&pon->spmi->dev, "Long press power key: kpdpwer+resin bark\r\n");
 	set_restart_action(RESTART_REASON_RAMDUMP, "Powerkey Hard Reset");
-#ifdef CONFIG_HTC_POWER_DEBUG
-	if (get_kernel_flag() & KERNEL_FLAG_PM_MONITOR) {
-		
-		if (qpnp_get_s2_en(PON_KPDPWR_RESIN) > 0)
-		qpnp_config_s2_enable(PON_KPDPWR_RESIN, 0);
-
-		
-		do_htc_pmic_reg_dump();
-
-		
-		machine_restart("force-dog-bark");
-	}
-#endif
 	return IRQ_HANDLED;
 }
 
@@ -2400,21 +2205,8 @@ static int qpnp_pon_debugfs_uvlo_set(void *data, u64 val)
 	return 0;
 }
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-static int htc_dump_pmic_reg_get(void *data, u64 *val)
-{
-	do_htc_pmic_reg_dump();
-	return 0;
-}
-#endif
-
 DEFINE_SIMPLE_ATTRIBUTE(qpnp_pon_debugfs_uvlo_fops, qpnp_pon_debugfs_uvlo_get,
 			qpnp_pon_debugfs_uvlo_set, "0x%02llx\n");
-
-#ifdef CONFIG_HTC_POWER_DEBUG
-DEFINE_SIMPLE_ATTRIBUTE(htc_dump_pmic_reg_fops, htc_dump_pmic_reg_get,
-			NULL, "0x%02llx\n");
-#endif
 
 static void qpnp_pon_debugfs_init(struct spmi_device *spmi)
 {
@@ -2430,13 +2222,6 @@ static void qpnp_pon_debugfs_init(struct spmi_device *spmi)
 				pon->debugfs, pon, &qpnp_pon_debugfs_uvlo_fops);
 		if (!ent)
 			dev_err(&pon->spmi->dev, "Unable to create uvlo_panic debugfs file.\n");
-#ifdef CONFIG_HTC_POWER_DEBUG
-		ent = debugfs_create_file("dump_pmic_reg",
-				S_IFREG | S_IWUSR | S_IRUGO,
-				pon->debugfs, pon, &htc_dump_pmic_reg_fops);
-		if (!ent)
-			dev_err(&pon->spmi->dev, "Unable to create dump_pmic_reg debugfs file.\n");
-#endif
 	}
 }
 

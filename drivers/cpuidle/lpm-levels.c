@@ -55,14 +55,6 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
 #include "../../drivers/clk/msm/clock.h"
-#ifdef CONFIG_HTC_POWER_DEBUG
-#include "../soc/qcom/rpm_stats.h"
-#include <linux/qpnp/pin.h>
-#include <linux/pinctrl/pinctrl.h>
-#include <soc/qcom/htc_util.h>
-extern int htc_vregs_dump(char *vreg_buffer, int curr_len);
-
-#endif
 
 #if defined(CONFIG_HTC_DEBUG_WATCHDOG)
 extern int msm_watchdog_suspend_deferred(void);
@@ -76,20 +68,6 @@ static inline int msm_watchdog_resume_deferred(void) { return 0; }
 #define SCM_HANDOFF_LOCK_ID "S:7"
 #define PSCI_POWER_STATE(reset) (reset << 30)
 #define PSCI_AFFINITY_LEVEL(lvl) ((lvl & 0x3) << 24)
-
-#ifdef CONFIG_HTC_POWER_DEBUG
-enum {
-	MSM_PM_DEBUG_CLOCK = BIT(3),
-	MSM_PM_DEBUG_GPIO = BIT(9),
-	MSM_PM_DEBUG_VREG = BIT(13),
-};
-
-static int msm_pm_debug_mask = 0;
-
-module_param_named(
-        debug_mask, msm_pm_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
-);
-#endif
 
 static remote_spinlock_t scm_handoff_lock;
 
@@ -970,73 +948,6 @@ unlock_and_return:
 	return state_id;
 }
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-static char *gpio_sleep_status_info;
-
-int print_gpio_buffer(struct seq_file *m)
-{
-	if (gpio_sleep_status_info)
-		seq_printf(m, gpio_sleep_status_info);
-	else
-		seq_printf(m, "Device haven't suspended yet!\n");
-	return 0;
-}
-EXPORT_SYMBOL(print_gpio_buffer);
-
-int free_gpio_buffer(void)
-{
-	kfree(gpio_sleep_status_info);
-	gpio_sleep_status_info = NULL;
-
-	return 0;
-}
-EXPORT_SYMBOL(free_gpio_buffer);
-
-static char *vreg_sleep_status_info;
-
-int print_vreg_buffer(struct seq_file *m)
-{
-	if (vreg_sleep_status_info)
-		seq_printf(m, vreg_sleep_status_info);
-	else
-		seq_printf(m, "Device haven't suspended yet!\n");
-
-	return 0;
-}
-EXPORT_SYMBOL(print_vreg_buffer);
-
-int free_vreg_buffer(void)
-{
-	kfree(vreg_sleep_status_info);
-	vreg_sleep_status_info = NULL;
-
-	return 0;
-}
-EXPORT_SYMBOL(free_vreg_buffer);
-
-static char *pmic_reg_sleep_status_info;
-
-int print_pmic_reg_buffer(struct seq_file *m)
-{
-	if (pmic_reg_sleep_status_info)
-		seq_printf(m, pmic_reg_sleep_status_info);
-	else
-		seq_printf(m, "Device haven't suspended yet!\n");
-
-	return 0;
-}
-EXPORT_SYMBOL(print_pmic_reg_buffer);
-
-int free_pmic_reg_buffer(void)
-{
-	kfree(pmic_reg_sleep_status_info);
-	pmic_reg_sleep_status_info = NULL;
-
-	return 0;
-}
-EXPORT_SYMBOL(free_pmic_reg_buffer);
-#endif
-
 #if !defined(CONFIG_CPU_V7)
 asmlinkage int __invoke_psci_fn_smc(u64, u64, u64, u64);
 #ifdef CONFIG_HTC_DEBUG_FOOTPRINT
@@ -1047,25 +958,10 @@ bool psci_enter_sleep(struct lpm_cluster *cluster, int idx, bool from_idle, bool
 bool psci_enter_sleep(struct lpm_cluster *cluster, int idx, bool from_idle)
 {
 #endif
-
-#ifdef CONFIG_HTC_POWER_DEBUG
-	 int curr_len = 0;
-#endif
-#ifdef CONFIG_HTC_POWER_DEBUG
-	int64_t time;
-#endif
 	if (!idx) {
 		htc_lpm_pre_action(from_idle);
 		stop_critical_timings();
-#ifdef CONFIG_HTC_POWER_DEBUG
-		time = sched_clock();
 		wfi();
-		time = sched_clock() - time;
-		do_div(time,1000);
-		htc_idle_stat_add(idx, (u32)time);
-#else
-		wfi();
-#endif
 		start_critical_timings();
 		htc_lpm_post_action(from_idle);
 		return 1;
@@ -1096,62 +992,9 @@ bool psci_enter_sleep(struct lpm_cluster *cluster, int idx, bool from_idle)
 		set_cpu_foot_print(cpu, 0x0);
 #endif
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-		if(!from_idle) {
-			if (MSM_PM_DEBUG_GPIO & msm_pm_debug_mask) {
-				if (gpio_sleep_status_info) {
-					memset(gpio_sleep_status_info, 0,
-						sizeof(*gpio_sleep_status_info));
-				} else {
-					gpio_sleep_status_info = kmalloc(25000, GFP_ATOMIC);
-					if (!gpio_sleep_status_info)
-						pr_err("[PM] kmalloc memory failed in %s\n", __func__);
-				}
-				curr_len = msm_dump_gpios(NULL, curr_len,
-							gpio_sleep_status_info);
-				curr_len = qpnp_pin_dump(NULL, curr_len,
-							gpio_sleep_status_info);
-				pr_info("The MSM_PM_DEBUG_GPIO turn on");
-			}
-
-			if (MSM_PM_DEBUG_VREG & msm_pm_debug_mask) {
-
-				curr_len = 0;
-				if (vreg_sleep_status_info) {
-					memset(vreg_sleep_status_info, 0,
-						sizeof(*vreg_sleep_status_info));
-				} else {
-					vreg_sleep_status_info = kmalloc(25000, GFP_ATOMIC);
-					if (!vreg_sleep_status_info)
-						pr_err("kmalloc memory failed in %s\n", __func__);
-				}
-				curr_len = htc_vregs_dump(vreg_sleep_status_info, curr_len);
-
-				pr_info("The MSM_PM_DEBUG_VREGS turn on");
-			}
-			msm_rpm_dump_stat(false);
-			pr_info("[R] suspend end\n");
-		}
-#endif
 		htc_lpm_pre_action(from_idle);
-#ifdef CONFIG_HTC_POWER_DEBUG
-		time = sched_clock();
 		success = !cpu_suspend(state_id);
-		time = sched_clock() - time;
-#else
-		success = !cpu_suspend(state_id);
-#endif
 		htc_lpm_post_action(from_idle);
-#ifdef CONFIG_HTC_POWER_DEBUG
-		if(!from_idle) {
-			pr_info("[R] resume start\n");
-			msm_rpm_dump_stat(false);
-		}
-		else {
-			do_div(time,1000);
-			htc_idle_stat_add(idx, (u32)time);
-		}
-#endif
 
 #ifdef CONFIG_HTC_DEBUG_FOOTPRINT
 		if (success == true) {
@@ -1520,10 +1363,6 @@ static int lpm_suspend_enter(suspend_state_t state)
 	 */
 	clock_debug_print_enabled();
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-		if (MSM_PM_DEBUG_CLOCK & msm_pm_debug_mask)
-			pr_info("The MSM_PM_DEBUG_CLOCK turn on");
-#endif
 	if (!use_psci)
 		msm_cpu_pm_enter_sleep(cluster->cpu->levels[idx].mode, false);
 	else

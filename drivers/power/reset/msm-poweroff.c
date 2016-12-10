@@ -26,9 +26,6 @@
 #include <linux/qpnp/power-on.h>
 #include <linux/of_address.h>
 #include <linux/console.h>
-#ifdef CONFIG_HTC_POWER_DEBUG
-#include <linux/htc_flags.h>
-#endif
 
 #include <asm/cacheflush.h>
 #include <asm/system_misc.h>
@@ -51,9 +48,6 @@
 #define SCM_EDLOAD_MODE			0X01
 #define SCM_DLOAD_CMD			0x10
 
-#ifdef CONFIG_HTC_POWER_DEBUG
-extern void debug_htc_dump_pon_reg(void);
-#endif
 extern void msm_watchdog_bark(void);
 
 static int restart_mode;
@@ -451,11 +445,6 @@ static void deassert_ps_hold(void)
 		.args[0] = 0,
 		.arginfo = SCM_ARGS(1),
 	};
-
-#ifdef CONFIG_HTC_POWER_DEBUG
-	if(get_kernel_flag() & KERNEL_FLAG_SERIAL_HSL_ENABLE)
-		debug_htc_dump_pon_reg();
-#endif
 
 	if (scm_deassert_ps_hold_supported) {
 		/* This call will be available on ARMv8 only */
