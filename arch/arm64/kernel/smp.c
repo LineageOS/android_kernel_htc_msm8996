@@ -627,8 +627,7 @@ static void smp_send_all_cpu_backtrace(void)
 		smp_cross_call_common(&backtrace_mask, IPI_CPU_BACKTRACE);
 
 	/* Wait for up to 10 seconds for all other CPUs to do the backtrace */
-	for (i = 0; i < 10 * 1000; i++)
-	{
+	for (i = 0; i < 10 * 1000; i++) {
 		if (cpumask_empty(&backtrace_mask))
 			break;
 		mdelay(1);
@@ -663,6 +662,7 @@ void arch_trigger_all_cpu_backtrace(void)
 	dump_stack();
 }
 #endif
+
 
 /*
  * Main handler for inter-processor interrupts

@@ -138,6 +138,7 @@ static int psci_cpu_off(struct psci_power_state state)
 {
 	int err;
 	u32 fn, power_state;
+
 	fn = psci_function_id[PSCI_FN_CPU_OFF];
 	power_state = psci_power_state_pack(state);
 	err = invoke_psci_fn(fn, power_state, 0, 0);
@@ -472,6 +473,7 @@ static int cpu_psci_cpu_boot(unsigned int cpu)
 	int err = psci_ops.cpu_on(cpu_logical_map(cpu), __pa(secondary_entry));
 	if (err)
 		pr_err("failed to boot CPU%d (%d)\n", cpu, err);
+
 	return err;
 }
 
@@ -494,7 +496,9 @@ static void cpu_psci_cpu_die(unsigned int cpu)
 	struct psci_power_state state = {
 		.type = PSCI_POWER_STATE_TYPE_POWER_DOWN,
 	};
+
 	ret = psci_ops.cpu_off(state);
+
 	pr_crit("unable to power off CPU%u (%d)\n", cpu, ret);
 }
 

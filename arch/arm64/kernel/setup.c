@@ -575,7 +575,7 @@ static const char *compat_hwcap2_str[] = {
 	"crc32",
 	NULL
 };
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static u32 cx_fuse_data = 0x0;
 static u32 mx_fuse_data = 0x0;
