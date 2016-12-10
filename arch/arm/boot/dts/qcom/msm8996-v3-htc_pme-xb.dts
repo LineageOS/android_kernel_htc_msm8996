@@ -1,0 +1,50 @@
+/* Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+
+/dts-v1/;
+
+#include "msm8996-v3.dtsi"
+#include "msm-pmi8996.dtsi"
+#include "msm8996-htc_pme.dtsi"
+#include "msm8996-camera-sensor-pme.dtsi"
+
+/ {
+	model = "HTC Corporation. MSM8996v3 PME XB";
+	qcom,msm-id = <402 0x30001>, <403 0x30001>, <405 0x30001>, <406 0x30001>;
+	qcom,board-id = <0x1 0>;
+};
+
+&soc {
+        i2c@75ba000 {
+                htc_laser@29 {
+                        laser,hw_workaround = <1>;
+                };
+        };
+};
+
+&spmi_bus {
+	qcom,pmi8994@3 {
+		qcom,leds@d800 {
+			qcom,fs-curr-ua = <20000>;      /* HTC: 2ch, 20mA */
+			qcom,led-strings-list = [00 01];
+			qcom,en-cabc;
+		};
+	};
+};
+
+&spi_2 {
+        htc_mcu@0 {
+                mcu,need_notify_display = <0>;
+                mcu,need_compass_filter = <1>;
+        };
+};

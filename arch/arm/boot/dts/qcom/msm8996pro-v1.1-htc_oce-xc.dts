@@ -1,0 +1,27 @@
+/* Copyright (c) 2016, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+
+/dts-v1/;
+
+#include "msm8996pro-v1.1.dtsi"
+#include "msm-pmi8996.dtsi"
+#include "msm8996-mtp.dtsi"
+#include "msm8996-nc-pins-htc_oce-xa.dtsi"
+#include "msm8996-htc_oce.dtsi"
+
+/ {
+	model = "HTC Corporation. MSM8996pro v1.1 + PMI8996 OCE XC";
+	qcom,msm-id = <433 0x10001>, <434 0x10001>;
+	qcom,board-id = <0x2 0>;
+};
+

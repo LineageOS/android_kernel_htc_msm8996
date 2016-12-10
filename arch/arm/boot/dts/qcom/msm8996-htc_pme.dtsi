@@ -1,0 +1,427 @@
+/* Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+
+#include "msm8996-cdp.dtsi"
+#include "msm8996-htc-common.dtsi"
+#include "msm8996-touch-pme.dtsi"
+#include "msm8996-shub-pme.dtsi"
+#include "dsi-panel-pme-hx8396c2.dtsi"
+#include "dsi-panel-pme.dtsi"
+#include "msm8996-capsensor-pme.dtsi"
+#include "msm8996-hall-sensor-pme.dtsi"
+#include "msm8996-key-pme.dtsi"
+#include "msm8996-vibrator-pme.dtsi"
+#include "msm8996-audio-pme.dtsi" //HTC_AUD
+#include "msm8996-charger-pme.dtsi"
+
+/ {
+	model = "HTC Corporation. MSM8996v2 PME";
+	compatible = "qcom,msm8996-cdp", "qcom,msm8996", "qcom,cdp";
+
+	aliases {
+		i2c9 = &i2c_9; /* MHL I2C */
+		/* i2c6:     TP I2C */
+		/* i2c7:    AUD I2C */
+		/* i2c8:    NFC I2C */
+		/* i2c12: LASER I2C */
+	};
+};
+
+// [HTC_BT] +++
+//#include "msm8996-htc_o2-fm.dtsi"
+
+&htcbtpower {
+	brcm,bt-regon-gpio = <&pm8994_gpios 19 0>; /* O2 BT_EN */
+};
+// [HTC_BT] ---
+
+//NFC++
+#include "msm8996-htc_o2-pn548.dtsi"
+//NFC--
+
+&soc {
+	htc,htc_nc_pins {
+		compatible = "htc,nc_pin";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pme_nc_pins_in_pd &cap_touch_pin>;
+	};
+
+//HTC_FP_START
+  fp_fpc1155 {
+         compatible = "fpc,fpc1020";
+                 interrupt-parent  = <&tlmm>;
+                 interrupts        = <86 0x0>;
+                 fpc_gpio_rst = <&tlmm 131 0>;
+                 fpc_gpio_irq = <&tlmm 86 0>;
+                 fpc,use_fpc2050   = <1>;
+                 fpc,enable-on-boot;
+                 /delete-property/ fpc,enable-wakeup;
+                // EV_MSC, MSC_SCAN
+                 fpc,event-type = <4>;
+                 fpc,event-code = <4>;
+                 pinctrl-names     =
+                                    "fpc1020_irq_active",
+                                    "fpc1020_reset_reset",
+                                    "fpc1020_reset_active";
+
+                 pinctrl-0         = <&fpc1020_irq_active>;
+                 pinctrl-1         = <&fpc1020_reset_reset>;
+                 pinctrl-2         = <&fpc1020_reset_active>;
+
+
+    };
+//HTC_FP_END
+
+
+
+	i2c_9: i2c@75b7000 {
+		compatible = "qcom,i2c-msm-v2";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg-names = "qup_phys_addr";
+		reg = <0x75b7000 0x1000>;
+		interrupt-names = "qup_irq";
+		interrupts = <0 103 0>;
+		dmas = <&dma_blsp2 16 32 0x20000020 0x20>,
+			<&dma_blsp2 17 32 0x20000020 0x20>;
+		dma-names = "tx", "rx";
+		qcom,master-id = <84>;
+		qcom,clk-freq-out = <400000>;
+		qcom,clk-freq-in  = <19200000>;
+		clock-names = "iface_clk", "core_clk";
+		clocks = <&clock_gcc clk_gcc_blsp2_ahb_clk>,
+			 <&clock_gcc clk_gcc_blsp2_qup3_i2c_apps_clk>;
+		pinctrl-names = "i2c_active", "i2c_sleep";
+		pinctrl-0 = <&i2c_9_active>;
+		pinctrl-1 = <&i2c_9_sleep>;
+	};
+
+	i2c@75ba000 {
+		htc_laser@29 {
+			compatible = "htc_laser";
+			reg = <0x29>;
+			pinctrl-names = "laser_gpio_init";
+			pinctrl-0 = <&laser_pwdn &laser_int>;
+			laser,power-2v8 = <&pmi8994_gpios 2 0>;
+			laser,pwdn-gpio = <&tlmm 94 0>;
+			CAMIO_1v8-supply = <&pm8994_l14>;
+			interrupt-parent = <&tlmm>;
+			interrupts = <106 0x0>;
+			laser,intr-gpio = <&tlmm 106 0>;
+		};
+	};
+};
+
+&i2c_6 {
+	at24@51 {	//US FP used
+		compatible = "at24,24c32";
+		reg = <0x51>;
+	};
+};
+
+&tlmm {
+	pme_nc_pins_in_pd {
+		pme_nc_pins_in_pd: pme_nc_pins_in_pd {
+			mux {
+				pins = "gpio8", "gpio69", "gpio73", "gpio79", "gpio113", "gpio135", "gpio143";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio8", "gpio69", "gpio73", "gpio79", "gpio113", "gpio135", "gpio143";
+				drive-strength = <2>;		/* 2 mA */
+				bias-pull-down;			/* PULL DOWN */
+			};
+		};
+	};
+
+	cap_touch_pin {
+		cap_touch_pin: cap_touch_pin {//78:Polling rate change
+			mux {
+				pins = "gpio78";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio78";
+				drive-strength = <2>; 	// 2 mA
+				bias-disable;		// NO PULL
+			};
+		};
+	};
+
+	anx7816_pd: anx7816_pd {
+		mux {
+			pins = "gpio96";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio96";
+			drive-strength = <2>;
+			output-high;
+		};
+	};
+
+	anx7816_reset: anx7816_reset {
+		mux {
+			pins = "gpio105";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio105";
+			drive-strength = <2>;
+			output-low;
+		};
+	};
+
+	anx7816_interrupt: anx7816_interrupt {
+		mux {
+			pins = "gpio120";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio120";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+
+	anx7816_cable_det: anx7816_cable_det {
+		mux {
+			pins = "gpio132";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio132";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+	mdss_hdmi_hpd_suspend: mdss_hdmi_hpd_suspend {
+		mux {
+			pins = "gpio34";
+			function = "hdmi_hot";
+		};
+
+		config {
+			pins = "gpio34";
+			bias-pull-down;
+			drive-strength = <2>;
+		};
+	};
+};
+
+&mdss_dsi0 {
+	vddio-supply = <&pm8994_lvs1>;
+	vddio-switch-supply = <&pm8994_lvs1_ext_ldo_switch>;
+
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,platform-reset-gpio = <&tlmm 39 0>;
+	qcom,platform-vddio-gpio = <&pmi8994_gpios 4 0>;
+	/delete-property/ qcom,platform-bklight-en-gpio;
+};
+
+&mdss_dsi1 {
+	vddio-supply = <&pm8994_lvs1>;
+	vddio-switch-supply = <&pm8994_lvs1_ext_ldo_switch>;
+
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,platform-reset-gpio = <&tlmm 39 0>;
+	qcom,platform-vddio-gpio = <&pmi8994_gpios 4 0>;
+	/delete-property/ qcom,platform-bklight-en-gpio;
+};
+
+&mdss_dsi_active {
+	mux {
+		pins = "gpio39";
+		function = "gpio";
+	};
+
+	pmx_mdss {
+		pins = "gpio39";
+		drive-strength = <2>; /* 2 mA */
+		output-high;
+	};
+};
+
+&mdss_dsi_suspend {
+	mux {
+		pins = "gpio39";
+		function = "gpio";
+	};
+
+	config {
+		pins = "gpio39";
+		drive-strength = <2>; /* 2 mA */
+		output-low;
+	};
+};
+
+&spmi_bus {
+	qcom,pmi8994@2{
+		mpp@a000 { /* MPP 1 */
+			compatible = "qcom,rgb-qpnp";
+			reg = <0xa000 0x100>;
+			label = "mpp";
+			status = "okay";
+			qcom,led_mpp_1 {
+				label = "mpp";
+				linux,name = "button-backlight";
+				linux,default-trigger = "none";
+				pwms = <&pmi8994_pwm_4 0 0>;
+				qcom,default-state = "off";
+				qcom,max-current = <40>;
+				qcom,current-setting = <5>;
+				qcom,id = <6>;
+				qcom,mode = "lpg";
+				qcom,source-sel = <15>;
+				qcom,mode-ctrl = <0x10>;
+				qcom,pwm-us = <1000>;
+				qcom,duty-pcts = [00 00 00 00 64
+					64 00 00 00 00];
+				qcom,start-idx = <0>;
+				qcom,pause-hi = <1>;
+				qcom,pause-lo = <1>;
+				qcom,ramp-step-ms = <64>;
+				qcom,lut-flags = <0x18>;
+				vk,base-pwm = <50>;
+				vk-pwm-array = [00 03 0A 0A 84 84 FF FF FF FF FF];
+			};
+		};
+		mpp@a300 { /* MPP 4 */
+			compatible = "qcom,rgb-qpnp";
+			reg = <0xa300 0x100>;
+			label = "mpp";
+			status = "okay";
+			qcom,led_mpp_4 {
+				label = "mpp";
+				linux,name = "button-backlight";
+				linux,default-trigger = "none";
+				pwms = <&pmi8994_pwm_4 0 0>;
+				qcom,default-state = "off";
+				qcom,max-current = <40>;
+				qcom,current-setting = <40>;
+				qcom,id = <6>;
+				qcom,mode = "lpg";
+				qcom,source-sel = <14>;
+				qcom,mode-ctrl = <0x60>;
+				qcom,pwm-us = <1000>;
+				qcom,duty-pcts = [00 00 00 00 64
+					64 00 00 00 00];
+				qcom,start-idx = <0>;
+				qcom,pause-hi = <1>;
+				qcom,pause-lo = <1>;
+				qcom,ramp-step-ms = <64>;
+				qcom,lut-flags = <0x18>;
+				vk-pwm-array = [00 03 0A 0A 84 84 FF FF FF FF FF];
+				vk-black-cg-id-def = "DEF00", "GRY00", "LOB00", "BLK00";
+				vk-black-cg-id-sec = "LEB00";
+				vk-white-cg-id-def = "PNK00", "GOD00", "LOW00", "WHT00";
+				vk-white-cg-id-sec = "LEW00";
+				vk-black-pwm-array-def = [00 03 0A 0A 0A 30 30 FF FF FF FF FF];
+				vk-white-pwm-array-def = [00 03 0C 0C 0C 84 84 FF FF FF FF FF];
+				vk-current-array-def =   [14 14 28 28 28 28 28 28 28 28 28 28];
+				vk-black-pwm-array-sec = [00 03 0F 0F 0F 10 10 60 60 60 60 60];
+				vk-white-pwm-array-sec = [00 06 18 18 18 84 84 FF FF FF FF FF];
+				vk-current-array-sec =   [0A 0A 14 14 14 28 28 28 28 28 28 28];
+			};
+		};
+	};
+	qcom,pmi8994@3 {
+		qcom,leds@d000{
+			compatible = "qcom,rgb-qpnp";
+			reg = <0xd000 0x100>;
+			label = "rgb";
+			status = "okay";
+
+			qcom,rgb_indicator{
+				label = "rgb";
+				pwm_ratio = /bits/ 8 <255>;
+				linux,name = "indicator";
+			};
+		};
+		qcom,leds@d800 {
+			qcom,fs-curr-ua = <10000>;      /* HTC: 4ch, 10mA */
+			qcom,led-strings-list = [00 01 02 03];
+			qcom,en-cabc;
+			htc,hyb-thres-low = <10000>;
+			htc,hyb-thres-low-wm = <561>;
+		};
+	};
+};
+
+&i2c_9 {
+	analogix_i2c@72 {
+		status = "okay";
+		compatible ="analogix,anx7816";
+		reg = <0x72>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <132 0>; // HPD_IN gpio as interrupt source
+
+		analogix,reset-gpio = <&tlmm 105 0x0>;
+		analogix,p-dwn-gpio = <&tlmm 96 0x0>;
+		analogix,cbl-det-gpio = <&tlmm 132 0x0>;
+		analogix,irq-gpio = <&tlmm 120 0x0>; // INT-mode not used
+		analogix,external-ldo-control = <2>;
+		analogix,hdmi-tx-map = <&mdss_hdmi_tx>;
+
+		vdd10-supply = <&pm8994_l27>;
+		vdd33-supply = <&pm8994_l29>; // always-on
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&anx7816_pd &anx7816_reset &anx7816_interrupt &anx7816_cable_det>;
+/*
+		analogix,v10-ctrl-gpio = <&pm8941_gpios 35 0x0>;//EDU_PM_GPIO3
+		analogix,v33-ctrl-gpio = <&msmgpio 14 0x0>;//APQ_GPIO_14
+		analogix,cbl-det-gpio = <&msmgpio 80 0x0>;//APQ_GPIO_80
+		analogix,external-ldo-control = <1>;
+		analogix,i2c-pull-up = <1>;
+*/
+	};
+	ohio@50 {
+		compatible = "analogix,ohio";
+		reg = <0x50>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <124 0>;
+		analogix,p-on-gpio = <&tlmm 30 0x00>;
+		analogix,cbl-det-gpio = <&tlmm 108 0x00>;
+		analogix,intr-comm-gpio = <&tlmm 124 0x00>;
+		analogix,vconn-boost-gpio = <&tlmm 11 0x00>;
+		analogix,reset-gpio = <&pm8994_gpios 12 0>;
+		analogix,usb-ptn-c1-gpio = <&pm8994_gpios 1 0>;
+		analogix,usb-ptn-c2-gpio = <&pm8994_gpios 10 0>;
+		V_USB_boost-supply = <&pmi8994_boost_pin_ctrl>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&req_5v_bst &power_en_pin &cable_det_pin &ohio_interrupt_pin>;
+	};
+};
+
+&pmi8994_mpps {
+	mpp@a300 { /* MPP 4 */
+		/* MPP4 was WLED FET on QUALCOMM CDP but NC here */
+		status = "disabled";
+	};
+};
+
+&rpm_bus {
+	rpm-regulator-ldoa27 {
+		status = "okay";
+		pm8994_l27: regulator-l27 {
+			regulator-min-microvolt = <1050000>;
+			regulator-max-microvolt = <1050000>;
+			qcom,init-voltage = <1050000>;
+			status = "okay";
+		};
+	};
+};

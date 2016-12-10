@@ -1,0 +1,139 @@
+#include <dt-bindings/input/input.h>
+
+&soc {
+	tlmm: pinctrl@01010000 {
+		pmx_cap {
+			cap_intr_active: cap_intr_active {
+				mux {
+					pins = "gpio92";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio92";
+					drive-strength = <2>;
+					bias-disable;
+				};
+			};
+			cap_intr_suspend: cap_intr_suspend {
+				mux {
+					pins = "gpio92";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio92";
+					drive-strength = <2>;
+					bias-disable;
+				};
+			};
+
+			cap_rst_active: cap_rst_active {
+				mux {
+					pins = "gpio85";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio85";
+					drive-strength = <2>;
+					bias-disable;
+					output-high;
+				};
+			};
+			cap_rst_suspend: cap_rst_suspend {
+				mux {
+					pins = "gpio85";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio85";
+					drive-strength = <2>;
+					bias-disable;
+					output-high;
+				};
+			};
+
+			cap_ind_active: cap_ind_active {
+				mux {
+					pins = "gpio107";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio107";
+					drive-strength = <2>;
+					bias-disable;
+					output-high;
+				};
+			};
+			cap_ind_suspend: cap_ind_suspend {
+				mux {
+					pins = "gpio107";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio107";
+					drive-strength = <2>;
+					bias-disable;
+					output-high;
+				};
+			};
+			cap_id_pin_active: cap_id_pin_active {
+				mux {
+					pins = "gpio62";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio62";
+					drive-strength = <2>;
+					bias-pull-up;
+				};
+			};
+			cap_id_pin_suspend: cap_id_pin_suspend {
+				mux {
+					pins = "gpio62";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio62";
+					drive-strength = <2>;
+					bias-pull-down;
+				};
+			};
+		};
+	};
+};
+
+&i2c_6 {
+	cypress_fw_update@62 {
+		compatible = "cypress_fw_update";
+		reg = <0x62>;
+	};
+
+	cypress_cy8c4014@64 {
+		compatible = "cypress_cap";
+		reg = <0x64>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <92 0>;
+		cap-sensor-irq = <&tlmm 92 0x00>;
+		cap-sensor-rst = <&tlmm 85 0x00>;
+		cap-sensor-ind = <&tlmm 107 0x00>;
+		cap-sensor-id  = <&tlmm 62 0x00>; /* 0x00: High Active; 0x01 Low Active */
+		cap-supply = <&pm8994_l18>;
+		cap-voltage-max = <1900000>;
+		cap-num = <2>;
+		raw-cap = <2>;
+		project-id = <0x10>;
+		update-feature = <1>;
+		pinctrl-names = "pmx_cap_active", "pmx_cap_suspend";
+		pinctrl-0 = <&cap_intr_active &cap_rst_active &cap_ind_active &cap_id_pin_active>;
+		pinctrl-1 = <&cap_intr_suspend &cap_rst_suspend &cap_ind_suspend &cap_id_pin_suspend>;
+
+		cap-0{
+			cap-id = <0>;
+			keycode = <KEY_APPSELECT>;
+		};
+		cap-1{
+			cap-id = <1>;
+			keycode = <KEY_BACK>;
+		};
+	};
+};
+

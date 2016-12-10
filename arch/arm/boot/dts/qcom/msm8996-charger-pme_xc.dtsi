@@ -1,0 +1,28 @@
+/* 8996PME Charger Config */
+/* CONFIG_HTC_BATT_PCN0016 */
+
+// ================
+//  CHARGER DRIVER Additional configurations on XC board
+// ================
+
+&pmi8994_gpios {
+	gpio@c500 {
+		reg = <0xc500 0x100>;
+		qcom,pin-num = <6>;
+		qcom,mode = <0>;	/* DIGITAL INPUT */
+		qcom,pull = <5>;	/* No Pull */
+		qcom,vin-sel = <2>;	/* 1.8 */
+		qcom,src-sel = <0>;	/* CONSTANT */
+		qcom,master-en = <1>;	/* ENABLE GPIO */
+		qcom,out-strength = <3>;
+		status = "okay";
+	};
+};
+
+&soc {
+	htc,htc-charger {
+		qcom,charger-ready-gpio  = <&pmi8994_gpios 6 0>;
+		iusb_rsen = <1400>;
+	};
+};
+

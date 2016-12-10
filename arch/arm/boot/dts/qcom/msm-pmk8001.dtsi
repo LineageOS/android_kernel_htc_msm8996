@@ -30,6 +30,7 @@
 			qcom,secondary-pon-reset;
 			qcom,hard-reset-poweroff-type =
 				<PON_POWER_OFF_SHUTDOWN>;
+			status = "disabled";
 		};
 
 		pmk8001_gpios: gpios {

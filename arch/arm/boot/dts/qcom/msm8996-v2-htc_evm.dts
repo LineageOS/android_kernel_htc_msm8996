@@ -1,0 +1,69 @@
+/* Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+
+/dts-v1/;
+
+#include "msm8996-v2.dtsi"
+#include "msm8996-cdp.dtsi"
+#include "msm8996-htc-common.dtsi"
+#include "dsi-panel-evm8996.dtsi"
+#include "msm8996-touch-evm.dtsi"
+#include "msm8996-htc_evm-fm.dtsi" // [HTC_BT] +++
+#include "msm8996-htc_evm-pn548.dtsi" // NFC
+#include "msm8996-audio-evm.dtsi" //HTC_AUD
+
+/ {
+	model = "Qualcomm Technologies, Inc. MSM 8996 v2 + PMI8994 - HTC EVM";
+	compatible = "qcom,msm8996-cdp", "qcom,msm8996", "qcom,cdp";
+	qcom,board-id = <0x0 0>;
+	qcom,msm-id = <0x1 0x20001>;
+};
+
+&soc {
+        i2c@75ba000 {
+                htc_laser@29 {
+                        laser,hw_workaround = <1>;
+                };
+        };
+};
+
+&i2c_6 {
+        analogix_i2c@72 {
+                status = "okay";
+                compatible ="analogix,anx7816";
+                reg = <0x72>;
+                interrupt-parent = <&tlmm>;
+                interrupts = <132 0>; // HPD_IN gpio as interrupt source
+
+                analogix,reset-gpio = <&tlmm 105 0x0>;
+                analogix,p-dwn-gpio = <&tlmm 96 0x0>;
+                analogix,cbl-det-gpio = <&tlmm 132 0x0>;
+                analogix,irq-gpio = <&tlmm 120 0x0>; // INT-mode not used
+                analogix,external-ldo-control = <0>;
+/*
+                analogix,v10-ctrl-gpio = <&pm8941_gpios 35 0x0>;//EDU_PM_GPIO3
+                analogix,v33-ctrl-gpio = <&msmgpio 14 0x0>;//APQ_GPIO_14
+                analogix,cbl-det-gpio = <&msmgpio 80 0x0>;//APQ_GPIO_80
+                analogix,external-ldo-control = <1>;
+                analogix,i2c-pull-up = <1>;
+*/
+        };
+};
+
+&mdss_dsi0 {
+	/delete-node/ qcom,platform-bklight-en-gpio;
+};
+
+&mdss_dsi1 {
+	/delete-node/ qcom,platform-bklight-en-gpio;
+};
