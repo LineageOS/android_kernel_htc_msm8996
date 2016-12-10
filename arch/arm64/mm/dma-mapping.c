@@ -161,7 +161,8 @@ static void *__dma_alloc_coherent(struct device *dev, size_t size,
 
 		*dma_handle = phys_to_dma(dev, page_to_phys(page));
 		addr = page_address(page);
-		memset(addr, 0, size);
+		if (!dma_get_attr(DMA_ATTR_SKIP_ZEROING, attrs))
+			memset(addr, 0, size);
 
 		if (dma_get_attr(DMA_ATTR_NO_KERNEL_MAPPING, attrs) ||
 		    dma_get_attr(DMA_ATTR_STRONGLY_ORDERED, attrs)) {
