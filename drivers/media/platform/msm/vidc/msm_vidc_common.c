@@ -130,10 +130,14 @@ static struct v4l2_ctrl **get_super_cluster(struct msm_vidc_inst *inst,
 				int num_ctrls)
 {
 	int c = 0;
-	struct v4l2_ctrl **cluster = kmalloc(sizeof(struct v4l2_ctrl *) *
+	struct v4l2_ctrl **cluster = NULL;
+	if(!inst)
+	    return NULL;
+
+	 cluster = kmalloc(sizeof(struct v4l2_ctrl *) *
 			num_ctrls, GFP_KERNEL);
 
-	if (!cluster || !inst)
+	if (!cluster)
 		return NULL;
 
 	for (c = 0; c < num_ctrls; c++)
