@@ -2,7 +2,7 @@
 # Makefile for the <t-base core driver
 #
 
-GUD_ROOT_FOLDER := drivers/gud/
+GUD_ROOT_FOLDER := drivers/gud-htc/
 
 # add our modules to kernel.
 obj-$(CONFIG_TRUSTONIC_TEE) += mcDrvModule.o
