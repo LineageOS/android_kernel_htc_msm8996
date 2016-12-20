@@ -583,7 +583,6 @@ err_start:
 	node->orig_data = NULL;
 	hw->df = NULL;
 	node->dev_ab = NULL;
-	WARN_ON(1);
 	return ret;
 }
 
@@ -591,10 +590,6 @@ static void gov_stop(struct devfreq *df)
 {
 	struct hwmon_node *node = df->data;
 	struct bw_hwmon *hw = node->hw;
-
-
-	if (!node->orig_data)
-		WARN_ON(1);
 
 	sysfs_remove_group(&df->dev.kobj, node->attr_grp);
 	stop_monitor(df, true);
