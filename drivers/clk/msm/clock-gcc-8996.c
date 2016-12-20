@@ -3599,6 +3599,28 @@ static struct clk_lookup msm_clocks_gcc_8996_v2[] = {
 	CLK_LIST(gpll0_out_msscc),
 };
 
+void clk_gcc_ignore_list_add(const char *clock_name)
+{
+	struct clk_lookup *p, *cl = NULL;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(msm_clocks_gcc_8996); i++) {
+		p = &msm_clocks_gcc_8996[i];
+		if (p->clk && !strcmp(p->clk->dbg_name, clock_name)) {
+			cl = p;
+		}
+	}
+	if (cl)
+	cl->clk->flags |= CLKFLAG_IGNORE;
+}
+
+int __init clk_gcc_ignore_list_init(void)
+{
+	clk_gcc_ignore_list_add("gcc_blsp2_uart2_apps_clk");
+	return 0;
+}
+module_init(clk_gcc_ignore_list_init);
+
 static void msm_clocks_gcc_8996_v2_fixup(void)
 {
 	pcie_aux_clk_src.c.fmax[VDD_DIG_LOWER] = 9600000;
