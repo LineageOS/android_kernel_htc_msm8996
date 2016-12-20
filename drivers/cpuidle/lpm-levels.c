@@ -52,14 +52,10 @@
 #include <trace/events/trace_msm_low_power.h>
 #include "../../drivers/clk/msm/clock.h"
 
-static inline int msm_watchdog_suspend_deferred(void) { return 0; }
-static inline int msm_watchdog_resume_deferred(void) { return 0; }
-
 #define SCLK_HZ (32768)
 #define SCM_HANDOFF_LOCK_ID "S:7"
 #define PSCI_POWER_STATE(reset) (reset << 30)
 #define PSCI_AFFINITY_LEVEL(lvl) ((lvl & 0x3) << 24)
-
 static remote_spinlock_t scm_handoff_lock;
 
 enum {
@@ -920,6 +916,9 @@ unlock_and_return:
 asmlinkage int __invoke_psci_fn_smc(u64, u64, u64, u64);
 bool psci_enter_sleep(struct lpm_cluster *cluster, int idx, bool from_idle)
 {
+	/*
+	 * idx = 0 is the default LPM state
+	 */
 	if (!idx) {
 		stop_critical_timings();
 		wfi();
@@ -946,9 +945,7 @@ bool psci_enter_sleep(struct lpm_cluster *cluster, int idx, bool from_idle)
 		update_debug_pc_event(CPU_ENTER, state_id,
 						0xdeaffeed, 0xdeaffeed, true);
 		stop_critical_timings();
-
 		success = !cpu_suspend(state_id);
-
 		start_critical_timings();
 		update_debug_pc_event(CPU_EXIT, state_id,
 						success, 0xdeaffeed, true);
