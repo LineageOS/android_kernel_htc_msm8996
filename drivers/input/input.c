@@ -1667,9 +1667,7 @@ void input_reset_device(struct input_dev *dev)
 	 */
 	if (!test_bit(INPUT_PROP_NO_DUMMY_RELEASE, dev->propbit)) {
 		input_dev_toggle(dev, true);
-#if 0
 		input_dev_release_keys(dev);
-#endif
 	}
 
 	spin_unlock_irqrestore(&dev->event_lock, flags);
@@ -1684,10 +1682,13 @@ static int input_dev_suspend(struct device *dev)
 
 	spin_lock_irq(&input_dev->event_lock);
 
-#if 0
+	/*
+	 * Keys that are pressed now are unlikely to be
+	 * still pressed when we resume.
+	 */
 	input_dev_release_keys(input_dev);
-#endif
-	
+
+	/* Turn off LEDs and sounds, if any are active. */
 	input_dev_toggle(input_dev, false);
 
 	spin_unlock_irq(&input_dev->event_lock);
