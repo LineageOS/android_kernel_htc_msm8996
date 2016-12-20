@@ -24,7 +24,6 @@
 #include <linux/hrtimer.h>
 #include <linux/ktime.h>
 #include <linux/tick.h>
-#include <linux/console.h>
 #include <linux/suspend.h>
 #include <linux/pm_qos.h>
 #include <linux/of_platform.h>
@@ -150,29 +149,6 @@ void lpm_suspend_wake_time(uint64_t wakeup_time)
 		suspend_wake_time = wakeup_time;
 }
 EXPORT_SYMBOL(lpm_suspend_wake_time);
-
-static void htc_lpm_pre_action(bool from_idle)
-{
-	int is_last_core_for_suspend = (!from_idle && cpu_online(smp_processor_id()));
-
-	if (is_last_core_for_suspend) {
-		
-		if (suspend_console_deferred)
-			suspend_console();
-	}
-}
-
-static void htc_lpm_post_action(bool from_idle)
-{
-	int is_last_core_for_suspend = (!from_idle && cpu_online(smp_processor_id()));
-
-	if (is_last_core_for_suspend) {
-		if (suspend_console_deferred)
-			resume_console();
-
-		
-	}
-}
 
 static uint32_t least_cluster_latency(struct lpm_cluster *cluster,
 					struct latency_level *lat_level)
@@ -945,11 +921,9 @@ asmlinkage int __invoke_psci_fn_smc(u64, u64, u64, u64);
 bool psci_enter_sleep(struct lpm_cluster *cluster, int idx, bool from_idle)
 {
 	if (!idx) {
-		htc_lpm_pre_action(from_idle);
 		stop_critical_timings();
 		wfi();
 		start_critical_timings();
-		htc_lpm_post_action(from_idle);
 		return 1;
 	} else {
 		int affinity_level = 0;
@@ -973,9 +947,7 @@ bool psci_enter_sleep(struct lpm_cluster *cluster, int idx, bool from_idle)
 						0xdeaffeed, 0xdeaffeed, true);
 		stop_critical_timings();
 
-		htc_lpm_pre_action(from_idle);
 		success = !cpu_suspend(state_id);
-		htc_lpm_post_action(from_idle);
 
 		start_critical_timings();
 		update_debug_pc_event(CPU_EXIT, state_id,
@@ -1436,8 +1408,6 @@ static int lpm_probe(struct platform_device *pdev)
 				__func__);
 		goto failed;
 	}
-
-	suspend_console_deferred = 1;
 
 	return 0;
 failed:

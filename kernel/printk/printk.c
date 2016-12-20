@@ -2152,11 +2152,11 @@ module_param_named(console_suspend, console_suspend_enabled,
 MODULE_PARM_DESC(console_suspend, "suspend console during suspend"
 	" and hibernate operations");
 
-int suspend_console_deferred;
-module_param_named(
-	suspend_console_deferred, suspend_console_deferred, int, S_IRUGO | S_IWUSR | S_IWGRP
-);
-
+/**
+ * suspend_console - suspend the console subsystem
+ *
+ * This disables printk() while we go into suspend states
+ */
 void suspend_console(void)
 {
 	if (!console_suspend_enabled)
