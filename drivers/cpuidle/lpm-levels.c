@@ -1296,7 +1296,8 @@ static int lpm_suspend_enter(suspend_state_t state)
 	if (!use_psci)
 		msm_cpu_pm_enter_sleep(cluster->cpu->levels[idx].mode, false);
 	else
-		psci_enter_sleep(cluster, idx, false);
+		psci_enter_sleep(cluster, idx, true);
+
 	if (idx > 0)
 		update_debug_pc_event(CPU_EXIT, idx, true, 0xdeaffeed,
 					false);
