@@ -909,12 +909,18 @@ static int __handoff_clk(struct clk *clk)
 	if (clk->flags & CLKFLAG_EPROBE_DEFER)
 		return -EPROBE_DEFER;
 
-	
+	/* Handoff any 'depends' clock first. */
 	if (!(clk->flags&CLKFLAG_IGNORE)) {
 		rc = __handoff_clk(clk->depends);
 		if (rc)
 			goto err;
 
+		/*
+		 * Handoff functions for the parent must be called before the
+		 * children can be handed off. Without handing off the parents and
+		 * knowing their rate and state (on/off), it's impossible to figure
+		 * out the rate and state of the children.
+		 */
 		if (clk->ops->get_parent)
 			clk->parent = clk->ops->get_parent(clk);
 
@@ -1029,7 +1035,7 @@ int msm_clock_register(struct clk_lookup *table, size_t size)
 	for (n = 0; n < size; n++)
 		__handoff_clk(table[n].clk);
 
-	
+	/* maintain backwards compatibility */
 	if (table[0].con_id || table[0].dev_id)
 		clkdev_add_table(table, size);
 

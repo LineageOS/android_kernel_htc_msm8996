@@ -595,6 +595,10 @@ error:
 static DEFINE_MUTEX(clk_debug_lock);
 static int clk_debug_init_once;
 
+/**
+ * clock_debug_init() - Initialize clock debugfs
+ * Lock clk_debug_lock before invoking this function.
+ */
 static int clock_debug_init(void)
 {
 	if (clk_debug_init_once)
