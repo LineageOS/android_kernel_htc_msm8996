@@ -105,13 +105,16 @@ static void i2c_msm_dbg_dump_diag(struct i2c_msm_ctrl *ctrl,
 		str = buf;
 	}
 
-	/* dump xfer details */
-	dev_err(ctrl->dev,
-		"%s: msgs(n:%d cur:%d %s) bc(rx:%zu tx:%zu) mode:%s slv_addr:0x%0x MSTR_STS:0x%08x OPER:0x%08x\n",
-		str, xfer->msg_cnt, xfer->cur_buf.msg_idx,
-		xfer->cur_buf.is_rx ? "rx" : "tx", xfer->rx_cnt, xfer->tx_cnt,
-		i2c_msm_mode_str_tbl[xfer->mode_id], xfer->msgs->addr,
-		status, qup_op);
+	if ((xfer->err == I2C_MSM_ERR_NACK) && (xfer->msgs->addr == ctrl->rsrcs.nack_as_normal)) {
+	} else {
+		
+		dev_err(ctrl->dev,
+			"%s: msgs(n:%d cur:%d %s) bc(rx:%zu tx:%zu) mode:%s slv_addr:0x%0x MSTR_STS:0x%08x OPER:0x%08x\n",
+			str, xfer->msg_cnt, xfer->cur_buf.msg_idx,
+			xfer->cur_buf.is_rx ? "rx" : "tx", xfer->rx_cnt, xfer->tx_cnt,
+			i2c_msm_mode_str_tbl[xfer->mode_id], xfer->msgs->addr,
+			status, qup_op);
+	}
 }
 
 static u32 i2c_msm_reg_io_modes_out_blk_sz(u32 qup_io_modes)
@@ -2444,6 +2447,8 @@ static int i2c_msm_rsrcs_process_dt(struct i2c_msm_ctrl *ctrl,
 	{"qcom,high-time-clk-div",	&ht_clk_div,
 							DT_OPT,  DT_U32,  0},
 	{"qcom,fs-clk-div",		&fs_clk_div,
+							DT_OPT,  DT_U32,  0},
+	{"qcom,nack-as-normal",		&(ctrl->rsrcs.nack_as_normal),
 							DT_OPT,  DT_U32,  0},
 	{NULL,  NULL,					0,       0,       0},
 	};
