@@ -232,7 +232,7 @@ static void socket_data_ready(struct sock *sk_ptr)
 	info->data_ready++;
 	spin_unlock_irqrestore(&info->lock, flags);
 	diag_ws_on_notify();
-	DIAG_DBUG("socket data ready = %d\n",info->data_ready);
+	pr_debug("socket data ready = %d\n",info->data_ready);
 
 	queue_work(info->wq, &(info->read_work));
 	wake_up_interruptible(&info->read_wait_q);
@@ -1010,7 +1010,7 @@ static int diag_socket_read(void *ctxt, unsigned char *buf, int buf_len)
 		err = queue_work(info->wq, &(info->read_work));
 
 	if (total_recd > 0) {
-		DIAG_DBUG("%s read total bytes: %d\n",
+		pr_debug("%s read total bytes: %d\n",
 			 info->name, total_recd);
 		mutex_lock(&driver->diagfwd_channel_mutex);
 		err = diagfwd_channel_read_done(info->fwd_ctxt,
@@ -1019,7 +1019,7 @@ static int diag_socket_read(void *ctxt, unsigned char *buf, int buf_len)
 		if (err)
 			goto fail;
 	} else {
-		DIAG_DBUG("%s error in read, err: %d\n",
+		pr_debug("%s error in read, err: %d\n",
 			 info->name, total_recd);
 		goto fail;
 	}
@@ -1070,7 +1070,7 @@ static int diag_socket_write(void *ctxt, unsigned char *buf, int len)
 		pr_err_ratelimited("diag: In %s, wrote partial packet to %s, len: %d, wrote: %d\n",
 				   __func__, info->name, len, write_len);
 	}
-	DIAG_DBUG("%s wrote to socket, len: %d\n", info->name, write_len);
+	pr_debug("%s wrote to socket, len: %d\n", info->name, write_len);
 
 	return err;
 }

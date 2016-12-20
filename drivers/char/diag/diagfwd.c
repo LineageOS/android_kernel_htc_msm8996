@@ -237,7 +237,7 @@ void chk_logging_wakeup(void)
 			 * situation.
 			 */
 			driver->data_ready[i] |= USERMODE_DIAGFWD;
-			DIAG_DBUG("diag: Force wakeup of logging process\n");
+			pr_debug("diag: Force wakeup of logging process\n");
 			wake_up_interruptible(&driver->wait_q);
 			break;
 		}

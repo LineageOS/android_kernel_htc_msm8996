@@ -155,7 +155,7 @@ int decode_encode_hdlc(void*data, int *len, unsigned char *buf_hdlc, int remove,
 
 	buf_9k = kzalloc(USB_MAX_OUT_BUF, GFP_KERNEL);
 	if (!buf_9k) {
-		DIAG_INFO("%s:out of memory\n", __func__);
+		pr_info("%s:out of memory\n", __func__);
 		return -ENOMEM;
 	}
 
@@ -169,7 +169,7 @@ int decode_encode_hdlc(void*data, int *len, unsigned char *buf_hdlc, int remove,
 
 	ret = diag_hdlc_decode(&hdlc);
 	if (!ret) {
-		DIAG_INFO("Packet dropped due to bad HDLC coding/CRC\n");
+		pr_info("Packet dropped due to bad HDLC coding/CRC\n");
 		kfree(buf_9k);
 		return -EINVAL;
 	}
@@ -201,10 +201,10 @@ int decode_encode_hdlc(void*data, int *len, unsigned char *buf_hdlc, int remove,
 int checkcmd_modem_epst(unsigned char *buf)
 {
 	char unsigned value = *((uint8_t *)buf);
-	DIAG_DBUG("%s: cmd = 0x%x \n",__func__, value); 
+	pr_debug("%s: cmd = 0x%x \n",__func__, value); 
 #if CONFIG_ARCH_MSM
 	if (*buf == 0xc && radio_initialized == 0 && diag2arm9query) {
-		DIAG_DBUG("%s: modem is ready\n", __func__); 
+		pr_debug("%s: modem is ready\n", __func__); 
 		radio_initialized = 1;
 		wake_up_interruptible(&driver->wait_q);
 		return CHECK_MODEM_ALIVE;
@@ -232,12 +232,12 @@ int modem_to_userspace(void *buf, int r, int type, int is9k)
 	if (!ctxt->diag2arm9_opened)
 		return 0;
 	if (type == CHECK_MODEM_ALIVE) {
-		DIAG_INFO("%s: CHECK_MODEM_ALIVE. not route to userspace\n", __func__);
+		pr_info("%s: CHECK_MODEM_ALIVE. not route to userspace\n", __func__);
 		return 0;
 	}
 	req = xpst_req_get(ctxt, &ctxt->rx_arm9_idle);
 	if (!req) {
-		DIAG_INFO("There is no enough request to ARM11!!\n");
+		pr_info("There is no enough request to ARM11!!\n");
 		return 0;
 	}
 	memcpy(req->buf, buf, r);
@@ -252,7 +252,7 @@ int modem_to_userspace(void *buf, int r, int type, int is9k)
 	} else if (type == NO_DEF_ID) {
 		
 		value = *((uint8_t *)req->buf+2);
-		DIAG_INFO("%s:check error cmd=0x%x message=ox%x\n", __func__
+		pr_info("%s:check error cmd=0x%x message=ox%x\n", __func__
 				, value, *((uint8_t *)req->buf+1));
 		if ((value == 0x27) || (value == 0x26)) {
 			if (is9k == 1) {
@@ -285,7 +285,7 @@ static long htc_diag_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 	unsigned long flags;
 	unsigned char temp_id_table[ID_TABLE_SZ];
 
-	DIAG_INFO("%s:%s(parent:%s): tgid=%d\n", __func__,
+	pr_info("%s:%s(parent:%s): tgid=%d\n", __func__,
 			current->comm, current->parent->comm, current->tgid);
 
 
@@ -296,7 +296,7 @@ static long htc_diag_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 	case USB_DIAG_FUNC_IOC_ENABLE_SET:
 		if (copy_from_user(&tmp_value, argp, sizeof(int)))
 			return -EFAULT;
-		DIAG_INFO("diag: enable %d\n", tmp_value);
+		pr_info("diag: enable %d\n", tmp_value);
 		switch_set_state(&sw_htc_usb_diag, !!tmp_value);
 
 		htc_usb_enable_function("mtp,adb,mass_storage,diag", tmp_value?1:0);
@@ -329,7 +329,7 @@ static long htc_diag_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 		break;
 
 	case USB_DIAG_FUNC_IOC_AMR_SET:
-		DIAG_INFO("diag: fix me USB_DIAG_FUNC_IOC_AMR_SET\n");
+		pr_info("diag: fix me USB_DIAG_FUNC_IOC_AMR_SET\n");
 		break;
 	case USB_DIAG_FUNC_IOC_LOGTYPE_GET:
 		
@@ -353,7 +353,7 @@ static ssize_t htc_diag_read(struct file *fp, char __user *buf,
 	int ret = 0;
 
 
-	DIAG_INFO("%s:%s(parent:%s): tgid=%d\n", __func__,
+	pr_info("%s:%s(parent:%s): tgid=%d\n", __func__,
 			current->comm, current->parent->comm, current->tgid);
 
 	
@@ -384,20 +384,20 @@ static ssize_t htc_diag_read(struct file *fp, char __user *buf,
 	mutex_lock(&ctxt->user_lock);
 
 	if (ret < 0) {
-		DIAG_INFO("%s: wait_event_interruptible error %d\n",
+		pr_info("%s: wait_event_interruptible error %d\n",
 				__func__, ret);
 		goto end;
 	}
 
 	if (!ctxt->online) {
-		DIAG_INFO("%s: offline\n", __func__);
+		pr_info("%s: offline\n", __func__);
 		ret = -EIO;
 		goto end;
 	}
 
 	if (req) {
 		if (req->actual == 0) {
-			DIAG_INFO("%s: no data\n", __func__);
+			pr_info("%s: no data\n", __func__);
 			goto end;
 		}
 		if (count > req->actual)
@@ -429,19 +429,19 @@ static ssize_t htc_diag_write(struct file *fp, const char __user *buf,
 	int ret = 0;
 
 
-	DIAG_INFO("%s:%s(parent:%s): tgid=%d\n", __func__,
+	pr_info("%s:%s(parent:%s): tgid=%d\n", __func__,
 			current->comm, current->parent->comm, current->tgid);
 
 	mutex_lock(&ctxt->user_lock);
 
 	if (ret < 0) {
-		DIAG_INFO("%s: wait_event_interruptible error %d\n",
+		pr_info("%s: wait_event_interruptible error %d\n",
 				__func__, ret);
 		goto end;
 	}
 
 	if (!ctxt->online) {
-		DIAG_INFO("%s: offline\n", __func__);
+		pr_info("%s: offline\n", __func__);
 		ret = -EIO;
 		goto end;
 	}
@@ -456,7 +456,7 @@ static ssize_t htc_diag_write(struct file *fp, const char __user *buf,
 
 	if (copy_from_user(htc_write_buf_copy, buf, count)) {
 		ret = -EFAULT;
-		DIAG_INFO("%s:EFAULT\n", __func__);
+		pr_info("%s:EFAULT\n", __func__);
 		goto end;
 	}
 
@@ -469,7 +469,7 @@ static ssize_t htc_diag_write(struct file *fp, const char __user *buf,
 	ret = usb_diag_write(ctxt->ch, htc_write_diag_req);
 
 	if (ret < 0) {
-		DIAG_INFO("%s: usb_diag_write error %d\n", __func__, ret);
+		pr_info("%s: usb_diag_write error %d\n", __func__, ret);
 		goto end;
 	}
 	ret = count;
@@ -488,10 +488,10 @@ static int htc_diag_open(struct inode *ip, struct file *fp)
 	struct usb_request *req;
 
 
-	DIAG_INFO("%s:%s(parent:%s): tgid=%d\n", __func__,
+	pr_info("%s:%s(parent:%s): tgid=%d\n", __func__,
 			current->comm, current->parent->comm, current->tgid);
 	if (!ctxt->ready) {
-		DIAG_INFO("%s: USB driver do not load\n", __func__);
+		pr_info("%s: USB driver do not load\n", __func__);
 		return -EINVAL;
 	}
 
@@ -564,7 +564,7 @@ static int htc_diag_release(struct inode *ip, struct file *fp)
 	struct usb_request *req;
 
 
-	DIAG_INFO("%s: \n", __func__);
+	pr_info("%s: \n", __func__);
 
 
 	mutex_lock(&ctxt->user_lock);
@@ -650,7 +650,7 @@ static int check_modem_task_ready(int channel)
 	int ret;
 
 	if (radio_initialized) {
-		DIAG_INFO("%s:modem status=ready\n", __func__);
+		pr_info("%s:modem status=ready\n", __func__);
 		return radio_initialized;
 	}
 
@@ -659,19 +659,19 @@ static int check_modem_task_ready(int channel)
 	switch (channel) {
 	case XPST_SMD:
 		if (!diag_initialized) {
-			DIAG_INFO("%s:modem status=smd not ready\n", __func__);
+			pr_info("%s:modem status=smd not ready\n", __func__);
 			return -EAGAIN;
 		}
 		diagfwd_write(PERIPHERAL_MODEM, TYPE_CMD, phone_status, sizeof(phone_status));
 		break;
 	default:
-		DIAG_WARNING("%s: channel type(%d) not support\n", __func__, channel);
+		pr_warn("%s: channel type(%d) not support\n", __func__, channel);
 		return -EINVAL;
 	}
 
 	driver->debug_dmbytes_recv = DEBUG_DMBYTES_RECV;
 	ret = wait_event_interruptible_timeout(driver->wait_q, radio_initialized != 0, 4 * HZ);
-	DIAG_INFO("%s:modem status=%d %s\n", __func__, radio_initialized, (ret == 0)?"(timeout)":"");
+	pr_info("%s:modem status=%d %s\n", __func__, radio_initialized, (ret == 0)?"(timeout)":"");
 
 	return radio_initialized;
 }
@@ -688,71 +688,71 @@ static long diag2arm9_ioctl(struct file *file, unsigned int cmd, unsigned long a
 	if (_IOC_TYPE(cmd) != USB_DIAG_IOC_MAGIC)
 		return -ENOTTY;
 
-	DIAG_INFO("%s:%s(parent:%s): tgid=%d\n", __func__,
+	pr_info("%s:%s(parent:%s): tgid=%d\n", __func__,
 			current->comm, current->parent->comm, current->tgid);
 
 	switch (cmd) {
 
 	case USB_DIAG_NV_7K9K_SET:
-		DIAG_INFO("USB_DIAG_NV_7K9K_SET\n");
+		pr_info("USB_DIAG_NV_7K9K_SET\n");
 		table_size = NV_TABLE_SZ;
 		table_ptr = nv7K9K_table;
 		break;
 	case USB_DIAG_NV_7KONLY_SET:
-		DIAG_INFO("USB_DIAG_NV_7KONLY_SET\n");
+		pr_info("USB_DIAG_NV_7KONLY_SET\n");
 		table_size = NV_TABLE_SZ;
 		table_ptr = nv7Konly_table;
 		break;
 	case USB_DIAG_NV_9KONLY_SET:
-		DIAG_INFO("USB_DIAG_NV_9KONLY_SET\n");
+		pr_info("USB_DIAG_NV_9KONLY_SET\n");
 		table_size = NV_TABLE_SZ;
 		table_ptr = nv9Konly_table;
 		break;
 	case USB_DIAG_NV_7K9KDIFF_SET:
-		DIAG_INFO("USB_DIAG_NV_7K9KDIFF_SET\n");
+		pr_info("USB_DIAG_NV_7K9KDIFF_SET\n");
 		table_size = NV_TABLE_SZ;
 		table_ptr = nv7K9Kdiff_table;
 		break;
 
 	case USB_DIAG_PRL_7K9K_SET:
-		DIAG_INFO("USB_DIAG_PRL_7K9K_SET\n");
+		pr_info("USB_DIAG_PRL_7K9K_SET\n");
 		table_size = PRL_TABLE_SZ;
 		table_ptr = PRL7K9K_table;
 		break;
 	case USB_DIAG_PRL_7KONLY_SET:
-		DIAG_INFO("USB_DIAG_PRL_7KONLY_SET\n");
+		pr_info("USB_DIAG_PRL_7KONLY_SET\n");
 		table_size = PRL_TABLE_SZ;
 		table_ptr = PRL7Konly_table;
 		break;
 	case USB_DIAG_PRL_9KONLY_SET:
-		DIAG_INFO("USB_DIAG_PRL_9KONLY_SET\n");
+		pr_info("USB_DIAG_PRL_9KONLY_SET\n");
 		table_size = PRL_TABLE_SZ;
 		table_ptr = PRL9Konly_table;
 		break;
 	case USB_DIAG_PRL_7K9KDIFF_SET:
-		DIAG_INFO("USB_DIAG_PRL_7K9KDIFF_SET\n");
+		pr_info("USB_DIAG_PRL_7K9KDIFF_SET\n");
 		table_size = PRL_TABLE_SZ;
 		table_ptr = PRL7K9Kdiff_table;
 		break;
 
 	case USB_DIAG_M29_7K9K_SET:
-		DIAG_INFO("USB_DIAG_M29_7K9K_SET\n");
+		pr_info("USB_DIAG_M29_7K9K_SET\n");
 		table_size = M29_TABLE_SZ;
 		table_ptr = M297K9K_table;
 		break;
 
 	case USB_DIAG_M29_7KONLY_SET:
-		DIAG_INFO("USB_DIAG_M29_7KONLY_SET\n");
+		pr_info("USB_DIAG_M29_7KONLY_SET\n");
 		table_size = M29_TABLE_SZ;
 		table_ptr = M297Konly_table;
 		break;
 	case USB_DIAG_M29_9KONLY_SET:
-		DIAG_INFO("USB_DIAG_M29_9KONLY_SET\n");
+		pr_info("USB_DIAG_M29_9KONLY_SET\n");
 		table_size = M29_TABLE_SZ;
 		table_ptr = M299Konly_table;
 		break;
 	case USB_DIAG_M29_7K9KDIFF_SET:
-		DIAG_INFO("USB_DIAG_M29_7K9KDIFF_SET\n");
+		pr_info("USB_DIAG_M29_7K9KDIFF_SET\n");
 		table_size = M29_TABLE_SZ;
 		table_ptr = M297K9Kdiff_table;
 		break;
@@ -771,7 +771,7 @@ static long diag2arm9_ioctl(struct file *file, unsigned int cmd, unsigned long a
 
 	if (copy_from_user(temp_nv_table, (uint8_t *)argp, (table_size*2)))
 		return -EFAULT;
-	DIAG_INFO("%s:input %d item\n", __func__, temp_nv_table[0]);
+	pr_info("%s:input %d item\n", __func__, temp_nv_table[0]);
 	if (temp_nv_table[0] > table_size)
 		return -EFAULT;
 
@@ -791,9 +791,9 @@ static int diag2arm9_open(struct inode *ip, struct file *fp)
 	int rc = 0;
 	int n;
 	int i = 0; 
-	DIAG_INFO("%s\n", __func__);
+	pr_info("%s\n", __func__);
 	if (!ctxt->ready) {
-		DIAG_INFO("%s: USB driver do not load\n", __func__);
+		pr_info("%s: USB driver do not load\n", __func__);
 		return -EINVAL;
 	}
 
@@ -843,7 +843,7 @@ static int diag2arm9_release(struct inode *ip, struct file *fp)
 	struct diag_context *ctxt = get_modem_ctxt();
 	struct usb_request *req;
 
-	DIAG_INFO("%s\n", __func__);
+	pr_info("%s\n", __func__);
 	mutex_lock(&ctxt->diag2arm9_lock);
 	ctxt->diag2arm9_opened = false;
 	wake_up(&ctxt->read_arm9_wq);
@@ -874,7 +874,7 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 #endif
 
 	mutex_lock(&ctxt->diag2arm9_write_lock);
-	DIAG_INFO("%s : count = %d\n", __func__, r);
+	pr_info("%s : count = %d\n", __func__, r);
 	while (count > 0) {
 		writed = count > USB_MAX_OUT_BUF ? USB_MAX_OUT_BUF : count;
 		if (copy_from_user(ctxt->DM_buf, buf, writed)) {
@@ -882,7 +882,7 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 			break;
 		}
 		if (ctxt->toARM9_buf == NULL) {
-			DIAG_INFO("%s: ctxt->toARM9_buf == NULL", __func__);
+			pr_info("%s: ctxt->toARM9_buf == NULL", __func__);
 			r = -EFAULT;
 			break;
 		}
@@ -894,7 +894,7 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 
 		switch (path) {
 		case DM7K9K:
-			DIAG_INFO("%s:above date to DM7K9K\n", __func__);
+			pr_info("%s:above date to DM7K9K\n", __func__);
 			
 			hdlc.dest_ptr = ctxt->toARM9_buf;
 			hdlc.dest_size = SMD_MAX;
@@ -906,7 +906,7 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 
 			ret = diag_hdlc_decode(&hdlc);
 			if (!ret) {
-				DIAG_INFO("Packet dropped due to bad HDLC coding/CRC\n");
+				pr_info("Packet dropped due to bad HDLC coding/CRC\n");
 				r = -EFAULT;
 				break;
 			}
@@ -914,20 +914,20 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 			
 			break;
 		case DM9KONLY:
-			DIAG_INFO("%s:above date to DM9KONLY\n", __func__);
+			pr_info("%s:above date to DM9KONLY\n", __func__);
 			break;
 		case DM7K9KDIFF:
-			DIAG_INFO("%s:above data to DM7K9KDIFF\n", __func__);
+			pr_info("%s:above data to DM7K9KDIFF\n", __func__);
 			
 			if ((ctxt->DM_buf[3] & 0x80) == 0x80) {
-				DIAG_INFO("%s:DM7K9KDIFF to 9K\n", __func__);
+				pr_info("%s:DM7K9KDIFF to 9K\n", __func__);
 			} else {
-				DIAG_INFO("%s:DM7K9KDIFF to 7K\n", __func__);
+				pr_info("%s:DM7K9KDIFF to 7K\n", __func__);
 			}
 			break;
 
 		case DM7KONLY:
-			DIAG_INFO("%s:above data to DM7KONLY\n", __func__);
+			pr_info("%s:above data to DM7KONLY\n", __func__);
 #if !defined(CONFIG_MACH_VIGOR)
 			diagfwd_write(PERIPHERAL_MODEM, TYPE_CMD, ctxt->DM_buf, writed);
 			
@@ -943,7 +943,7 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 
 			ret = diag_hdlc_decode(&hdlc);
 			if (!ret) {
-				DIAG_INFO("Packet dropped due to bad HDLC coding/CRC\n");
+				pr_info("Packet dropped due to bad HDLC coding/CRC\n");
 				r = -EFAULT;
 				break;
 			}
@@ -954,7 +954,7 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 		case NO_DEF_ID:
 		case NO_DEF_ITEM:
 		default:
-			DIAG_INFO("%s:no default routing path\n", __func__);
+			pr_info("%s:no default routing path\n", __func__);
 			print_hex_dump(KERN_DEBUG, "DM Packet Data"
 					" write to radio ", DUMP_PREFIX_ADDRESS, 16, 1, ctxt->DM_buf, writed, 1);
 		}
@@ -962,7 +962,7 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 		buf += writed;
 		count -= writed;
 		if (count)
-			DIAG_INFO("%s :[WARN] count = %d\n", __func__, (int)count);
+			pr_info("%s :[WARN] count = %d\n", __func__, (int)count);
 
 	}
 	driver->debug_dmbytes_recv = DEBUG_DMBYTES_RECV;
@@ -979,7 +979,7 @@ static ssize_t diag2arm9_read(struct file *fp, char __user *buf,
 	struct usb_request *req;
 	int r = 0, xfer;
 	int ret;
-	DIAG_INFO("%s\n", __func__);
+	pr_info("%s\n", __func__);
 	mutex_lock(&ctxt->diag2arm9_read_lock);
 
 	
@@ -1010,7 +1010,7 @@ retry:
 	}
 	xfer = (ctxt->read_arm9_count < count) ? ctxt->read_arm9_count : count;
 	if (copy_to_user(buf, ctxt->read_arm9_buf, xfer)) {
-		DIAG_INFO("diag: copy_to_user fail\n");
+		pr_info("diag: copy_to_user fail\n");
 		xpst_req_put(ctxt, &ctxt->rx_arm9_idle, ctxt->read_arm9_req);
 		r = -EFAULT;
 		goto done;

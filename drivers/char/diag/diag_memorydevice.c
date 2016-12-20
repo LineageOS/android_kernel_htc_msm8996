@@ -194,7 +194,7 @@ int diag_md_write(int id, unsigned char *buf, int len, int ctx)
 
 		found = 1;
 		driver->data_ready[i] |= USERMODE_DIAGFWD;/*++ 2015/07/14, USB Team, PCN00012 ++*/
-		DIAG_DBUG("diag: wake up logging process\n");
+		pr_debug("diag: wake up logging process\n");
 		wake_up_interruptible(&driver->wait_q);
 	}
 

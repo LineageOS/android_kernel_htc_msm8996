@@ -425,7 +425,7 @@ static void diag_read_complete(struct usb_ep *ep,
 /*++ 2015/10/23, USB Team, PCN00026 ++*/
 #if DIAG_XPST
 #ifdef HTC_DIAG_DEBUG
-	DIAG_INFO("%s: dev=%s\n", __func__, ctxt_to_string(ctxt));
+	pr_info("%s: dev=%s\n", __func__, ctxt_to_string(ctxt));
 	print_hex_dump(KERN_DEBUG, "from PC: ", DUMP_PREFIX_ADDRESS, 16, 1,
 			req->buf, req->actual, 1);
 #endif
@@ -442,7 +442,7 @@ static void diag_read_complete(struct usb_ep *ep,
 			wake_up(&ctxt->read_wq);
 			driver->nohdlc = 1;
 		} else
-			DIAG_INFO("%s No enough xpst_req \n", __func__);
+			pr_info("%s No enough xpst_req \n", __func__);
 		} else {
 			driver->nohdlc = 0;
 			ctxt->tx_count += req->actual;

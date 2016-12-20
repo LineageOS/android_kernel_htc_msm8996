@@ -23,22 +23,6 @@
 
 #include <linux/err.h>
 
-/*++ 2015/07/15, USB Team, PCN00017 ++*/
-/*DRIVER_DIAG_FUNCTION*/
-#define DIAG_ERR(fmt, args...) \
-	printk(KERN_ERR "[USBDIAG:ERR] " fmt, ## args)
-#define DIAG_WARNING(fmt, args...) \
-	printk(KERN_WARNING "[USBDIAG] " fmt, ## args)
-#define DIAG_INFO(fmt, args...) \
-	printk(KERN_INFO "[USBDIAG] " fmt, ## args)
-#define DIAG_DBUG(fmt, args...) \
-	do { \
-		if (diag7k_debug_mask) \
-			printk(KERN_INFO "[USBDIAG] " fmt, ## args); \
-		else \
-			pr_debug("[USBDIAG] " fmt, ## args); \
-	} while (0)
-
 /*DRIVER_DIAGFWD_FUNCTION*/
 #define DIAGFWD_ERR(fmt, args...) \
 	printk(KERN_ERR "[DIAGFWD:ERR] " fmt, ## args)

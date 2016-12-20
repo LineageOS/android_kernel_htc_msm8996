@@ -238,7 +238,7 @@ static void usb_read_work_fn(struct work_struct *work)
 
 	if (!atomic_read(&ch->connected) || !ch->enabled ||
 	    atomic_read(&ch->read_pending) || !atomic_read(&ch->diag_state)) {
-		DIAG_DBUG("diag: Discarding USB read, ch: %s e: %d, c: %d, p: %d, d: %d\n",
+		pr_debug("diag: Discarding USB read, ch: %s e: %d, c: %d, p: %d, d: %d\n",
 				     ch->name, ch->enabled,
 				     atomic_read(&ch->connected),
 				     atomic_read(&ch->read_pending),
@@ -254,7 +254,7 @@ static void usb_read_work_fn(struct work_struct *work)
 		req->length = USB_MAX_OUT_BUF;
 		err = usb_diag_read(ch->hdl, req);
 		if (err) {
-			DIAG_DBUG("diag: In %s, error in reading from USB %s, err: %d\n",
+			pr_debug("diag: In %s, error in reading from USB %s, err: %d\n",
 				 __func__, ch->name, err);
 			atomic_set(&ch->read_pending, 0);
 			queue_work(ch->usb_wq, &(ch->read_work));
@@ -520,7 +520,7 @@ int diag_usb_write(int id, unsigned char *buf, int len, int ctxt)
 
 	if (!usb_info->hdl || !atomic_read(&usb_info->connected) ||
 	    !atomic_read(&usb_info->diag_state)) {
-		DIAG_DBUG("diag: USB ch %s is not connected\n",
+		pr_debug("diag: USB ch %s is not connected\n",
 				     usb_info->name);
 		diagmem_free(driver, req, usb_info->mempool);
 		return -ENODEV;
@@ -643,7 +643,7 @@ int diag_usb_register(int id, int ctxt, struct diag_mux_ops *ops)
 		goto err;
 	}
 	ch->enabled = 1;
-	DIAG_DBUG("diag: Successfully registered USB %s\n", ch->name);
+	pr_debug("diag: Successfully registered USB %s\n", ch->name);
 	return 0;
 
 err:

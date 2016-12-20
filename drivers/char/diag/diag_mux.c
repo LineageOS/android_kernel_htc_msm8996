@@ -189,7 +189,7 @@ int diag_mux_switch_logging(int *req_mode, int *peripheral_mask)
 
 	switch (*req_mode) {
 	case DIAG_USB_MODE:
-		DIAG_INFO("sdlogging disable\n");
+		pr_info("sdlogging disable\n");
 		driver->qxdm2sd_drop = 1;	
 
 		new_mask = ~(*peripheral_mask) & diag_mux->mux_mask;
@@ -197,7 +197,7 @@ int diag_mux_switch_logging(int *req_mode, int *peripheral_mask)
 			*req_mode = DIAG_MULTI_MODE;
 		break;
 	case DIAG_MEMORY_DEVICE_MODE:
-		DIAG_INFO("sdlogging enable\n");
+		pr_info("sdlogging enable\n");
 		driver->qxdm2sd_drop = 0;	
 
 		new_mask = (*peripheral_mask) | diag_mux->mux_mask;
