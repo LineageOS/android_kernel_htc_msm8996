@@ -176,3 +176,4 @@ obj-$(CONFIG_MOBICORE_DRIVER)	+= gud/
 
 # HTC Drivers
 obj-$(CONFIG_HTC_LOGLEVEL)      += htc_loglevel/
+obj-$(CONFIG_HTC_MSM_SERIAL)    += htc_msm_serial/
