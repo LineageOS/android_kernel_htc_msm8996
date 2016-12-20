@@ -1,0 +1,18 @@
+config HTC_RADIO_SMEM
+	bool "RADIO SMEM"
+	default N
+	---help---
+	Enable to move necessary non-secure data to shared memory
+
+config HTC_MODEM_NOTIFIER
+	bool "MODEM NOTIFIER"
+	default N
+	---help---
+	Enable to notify modem APP is rebooting
+
+config HTC_GARBAGE_FILTER
+	tristate "HTC_GARBAGE_FILTER"
+	default n
+	depends on MSM_SMD
+	---help---
+	  HTC Garbage Filter of TCP
