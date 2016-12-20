@@ -69,7 +69,6 @@ struct cpufreq_interactive_cpuinfo {
 	unsigned int loadadjfreq;
 };
 
-
 static DEFINE_PER_CPU(struct cpufreq_interactive_policyinfo *, polinfo);
 static DEFINE_PER_CPU(struct cpufreq_interactive_cpuinfo, cpuinfo);
 
@@ -486,6 +485,8 @@ static void cpufreq_interactive_timer(unsigned long data)
 	if (!ppol->governor_enabled)
 		goto exit;
 
+	now = ktime_to_us(ktime_get());
+
 	spin_lock_irqsave(&ppol->target_freq_lock, flags);
 	spin_lock(&ppol->load_lock);
 
@@ -533,6 +534,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 			max_cpu = cpu;
 		}
 		pred_laf = max(t_predlaf, pred_laf);
+
 		cpu_load = max(prev_l, pred_l);
 		pol_load = max(pol_load, cpu_load);
 		trace_cpufreq_interactive_cpuload(cpu, cpu_load, new_load_pct,
@@ -821,7 +823,6 @@ static enum hrtimer_restart cpufreq_interactive_hrtimer(struct hrtimer *timer)
 	struct cpufreq_interactive_policyinfo *ppol = container_of(timer,
 			struct cpufreq_interactive_policyinfo, notif_timer);
 	int cpu;
-	unsigned long flags;
 
 	if (!down_read_trylock(&ppol->enable_sem))
 		return 0;
@@ -831,9 +832,6 @@ static enum hrtimer_restart cpufreq_interactive_hrtimer(struct hrtimer *timer)
 	}
 	cpu = ppol->notif_cpu;
 	trace_cpufreq_interactive_load_change(cpu);
-	spin_lock_irqsave(&ppol->target_freq_lock, flags);
-	ppol->notif_pending = true;
-	spin_unlock_irqrestore(&ppol->target_freq_lock, flags);
 	del_timer(&ppol->policy_timer);
 	del_timer(&ppol->policy_slack_timer);
 	cpufreq_interactive_timer(cpu);
