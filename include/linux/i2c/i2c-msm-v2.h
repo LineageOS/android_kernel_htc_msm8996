@@ -465,6 +465,7 @@ struct i2c_msm_resources {
 	struct pinctrl              *pinctrl;
 	struct pinctrl_state        *gpio_state_active;
 	struct pinctrl_state        *gpio_state_suspend;
+	u32                         nack_as_normal;
 };
 
 #define I2C_MSM_PINCTRL_ACTIVE       "i2c_active"
