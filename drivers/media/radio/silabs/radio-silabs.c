@@ -991,7 +991,7 @@ static void update_ps(struct silabs_fm_device *radio, u8 addr, u8 ps)
 			data_b = &radio->data_buf[SILABS_FM_BUF_PS_RDS];
 			kfifo_in_locked(data_b, data, PS_EVT_DATA_LEN,
 					&radio->buf_lock[SILABS_FM_BUF_PS_RDS]);
-			FMDINFO("Q the PS event\n");
+			FMDBG("Q the PS event\n");
 			silabs_fm_q_event(radio, SILABS_EVT_NEW_PS_RDS);
 			kfree(data);
 		} else {
@@ -1040,7 +1040,7 @@ static void display_rt(struct silabs_fm_device *radio)
 			data_b = &radio->data_buf[SILABS_FM_BUF_RT_RDS];
 			kfifo_in_locked(data_b, data, OFFSET_OF_RT + len,
 				&radio->buf_lock[SILABS_FM_BUF_RT_RDS]);
-			FMDINFO("Q the RT event\n");
+			FMDBG("Q the RT event\n");
 			silabs_fm_q_event(radio, SILABS_EVT_NEW_RT_RDS);
 			kfree(data);
 		} else {
@@ -1121,7 +1121,6 @@ static void silabs_ev_ert(struct silabs_fm_device *radio)
 		data_b = &radio->data_buf[SILABS_FM_BUF_ERT];
 		kfifo_in_locked(data_b, data, (radio->ert_len + ERT_OFFSET),
 				&radio->buf_lock[SILABS_FM_BUF_ERT]);
-		FMDINFO("Q the ERT event\n");
 		silabs_fm_q_event(radio, SILABS_EVT_NEW_ERT);
 		kfree(data);
 	}
@@ -1255,7 +1254,6 @@ static void silabs_rt_plus(struct silabs_fm_device *radio)
 		data_b = &radio->data_buf[SILABS_FM_BUF_RT_PLUS];
 		kfifo_in_locked(data_b, data, len,
 				&radio->buf_lock[SILABS_FM_BUF_RT_PLUS]);
-		FMDINFO("Q the RT+ event\n");
 		silabs_fm_q_event(radio, SILABS_EVT_NEW_RT_PLUS);
 		kfree(data);
 	} else {
@@ -1348,7 +1346,7 @@ static int get_rssi(struct silabs_fm_device *radio, u8 *prssi)
 		FMDERR("%s: get_rsq_status failed with error %d\n",
 				__func__, retval);
 
-	FMDINFO("%s: rssi is %d\n", __func__, radio->read_buf[4]);
+	FMDBG("%s: rssi is %d\n", __func__, radio->read_buf[4]);
 	*prssi = radio->read_buf[4];
 	mutex_unlock(&radio->lock);
 
@@ -1519,7 +1517,7 @@ static void update_af_list(struct silabs_fm_device *radio)
 						GET_AF_EVT_LEN(ev.af_size),
 						&lock);
 
-				FMDINFO("%s: posting AF list evt, curr freq %u\n",
+				FMDBG("%s: posting AF list evt, curr freq %u\n",
 					__func__, ev.tune_freq_khz);
 
 				silabs_fm_q_event(radio,
@@ -1654,7 +1652,7 @@ static void silabs_af_tune(struct work_struct *work)
 			FMDBG("%s: found AF freq(%u) >= AF th with pi %d\n",
 				__func__, freq, radio->pi);
 			/* Notify FM UI about the new freq */
-			FMDINFO("%s: posting TUNE_SUCC event\n", __func__);
+			FMDBG("%s: posting TUNE_SUCC event\n", __func__);
 			silabs_fm_q_event(radio, SILABS_EVT_TUNE_SUCC);
 
 			break;
@@ -1757,7 +1755,7 @@ static void rds_handler(struct work_struct *worker)
 		silabs_raw_rds_handler(radio);
 		break;
 	default:
-		FMDBG("Not handling the group type %d\n", grp_type);
+		FMDERR("Not handling the group type %d\n", grp_type);
 		break;
 	}
 	FMDBG("rt_plus_carrier = %x\n", radio->rt_plus_carrier);
@@ -2037,7 +2035,7 @@ static int enable(struct silabs_fm_device *radio)
 	init_ssr(radio);
 	if (retval >= 0) {
 		if (radio->mode == FM_RECV_TURNING_ON) {
-			FMDINFO("In %s, posting SILABS_EVT_RADIO_READY event\n",
+			FMDBG("In %s, posting SILABS_EVT_RADIO_READY event\n",
 				__func__);
 			silabs_fm_q_event(radio, SILABS_EVT_RADIO_READY);
 			radio->mode = FM_RECV;
@@ -2068,7 +2066,7 @@ static int disable(struct silabs_fm_device *radio)
 	mutex_unlock(&radio->lock);
 
 	if (radio->mode == FM_TURNING_OFF || radio->mode == FM_RECV) {
-		FMDINFO("%s: posting SILABS_EVT_RADIO_DISABLED event\n",
+		FMDBG("%s: posting SILABS_EVT_RADIO_DISABLED event\n",
 			__func__);
 		silabs_fm_q_event(radio, SILABS_EVT_RADIO_DISABLED);
 		radio->mode = FM_OFF;
@@ -2300,13 +2298,13 @@ static void silabs_interrupts_handler(struct silabs_fm_device *radio)
 	if (radio->read_buf[0] & STC_INT_BIT_MASK) {
 		FMDBG("%s: STC bit set for cmd %x\n", __func__, radio->cmd);
 		if (radio->seek_tune_status == TUNE_PENDING) {
-			FMDINFO("In %s, posting SILABS_EVT_TUNE_SUCC event\n",
+			FMDBG("In %s, posting SILABS_EVT_TUNE_SUCC event\n",
 				__func__);
 			silabs_fm_q_event(radio, SILABS_EVT_TUNE_SUCC);
 			radio->seek_tune_status = NO_SEEK_TUNE_PENDING;
 			radio->is_af_tune_in_progress = false;
 		} else if (radio->seek_tune_status == SEEK_PENDING) {
-			FMDINFO("%s: posting SILABS_EVT_SEEK_COMPLETE event\n",
+			FMDBG("%s: posting SILABS_EVT_SEEK_COMPLETE event\n",
 				__func__);
 			silabs_fm_q_event(radio, SILABS_EVT_SEEK_COMPLETE);
 			/* post tune comp evt since seek results in a tune.*/
@@ -2327,7 +2325,7 @@ static void silabs_interrupts_handler(struct silabs_fm_device *radio)
 			 * when AF tune is going on and STC int is set, signal
 			 * so that AF tune can proceed.
 			 */
-			FMDINFO("In %s, signalling AF tune thread\n", __func__);
+			FMDBG("In %s, signalling AF tune thread\n", __func__);
 			complete(&radio->sync_req_done);
 		}
 		/* clear the STC interrupt. */
@@ -3224,7 +3222,6 @@ static int silabs_fm_vidioc_s_tuner(struct file *file, void *priv,
 static int silabs_fm_vidioc_g_tuner(struct file *file, void *priv,
 		struct v4l2_tuner *tuner)
 {
-	u8 rssi;
 	int retval = 0;
 	struct silabs_fm_device *radio = video_get_drvdata(video_devdata(file));
 
@@ -3241,7 +3238,6 @@ static int silabs_fm_vidioc_g_tuner(struct file *file, void *priv,
 		return -EINVAL;
 	}
 
-#if 0
 	mutex_lock(&radio->lock);
 
 	memset(radio->write_buf, 0, WRITE_REG_NUM);
@@ -3263,15 +3259,6 @@ static int silabs_fm_vidioc_g_tuner(struct file *file, void *priv,
 	/* rssi */
 	tuner->signal = radio->read_buf[4];
 	mutex_unlock(&radio->lock);
-#else
-	retval = get_rssi(radio, &rssi);
-	if (retval < 0) {
-		FMDERR("%s: getting rssi failed\n", __func__);
-		tuner->signal = 0;
-	} else {
-		tuner->signal = rssi;
-	}
-#endif
 
 	retval = get_property(radio,
 				FM_SEEK_BAND_BOTTOM_PROP,
@@ -3353,7 +3340,7 @@ static int silabs_fm_vidioc_g_frequency(struct file *file, void *priv,
 	snr = radio->read_buf[5];
 	mutex_unlock(&radio->lock);
 
-	FMDINFO("In %s, freq is %d, rssi %u, snr %u\n",
+	FMDBG("In %s, freq is %d, rssi %u, snr %u\n",
 		__func__, f * TUNE_STEP_SIZE, rssi, snr);
 
 send_cmd_fail:
@@ -3382,7 +3369,7 @@ static int silabs_fm_vidioc_s_frequency(struct file *file, void *priv,
 
 	f = (freq->frequency)/TUNE_PARAM;
 
-	FMDINFO("Calling tune with freq %u\n", f);
+	FMDBG("Calling tune with freq %u\n", f);
 
 	radio->seek_tune_status = TUNE_PENDING;
 
@@ -3426,7 +3413,7 @@ static int silabs_fm_vidioc_s_hw_freq_seek(struct file *file, void *priv,
 
 	if (radio->g_search_mode == SEEK) {
 		/* seek */
-		FMDINFO("starting seek\n");
+		FMDBG("starting seek\n");
 
 		radio->seek_tune_status = SEEK_PENDING;
 
@@ -3685,8 +3672,7 @@ static int silabs_fm_probe(struct i2c_client *client,
 		 */
 		if (PTR_ERR(vreg) == -EPROBE_DEFER) {
 			FMDERR("In %s, areg probe defer\n", __func__);
-			// VA is always on from battery
-			//return PTR_ERR(vreg);
+			return PTR_ERR(vreg);
 		}
 	}
 	/* private data allocation */
@@ -3729,8 +3715,6 @@ static int silabs_fm_probe(struct i2c_client *client,
 			FMDERR("%s: parsing va-supply failed\n", __func__);
 			goto mem_alloc_fail;
 		}
-	} else {
-		FMDBG("%s: areg NULL\n", __func__);
 	}
 
 	vreg = regulator_get(&client->dev, "vdd");

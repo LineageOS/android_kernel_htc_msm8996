@@ -19,9 +19,9 @@
 #define WRITE_REG_NUM           8
 #define READ_REG_NUM            16
 
-#define FMDBG(fmt, args...) pr_debug("[FM] silabs_radio: " fmt, ##args)
-#define FMDINFO(fmt, args...) pr_info("[FM] silabs_radio: " fmt, ##args)
-#define FMDERR(fmt, args...) pr_err("[FM] silabs_radio: " fmt, ##args)
+#define FMDBG(fmt, args...) pr_debug("silabs_radio: " fmt, ##args)
+
+#define FMDERR(fmt, args...) pr_err("silabs_radio: " fmt, ##args)
 
 /* For bounds checking. */
 const unsigned char MIN_RDS_STD = 0x00;
