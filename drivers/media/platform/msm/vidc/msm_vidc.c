@@ -212,9 +212,9 @@ struct buffer_info *get_registered_buf(struct msm_vidc_inst *inst,
 	*plane = 0;
 	list_for_each_entry(temp, &inst->registeredbufs.list, list) {
 		for (i = 0; i < min(temp->num_planes, VIDEO_MAX_PLANES); i++) {
-			int8_t ion_hndl_matches = temp->handle[i] ?
+			bool ion_hndl_matches = temp->handle[i] ?
 				msm_smem_compare_buffers(inst->mem_client, fd,
-				temp->handle[i]->smem_priv) : 0;
+				temp->handle[i]->smem_priv) : false;
 			bool device_addr_matches = device_addr ==
 						temp->device_addr[i];
 			bool contains_within = CONTAINS(temp->buff_off[i],
@@ -222,11 +222,6 @@ struct buffer_info *get_registered_buf(struct msm_vidc_inst *inst,
 				CONTAINS(buff_off, size, temp->buff_off[i]);
 			bool overlaps = OVERLAPS(buff_off, size,
 					temp->buff_off[i], temp->size[i]);
-
-                        if (ion_hndl_matches < 0) {
-                                dprintk(VIDC_ERR, "Ion handle for fd %d doesn't exist!!\n", fd);
-                                return NULL;
-                        }
 
 			if (!temp->inactive &&
 				(ion_hndl_matches || device_addr_matches) &&

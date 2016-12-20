@@ -462,11 +462,11 @@ struct msm_smem *msm_smem_user_to_kernel(void *clt, int fd, u32 offset,
 	return mem;
 }
 
-int8_t msm_smem_compare_buffers(void *clt, int fd, void *priv)
+bool msm_smem_compare_buffers(void *clt, int fd, void *priv)
 {
 	struct smem_client *client = clt;
 	struct ion_handle *handle = NULL;
-	int8_t ret = 0;
+	bool ret = false;
 
 	if (!clt || !priv) {
 		dprintk(VIDC_ERR, "Invalid params: %pK, %pK\n",
@@ -474,11 +474,6 @@ int8_t msm_smem_compare_buffers(void *clt, int fd, void *priv)
 		return false;
 	}
 	handle = ion_import_dma_buf(client->clnt, fd);
-	if (IS_ERR_OR_NULL(handle)) {
-                dprintk(VIDC_ERR, "Failed to get ion handle: %p for fd: %d clnt: %p\n",
-                                handle, fd, priv);
-                return -EBADF;
-        }
 	ret = handle == priv;
 	(!IS_ERR_OR_NULL(handle)) ? ion_free(client->clnt, handle) : 0;
 	return ret;
