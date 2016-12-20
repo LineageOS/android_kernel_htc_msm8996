@@ -2526,23 +2526,6 @@ int sched_set_init_task_load(struct task_struct *p, int init_load_pct)
 	return 0;
 }
 
-int sched_set_cpu_budget(int cpu, int budget)
-{
-	struct rq *rq = cpu_rq(cpu);
-
-	rq->budget = budget;
-
-	return 0;
-}
-
-int sched_get_cpu_budget(int cpu)
-{
-	struct rq *rq = cpu_rq(cpu);
-
-	return rq->budget;
-}
-
-
 #ifdef CONFIG_CGROUP_SCHED
 
 static inline int upmigrate_discouraged(struct task_struct *p)

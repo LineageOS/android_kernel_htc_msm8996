@@ -2222,8 +2222,6 @@ extern int sched_set_static_cpu_pwr_cost(int cpu, unsigned int cost);
 extern unsigned int sched_get_static_cpu_pwr_cost(int cpu);
 extern int sched_set_static_cluster_pwr_cost(int cpu, unsigned int cost);
 extern unsigned int sched_get_static_cluster_pwr_cost(int cpu);
-extern int sched_set_cpu_budget(int cpu, int nr_run);
-extern int sched_get_cpu_budget(int cpu);
 extern void sched_set_cpu_cstate(int cpu, int cstate,
 			 int wakeup_energy, int wakeup_latency);
 extern void sched_set_cluster_dstate(const cpumask_t *cluster_cpus, int dstate,
