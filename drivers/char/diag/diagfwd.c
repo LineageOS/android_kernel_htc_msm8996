@@ -912,7 +912,7 @@ int diag_process_apps_pkt(unsigned char *buf, int len,
 	entry.cmd_code_lo = (uint16_t)(*(uint16_t *)temp);
 	temp += sizeof(uint16_t);
 
-	DIAGFWD_INFO("diag: In %s, received cmd %02x %02x %02x\n",
+	pr_info("diag: In %s, received cmd %02x %02x %02x\n",
 		 __func__, entry.cmd_code, entry.subsys_id, entry.cmd_code_hi);
 
 	if (*buf == DIAG_CMD_LOG_ON_DMND && driver->log_on_demand_support &&
@@ -1097,7 +1097,7 @@ int diag_process_apps_pkt(unsigned char *buf, int len,
 		 * the tools. This is required since the tools is expecting a
 		 * HDLC encoded reponse for this request.
 		 */
-		DIAGFWD_DBUG("diag: In %s, disabling HDLC encoding\n",
+		pr_debug("diag: In %s, disabling HDLC encoding\n",
 		       __func__);
 		if (info)
 			info->hdlc_disabled = 1;
@@ -1128,7 +1128,7 @@ void diag_process_hdlc_pkt(void *data, unsigned len,
 	}
 
 	mutex_lock(&driver->diag_hdlc_mutex);
-	DIAGFWD_DBUG("diag: In %s, received packet of length: %d, req_buf_len: %d\n",
+	pr_debug("diag: In %s, received packet of length: %d, req_buf_len: %d\n",
 		 __func__, len, driver->hdlc_buf_len);
 
 	if (driver->hdlc_buf_len >= DIAG_MAX_REQ_SIZE) {
@@ -1138,7 +1138,7 @@ void diag_process_hdlc_pkt(void *data, unsigned len,
 	}
 
 /*++ 2015/07/14, USB Team, PCN00012 ++*/
-	DIAGFWD_DBUG("HDLC decode fn, len of data  %d\n", len);
+	pr_debug("HDLC decode fn, len of data  %d\n", len);
 /*-- 2015/07/14, USB Team, PCN00012 --*/
 	hdlc_decode->dest_ptr = driver->hdlc_buf + driver->hdlc_buf_len;
 	hdlc_decode->dest_size = DIAG_MAX_HDLC_BUF_SIZE - driver->hdlc_buf_len;
@@ -1268,7 +1268,7 @@ static int diagfwd_mux_close(int id, int mode)
 			}
 		}
 		/* Re enable HDLC encoding */
-		DIAGFWD_DBUG("diag: In %s, re-enabling HDLC encoding\n",
+		pr_debug("diag: In %s, re-enabling HDLC encoding\n",
 		       __func__);
 		mutex_lock(&driver->hdlc_disable_mutex);
 		if (driver->md_session_mode == DIAG_MD_NONE)
@@ -1299,7 +1299,7 @@ static void hdlc_reset_timer_start(struct diag_md_session_t *info)
 
 static void hdlc_reset_timer_func(unsigned long data)
 {
-	DIAGFWD_DBUG("diag: In %s, re-enabling HDLC encoding\n",
+	pr_debug("diag: In %s, re-enabling HDLC encoding\n",
 		       __func__);
 	if (hdlc_reset) {
 		driver->hdlc_disabled = 0;

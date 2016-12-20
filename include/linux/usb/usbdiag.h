@@ -23,22 +23,6 @@
 
 #include <linux/err.h>
 
-/*DRIVER_DIAGFWD_FUNCTION*/
-#define DIAGFWD_ERR(fmt, args...) \
-	printk(KERN_ERR "[DIAGFWD:ERR] " fmt, ## args)
-#define DIAGFWD_WARNING(fmt, args...) \
-	printk(KERN_WARNING "[DIAGFWD] " fmt, ## args)
-#define DIAGFWD_INFO(fmt, args...) \
-	printk(KERN_INFO "[DIAGFWD] " fmt, ## args)
-#define DIAGFWD_DBUG(fmt, args...) \
-	do { \
-		if (diag7k_debug_mask) \
-			printk(KERN_INFO "[DIAGFWD] " fmt, ## args); \
-		else \
-			pr_debug("[DIAGFWD] " fmt, ## args); \
-	} while (0)
-
-
 /* DRIVER_SDLOG_FUNCTION*/
 #define SDLOG_ERR(fmt, args...) \
 	printk(KERN_ERR "[DIAGSDLOG:ERR] " fmt, ## args)
