@@ -238,7 +238,7 @@ static void usb_read_work_fn(struct work_struct *work)
 
 	if (!atomic_read(&ch->connected) || !ch->enabled ||
 	    atomic_read(&ch->read_pending) || !atomic_read(&ch->diag_state)) {
-		pr_debug("diag: Discarding USB read, ch: %s e: %d, c: %d, p: %d, d: %d\n",
+		pr_debug_ratelimited("diag: Discarding USB read, ch: %s e: %d, c: %d, p: %d, d: %d\n",
 				     ch->name, ch->enabled,
 				     atomic_read(&ch->connected),
 				     atomic_read(&ch->read_pending),
@@ -283,16 +283,6 @@ static void usb_read_done_work_fn(struct work_struct *work)
 
 	req = ch->read_ptr;
 	ch->read_cnt++;
-/*++ 2015/10/26, USB Team, PCN00028 ++*/
-#if DIAG_XPST && !defined(CONFIG_DIAGFWD_BRIDGE_CODE)
-       if (driver->nohdlc) {
-               req->buf = ch->read_buf;
-               req->length = USB_MAX_OUT_BUF;
-               usb_diag_read(ch->hdl, req);
-               return;
-       }
-#endif
-/*-- 2015/10/26, USB Team, PCN00028 --*/
 
 	if (ch->ops && ch->ops->read_done && req->status >= 0)
 		ch->ops->read_done(req->buf, req->actual, ch->ctxt);
@@ -520,7 +510,7 @@ int diag_usb_write(int id, unsigned char *buf, int len, int ctxt)
 
 	if (!usb_info->hdl || !atomic_read(&usb_info->connected) ||
 	    !atomic_read(&usb_info->diag_state)) {
-		pr_debug("diag: USB ch %s is not connected\n",
+		pr_debug_ratelimited("diag: USB ch %s is not connected\n",
 				     usb_info->name);
 		diagmem_free(driver, req, usb_info->mempool);
 		return -ENODEV;

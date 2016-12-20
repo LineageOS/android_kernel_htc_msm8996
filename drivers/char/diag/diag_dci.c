@@ -947,7 +947,6 @@ void extract_dci_pkt_rsp(unsigned char *buf, int len, int data_source,
 	unsigned char *temp = buf;
 	int save_req_uid = 0;
 	struct diag_dci_pkt_rsp_header_t pkt_rsp_header;
-	int ret;
 
 	if (!buf) {
 		pr_err("diag: Invalid pointer in %s\n", __func__);
@@ -995,10 +994,9 @@ void extract_dci_pkt_rsp(unsigned char *buf, int len, int data_source,
 	}
 
 	save_req_uid = req_entry->uid;
-	
-	ret = diag_dci_remove_req_entry(temp, rsp_len, req_entry);
-	delete_flag = ret;
-	if (ret < 0) {
+	/* Remove the headers and send only the response to this function */
+	delete_flag = diag_dci_remove_req_entry(temp, rsp_len, req_entry);
+	if (delete_flag < 0) {
 		mutex_unlock(&driver->dci_mutex);
 		return;
 	}
@@ -1953,7 +1951,7 @@ int diag_process_dci_transaction(unsigned char *buf, int len)
 			return -ENOMEM;
 		}
 		pr_debug("diag: head of dci log mask %pK\n", head_log_mask_ptr);
-		count = 0; 
+		count = 0; /* iterator for extracting log codes */
 
 		while (count < num_codes) {
 			if (read_len >= USER_SPACE_DATA) {
@@ -2067,7 +2065,7 @@ int diag_process_dci_transaction(unsigned char *buf, int len)
 			return -ENOMEM;
 		}
 		pr_debug("diag: head of dci event mask %pK\n", event_mask_ptr);
-		count = 0; 
+		count = 0; /* iterator for extracting log codes */
 		while (count < num_codes) {
 			if (read_len >= USER_SPACE_DATA) {
 				pr_err("diag: dci: Invalid length for event type in %s",

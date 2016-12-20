@@ -144,6 +144,7 @@ module_param(max_clients, uint, 0);
 static unsigned int dci_activate = 1;
 module_param(dci_activate, uint, S_IRUGO | S_IWUSR);
 
+/* Timer variables */
 static struct timer_list drain_timer;
 static int timer_in_progress;
 
@@ -341,14 +342,14 @@ static int diag_switch_logging(struct diag_logging_mode_param_t *param);
 
 #define COPY_USER_SPACE_OR_EXIT(buf, data, length)		\
 do {								\
-	if (count < ret+length)                 \
-		goto exit;                  \
-	if (copy_to_user(buf, (void *)&data, length)) {     \
+	if ((count < ret+length) || (copy_to_user(buf,		\
+			(void *)&data, length))) {		\
 		ret = -EFAULT;					\
 		goto exit;					\
 	}							\
 	ret += length;						\
 } while (0)
+
 static void drain_timer_func(unsigned long data)
 {
 	queue_work(driver->diag_wq , &(driver->diag_drain_work));
@@ -456,8 +457,6 @@ static int diagchar_open(struct inode *inode, struct file *file)
 {
 	int i = 0;
 	void *temp;
-	pr_info("%s:%s(parent:%s): tgid=%d\n", __func__,
-		current->comm, current->parent->comm, current->tgid);
 
 	if (driver) {
 		mutex_lock(&driver->diagchar_mutex);
@@ -488,11 +487,11 @@ static int diagchar_open(struct inode *inode, struct file *file)
 				diag_add_client(i, file);
 			} else {
 				mutex_unlock(&driver->diagchar_mutex);
-				pr_alert("Max client limit for DIAG reached\n");
-				pr_info("Cannot open handle %s"
+				pr_err_ratelimited("diag: Max client limit for DIAG reached\n");
+				pr_err_ratelimited("diag: Cannot open handle %s"
 					   " %d", current->comm, current->tgid);
 				for (i = 0; i < driver->num_clients; i++)
-					pr_warn("%d) %s PID=%d", i, driver->
+					pr_debug("%d) %s PID=%d", i, driver->
 						client_map[i].name,
 						driver->client_map[i].pid);
 				return -ENOMEM;
@@ -570,7 +569,6 @@ static int diag_remove_client_entry(struct file *file)
 	struct diagchar_priv *diagpriv_data = NULL;
 	struct diag_dci_client_tbl *dci_entry = NULL;
 
-	pr_debug("diag: process exit %s\n", current->comm);
 	if (!driver)
 		return -ENOMEM;
 
@@ -2146,9 +2144,6 @@ long diagchar_compat_ioctl(struct file *filp,
 	struct diag_dci_client_tbl *dci_client = NULL;
 	struct diag_logging_mode_param_t mode_param;
 
-	pr_info("%s:%s(parent:%s): tgid=%d, iocmd=%d, ioarg=%d\n", __func__,
-		current->comm, current->parent->comm, current->tgid, (int)iocmd, (int)ioarg);
-
 	switch (iocmd) {
 	case DIAG_IOCTL_COMMAND_REG:
 		result = diag_ioctl_cmd_reg_compat(ioarg);
@@ -2285,10 +2280,6 @@ long diagchar_ioctl(struct file *filp,
 	uint16_t remote_dev;
 	struct diag_dci_client_tbl *dci_client = NULL;
 	struct diag_logging_mode_param_t mode_param;
-
-	pr_info("%s:%s(parent:%s): tgid=%d, iocmd=%d, ioarg=%d\n", __func__,
-			current->comm, current->parent->comm,
-			current->tgid, (int)iocmd, (int)ioarg);
 
 	switch (iocmd) {
 	case DIAG_IOCTL_COMMAND_REG:
@@ -2977,7 +2968,7 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 	    (driver->logging_mode == DIAG_MEMORY_DEVICE_MODE ||
 	     driver->logging_mode == DIAG_MULTI_MODE)) {
 		pr_debug("diag: process woken up\n");
-		
+		/*Copy the type of data being passed*/
 		data_type = driver->data_ready[index] & USER_SPACE_DATA_TYPE;
 		driver->data_ready[index] ^= USER_SPACE_DATA_TYPE;
 		COPY_USER_SPACE_OR_EXIT(buf, data_type, sizeof(int));
@@ -3182,9 +3173,10 @@ static ssize_t diagchar_write(struct file *file, const char __user *buf,
 	int payload_len = 0;
 	const char __user *payload_buf = NULL;
 
-	pr_debug("%s:%s(parent:%s): tgid=%d\n", __func__,
-		current->comm, current->parent->comm, current->tgid);
-
+	/*
+	 * The data coming from the user sapce should at least have the
+	 * packet type heeader.
+	 */
 	if (count < sizeof(int)) {
 		pr_err("diag: In %s, client is sending short data, len: %d\n",
 		       __func__, (int)count);
@@ -3194,7 +3186,7 @@ static ssize_t diagchar_write(struct file *file, const char __user *buf,
 	err = copy_from_user((&pkt_type), buf, sizeof(int));
 	if (err) {
 		pr_err_ratelimited("diag: In %s, unable to copy pkt_type from userspace, err: %d\n",
-				__func__, err);
+				   __func__, err);
 		return -EIO;
 	}
 
@@ -3538,8 +3530,6 @@ static int diagchar_setup_cdev(dev_t devno)
 
 static int diagchar_cleanup(void)
 {
-	pr_info("%s:%s(parent:%s): tgid=%d\n", __func__,
-		current->comm, current->parent->comm, current->tgid);
 	if (driver) {
 		if (driver->cdev) {
 			/* TODO - Check if device exists before deleting */
@@ -3688,7 +3678,7 @@ static int __init diagchar_init(void)
 	if (error)
 		goto fail;
 
-	pr_info("diagchar initialized now");
+	pr_debug("diagchar initialized now");
 	return 0;
 
 fail:
