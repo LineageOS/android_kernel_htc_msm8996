@@ -44,16 +44,3 @@ config MSM_ADRENO_DEFAULT_GOVERNOR
 config MSM_KGSL_IOMMU
 	bool
 	default y if MSM_KGSL && (MSM_IOMMU || ARM_SMMU)
-
-config MSM_KGSL_DEFAULT_GPU_HUNG_NO_PANIC
-	int "Bypass HTC change for GPU hung, go QCT origin flow"
-	default -1
-	---help---
-	positive number:
-		allow gpu fault n times.
-		If fault time over n, kgsl trigger panic.
-	zero:
-		trigger panic if gpu fault.
-	negative number:
-		always go to QCT recovery patch.
-		we set -1 for CRC stage.

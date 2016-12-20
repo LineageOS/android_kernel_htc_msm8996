@@ -42,7 +42,6 @@
 #include "kgsl_sync.h"
 #include "kgsl_compat.h"
 #include "kgsl_pool.h"
-#include "kgsl_htc.h"
 
 #undef MODULE_PARAM_PREFIX
 #define MODULE_PARAM_PREFIX "kgsl."
@@ -425,12 +424,8 @@ kgsl_mem_entry_attach_process(struct kgsl_mem_entry *entry,
 		return -EBADF;
 
 	ret = kgsl_mem_entry_track_gpuaddr(process, entry);
-	if (ret) {
-		spin_lock(&process->mem_lock);
-		kgsl_dump_contextpid_locked(&dev_priv->device->context_idr);
-		spin_unlock(&process->mem_lock);
+	if (ret)
 		goto err_put_proc_priv;
-	}
 
 	idr_preload(GFP_KERNEL);
 	spin_lock(&process->mem_lock);
@@ -447,7 +442,6 @@ kgsl_mem_entry_attach_process(struct kgsl_mem_entry *entry,
 
 	entry->id = id;
 	entry->priv = process;
-	entry->memdesc.private = process;
 
 	/* map the memory after unlocking if gpuaddr has been assigned */
 	if (entry->memdesc.gpuaddr) {
@@ -491,7 +485,7 @@ static void kgsl_mem_entry_detach_process(struct kgsl_mem_entry *entry)
 	entry->id = 0;
 
 	type = kgsl_memdesc_usermem_type(&entry->memdesc);
-	atomic_long_sub(entry->memdesc.size, &entry->priv->stats[type].cur);
+	entry->priv->stats[type].cur -= entry->memdesc.size;
 	spin_unlock(&entry->priv->mem_lock);
 
 	kgsl_mmu_unmap(entry->memdesc.pagetable, &entry->memdesc);
@@ -2928,7 +2922,6 @@ static struct kgsl_mem_entry *gpumem_alloc_entry(
 	struct kgsl_process_private *private = dev_priv->process_priv;
 	struct kgsl_mem_entry *entry;
 	unsigned int align;
-	struct kgsl_memdesc *memdesc = NULL;
 
 	flags &= KGSL_MEMFLAGS_GPUREADONLY
 		| KGSL_CACHEMODE_MASK
@@ -2972,8 +2965,6 @@ static struct kgsl_mem_entry *gpumem_alloc_entry(
 	flags = kgsl_filter_cachemode(flags);
 
 	entry = kgsl_mem_entry_create();
-	memdesc = &entry->memdesc;
-
 	if (entry == NULL)
 		return ERR_PTR(-ENOMEM);
 
@@ -2983,7 +2974,6 @@ static struct kgsl_mem_entry *gpumem_alloc_entry(
 	if (flags & KGSL_MEMFLAGS_SECURE)
 		entry->memdesc.priv |= KGSL_MEMDESC_SECURE;
 
-	memdesc->private = private;
 	ret = kgsl_allocate_user(dev_priv->device, &entry->memdesc,
 				private->pagetable, size, flags);
 	if (ret != 0)
@@ -3973,9 +3963,6 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 	/* Initialize the memory pools */
 	kgsl_init_page_pools();
 
-	
-	kgsl_device_htc_init(device);
-
 	return 0;
 
 error_free_memstore:
@@ -4121,8 +4108,6 @@ static int __init kgsl_core_init(void)
 		goto err;
 
 	kgsl_memfree_init();
-
-	kgsl_driver_htc_init(&kgsl_driver.priv);
 
 	return 0;
 
