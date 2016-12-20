@@ -297,12 +297,14 @@ static void fw_free_buf(struct firmware_buf *buf)
 
 /* direct firmware loading support */
 static char fw_path_para[256];
-static const char * const fw_path[] = {
+static char *fw_path[32] = {
 	fw_path_para,
 	"/lib/firmware/updates/" UTS_RELEASE,
 	"/lib/firmware/updates",
 	"/lib/firmware/" UTS_RELEASE,
-	"/lib/firmware"
+	"/lib/firmware",
+	"/firmware/image"
+        ,"/firmware/cradio"
 };
 
 /*
@@ -312,6 +314,8 @@ static const char * const fw_path[] = {
  */
 module_param_string(path, fw_path_para, sizeof(fw_path_para), 0644);
 MODULE_PARM_DESC(path, "customized firmware image search path with a higher priority than default path");
+
+module_param_array(fw_path, charp, NULL, 0644);
 
 static int fw_read_file_contents(struct file *file, struct firmware_buf *fw_buf)
 {
@@ -363,15 +367,48 @@ static int fw_get_filesystem_firmware(struct device *device,
 	int i;
 	int rc = -ENOENT;
 	char *path = __getname();
+
+        
+        const char* radio_image_select_path = "/dev/block/bootdevice/by-name/fsc";
+        
+        const int fsc_offset = 532; 
+        static char radio_image_info[4] = "";
+        static bool is_first = true;
+        struct file *fsc_file;
+        
+
 	if (!path)
 		return false;
 
+        
+        if (!strncmp( buf->fw_id, "modem", 5)) {
+          if ( is_first ) {
+            fsc_file = filp_open( radio_image_select_path, O_RDONLY, 0);
+            if ( !IS_ERR(fsc_file) ) {
+              kernel_read( fsc_file, fsc_offset, radio_image_info, 4*sizeof(char) );
+              filp_close( fsc_file, NULL );
+            }
+            else {
+              dev_err(device,"firmware: fsc_file open fail, err value = %d\n", IS_ERR(fsc_file));
+            }
+            is_first = false;
+          }
+        }
+        
 	for (i = 0; i < ARRAY_SIZE(fw_path); i++) {
 		struct file *file;
 
-		/* skip the unset customized path */
-		if (!fw_path[i][0])
+		
+		if (!fw_path[i] || !fw_path[i][0])
 			continue;
+
+                
+                if ( !strcmp( radio_image_info, "CDMA" ) && !strcmp( fw_path[i], "/firmware/image" )
+                  && ( !strncmp( buf->fw_id, "modem", 5 ) || !strncmp( buf->fw_id, "mba", 3 ) || !strncmp( buf->fw_id, "msadp", 5)) ) {
+                    dev_err(device,"firmware: look up FW device: %s, radio select = %s, skip path = %s\n", buf->fw_id, radio_image_info, fw_path[i]);
+                    continue;
+                  }
+                
 
 		snprintf(path, PATH_MAX, "%s/%s", fw_path[i], buf->fw_id);
 
@@ -1287,6 +1324,12 @@ static int _request_firmware(struct fw_desc *desc)
 
 	ret = 0;
 	timeout = firmware_loading_timeout();
+
+        #if 1 
+        if (loading_timeout > 0 && !strncmp(desc->name, "msadp", 5))
+          timeout = 1 * HZ; 
+        #endif 
+
 	if (desc->opt_flags & FW_OPT_NOWAIT) {
 		timeout = usermodehelper_read_lock_wait(timeout);
 		if (!timeout) {
