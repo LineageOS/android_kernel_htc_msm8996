@@ -724,11 +724,6 @@ config INPUT_IDEAPAD_SLIDEBAR
 	  To compile this driver as a module, choose M here: the
 	  module will be called ideapad_slidebar.
 
-config INPUT_DUMMY_KEYPAD
-	tristate "Dummy Keypad driver support"
-	help
-	  Say Y here if you want to support dummy keypad driver, wheels etc...
-
 config AK8789_HALLSENSOR
 	tristate "ak8789 hall sensor support"
 	help
