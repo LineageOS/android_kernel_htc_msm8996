@@ -132,6 +132,25 @@ dtb-$(CONFIG_ARCH_MSMCOBALT) += msmcobalt-sim.dtb \
 	msmcobalt-v2-mtp.dtb \
 	msmcobalt-v2-cdp.dtb
 
+# HTC msm8996 device dtbs
+dtb-$(CONFIG_ARCH_MSM8996) += \
+	msm8996-v3-htc_pme-pvt.dtb \
+	msm8996-v3-htc_pme-xc.dtb \
+	msm8996-v3-htc_pme-xb.dtb \
+	msm8996-v3-htc_pme-xa.dtb \
+	msm8996-v2-htc_pme-xb.dtb \
+	msm8996-v2-htc_pme-xa.dtb \
+	msm8996-v2-htc_evm.dtb \
+	msm8996-v3-htc_pmeuhljapan-xa.dtb \
+	msm8996-v3-htc_pmeuhljapan-xb.dtb \
+	msm8996-v3-htc_pmewhl-xd.dtb \
+	msm8996-v3-htc_pmewhl-pvt.dtb \
+	msm8996-v3-htc_pmeuhljapan-pvt.dtb \
+	msm8996pro-v1.1-htc_oce-xa.dtb \
+	msm8996pro-v1.1-htc_oce-xb.dtb \
+	msm8996pro-v1.1-htc_oce-xc.dtb \
+	msm8996pro-v1.1-htc_oce-pvt.dtb \
+
 dtb-$(CONFIG_ARCH_MDM9640) += mdm9640-sim.dtb \
 	mdm9640-rumi.dtb \
 	mdm9640-emmc-cdp.dtb \
