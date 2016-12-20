@@ -268,6 +268,7 @@
 #define KEY_RFKILL		247	/* Key that controls all radios */
 
 #define KEY_MICMUTE		248	/* Mute / unmute the microphone */
+#define KEY_APP_SWITCH		249	/* key for list app*/
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
@@ -518,6 +519,8 @@
 #define BTN_DPAD_DOWN		0x221
 #define BTN_DPAD_LEFT		0x222
 #define BTN_DPAD_RIGHT		0x223
+
+#define KEY_APPSELECT		0x244	/* AL Select Task/Application */
 
 #define MATRIX_KEY(row, col, code)	\
 	((((row) & 0xFF) << 24) | (((col) & 0xFF) << 16) | ((code) & 0xFFFF))
