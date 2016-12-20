@@ -18,7 +18,6 @@
 #include <trace/events/power.h>
 
 #include "power.h"
-#include <soc/qcom/htc_util.h>
 
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
@@ -455,23 +454,18 @@ static void wakeup_source_report_event(struct wakeup_source *ws)
 		wakeup_source_activate(ws);
 }
 
-#ifdef CONFIG_PM_DEBUG
-extern char wakelock_debug_buf[];
-#endif
-
+/**
+ * __pm_stay_awake - Notify the PM core of a wakeup event.
+ * @ws: Wakeup source object associated with the source of the event.
+ *
+ * It is safe to call this function from interrupt context.
+ */
 void __pm_stay_awake(struct wakeup_source *ws)
 {
 	unsigned long flags;
 
 	if (!ws)
 		return;
-
-#ifdef CONFIG_PM_DEBUG
-	if (!strncmp(ws->name, wakelock_debug_buf, sizeof(ws->name)-1)) {
-		pr_err("%s PID: %i requests wakelock %s", current->comm, current->pid, ws->name);
-		dump_stack();
-	}
-#endif
 
 	spin_lock_irqsave(&ws->lock, flags);
 
@@ -945,6 +939,10 @@ static int print_wakeup_source_stats(struct seq_file *m,
 	return ret;
 }
 
+/**
+ * wakeup_sources_stats_show - Print wakeup sources statistics information.
+ * @m: seq_file to print the statistics into.
+ */
 static int wakeup_sources_stats_show(struct seq_file *m, void *unused)
 {
 	struct wakeup_source *ws;

@@ -476,38 +476,6 @@ power_attr(autosleep);
 #endif /* CONFIG_PM_AUTOSLEEP */
 
 #ifdef CONFIG_PM_WAKELOCKS
-
-#ifdef CONFIG_PM_DEBUG
-char wakelock_debug_buf[1024];
-#define wakelock_debug_attr(_name) \
-static struct kobj_attribute _name##_attr = {   \
-        .attr   = {                             \
-                .name = __stringify(_name),     \
-                .mode = 0640,                   \
-        },                                      \
-        .show   = _name##_show,                 \
-        .store  = _name##_store,                \
- }
-
-static ssize_t
-wakelock_debug_show(struct kobject *kobj, struct kobj_attribute *attr,
-                     char *buf)
-{
-        return scnprintf(buf, sizeof(wakelock_debug_buf), "%s", wakelock_debug_buf);
-}
-
-static ssize_t
-wakelock_debug_store(struct kobject *kobj, struct kobj_attribute *attr,
-                      const char *buf, size_t n)
-{
-        strncpy(wakelock_debug_buf, buf, sizeof(wakelock_debug_buf) - 1);
-        wakelock_debug_buf[sizeof(wakelock_debug_buf) - 1] = '\0';
-        pr_err("Start to monitor wakelock %s.\n", wakelock_debug_buf);
-        return n;
-}
-wakelock_debug_attr(wakelock_debug);
-#endif 
-
 static ssize_t wake_lock_show(struct kobject *kobj,
 			      struct kobj_attribute *attr,
 			      char *buf)
@@ -520,12 +488,6 @@ static ssize_t wake_lock_store(struct kobject *kobj,
 			       const char *buf, size_t n)
 {
 	int error = pm_wake_lock(buf);
-
-#ifdef CONFIG_PM_DEBUG
-	if (!strncmp(buf, wakelock_debug_buf, sizeof(buf)-1))
-		pr_err("%s PID: %i requests wakelock %s", current->comm, current->pid, buf);
-#endif
-
 	return error ? error : n;
 }
 
@@ -619,7 +581,7 @@ static ssize_t pm_freeze_timeout_store(struct kobject *kobj,
 
 power_attr(pm_freeze_timeout);
 
-#endif	
+#endif	/* CONFIG_FREEZER*/
 
 #ifdef CONFIG_HTC_PNPMGR
 int powersave_enabled = 0;
@@ -711,9 +673,6 @@ static struct attribute * g[] = {
 	&autosleep_attr.attr,
 #endif
 #ifdef CONFIG_PM_WAKELOCKS
-#ifdef CONFIG_PM_DEBUG
-	&wakelock_debug_attr.attr,
-#endif 
 	&wake_lock_attr.attr,
 	&wake_unlock_attr.attr,
 #endif
