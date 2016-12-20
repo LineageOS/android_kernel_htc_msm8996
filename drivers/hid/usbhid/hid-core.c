@@ -73,6 +73,8 @@ static void hid_io_error(struct hid_device *hid);
 static int hid_submit_out(struct hid_device *hid);
 static int hid_submit_ctrl(struct hid_device *hid);
 static void hid_cancel_delayed_stuff(struct usbhid_device *usbhid);
+extern bool is_autosuspend(const u16 idVendor, const u16 idProduct, int on);
+extern int ohio_release_wakelock(void);
 
 /* Start up the input URB */
 static int hid_start_in(struct hid_device *hid)
@@ -1354,6 +1356,12 @@ static int usbhid_probe(struct usb_interface *intf, const struct usb_device_id *
 		goto err_free;
 	}
 
+	if (is_autosuspend(hid->vendor, hid->product, 1)) {
+		printk("[USB] %s: enable usb autosuspend\n", __func__);
+		usb_enable_autosuspend(dev);
+		ohio_release_wakelock();
+	}
+
 	return 0;
 err_free:
 	kfree(usbhid);
@@ -1365,11 +1373,16 @@ err:
 static void usbhid_disconnect(struct usb_interface *intf)
 {
 	struct hid_device *hid = usb_get_intfdata(intf);
+	struct usb_device *dev = interface_to_usbdev(intf);
 	struct usbhid_device *usbhid;
 
 	if (WARN_ON(!hid))
 		return;
 
+	if (is_autosuspend(hid->vendor, hid->product, 0)) {
+		printk("%s: hiddev disconnect and disable autosuspend\n", __func__);
+		usb_disable_autosuspend(dev);
+	}
 	usbhid = hid->driver_data;
 	spin_lock_irq(&usbhid->lock);	/* Sync with error and led handlers */
 	set_bit(HID_DISCONNECTED, &usbhid->iofl);
