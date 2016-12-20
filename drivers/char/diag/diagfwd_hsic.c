@@ -361,7 +361,7 @@ static int hsic_write(int id, unsigned char *buf, int len, int ctxt)
 
 	ch = &diag_hsic[id];
 	if (!ch->opened || !ch->enabled) {
-		pr_debug_ratelimited("diag: In %s, ch %d is disabled. opened %d enabled: %d\n",
+		pr_debug("diag: In %s, ch %d is disabled. opened %d enabled: %d\n",
 				     __func__, id, ch->opened, ch->enabled);
 		return -EIO;
 	}

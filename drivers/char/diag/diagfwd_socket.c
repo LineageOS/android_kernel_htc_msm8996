@@ -228,11 +228,11 @@ static void socket_data_ready(struct sock *sk_ptr)
 		pr_err_ratelimited("diag: In %s, invalid info\n", __func__);
 		return;
 	}
-
 	spin_lock_irqsave(&info->lock, flags);
 	info->data_ready++;
 	spin_unlock_irqrestore(&info->lock, flags);
 	diag_ws_on_notify();
+	pr_debug("socket data ready = %d\n",info->data_ready);
 
 	queue_work(info->wq, &(info->read_work));
 	wake_up_interruptible(&info->read_wait_q);
@@ -438,6 +438,10 @@ static void __socket_close_channel(struct diag_socket_info *info)
 
 	if (!atomic_read(&info->opened))
 		return;
+
+	if (cntl_socket)
+		wake_up(&cntl_socket->read_wait_q);
+	wake_up(&info->read_wait_q);
 
 	memset(&info->remote_addr, 0, sizeof(struct sockaddr_msm_ipc));
 	diagfwd_channel_close(info->fwd_ctxt);
@@ -1006,7 +1010,7 @@ static int diag_socket_read(void *ctxt, unsigned char *buf, int buf_len)
 		err = queue_work(info->wq, &(info->read_work));
 
 	if (total_recd > 0) {
-		DIAG_LOG(DIAG_DEBUG_PERIPHERALS, "%s read total bytes: %d\n",
+		pr_debug("%s read total bytes: %d\n",
 			 info->name, total_recd);
 		mutex_lock(&driver->diagfwd_channel_mutex);
 		err = diagfwd_channel_read_done(info->fwd_ctxt,
@@ -1015,7 +1019,7 @@ static int diag_socket_read(void *ctxt, unsigned char *buf, int buf_len)
 		if (err)
 			goto fail;
 	} else {
-		DIAG_LOG(DIAG_DEBUG_PERIPHERALS, "%s error in read, err: %d\n",
+		pr_debug("%s error in read, err: %d\n",
 			 info->name, total_recd);
 		goto fail;
 	}
@@ -1066,9 +1070,7 @@ static int diag_socket_write(void *ctxt, unsigned char *buf, int len)
 		pr_err_ratelimited("diag: In %s, wrote partial packet to %s, len: %d, wrote: %d\n",
 				   __func__, info->name, len, write_len);
 	}
-
-	DIAG_LOG(DIAG_DEBUG_PERIPHERALS, "%s wrote to socket, len: %d\n",
-		 info->name, write_len);
+	pr_debug("%s wrote to socket, len: %d\n", info->name, write_len);
 
 	return err;
 }
