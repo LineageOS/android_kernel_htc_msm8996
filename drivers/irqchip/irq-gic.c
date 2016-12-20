@@ -42,7 +42,6 @@
 #include <linux/irqchip/arm-gic.h>
 #include <linux/syscore_ops.h>
 #include <linux/msm_rtb.h>
-#include <linux/htc_debug_tools.h>
 
 #include <asm/cputype.h>
 #include <asm/irq.h>

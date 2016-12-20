@@ -21,7 +21,6 @@
 #include <linux/irqdomain.h>
 
 extern bool from_suspend;
-extern int msm_show_resume_irq_mask;
 extern struct irq_chip gic_arch_extn;
 extern int msm_show_resume_irq_mask;
 
