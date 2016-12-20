@@ -724,6 +724,11 @@ config INPUT_IDEAPAD_SLIDEBAR
 	  To compile this driver as a module, choose M here: the
 	  module will be called ideapad_slidebar.
 
+config AK8789_HALLSENSOR
+	tristate "ak8789 hall sensor support"
+	help
+	  if you say yes here, you get support for ak8789 hall sensor
+
 config INPUT_SOC_BUTTON_ARRAY
 	tristate "Windows-compatible SoC Button Array"
 	depends on KEYBOARD_GPIO
