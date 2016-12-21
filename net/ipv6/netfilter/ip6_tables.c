@@ -36,7 +36,9 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Netfilter Core Team <coreteam@netfilter.org>");
 MODULE_DESCRIPTION("IPv6 packet filter");
 
- 
+/*#define DEBUG_IP_FIREWALL*/
+/*#define DEBUG_ALLOW_ALL*/ /* Useful for remote debugging */
+/*#define DEBUG_IP_FIREWALL_USER*/
 
 #ifdef DEBUG_IP_FIREWALL
 #define dprintf(format, args...) pr_info(format , ## args)

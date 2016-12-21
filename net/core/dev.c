@@ -346,7 +346,27 @@ static inline void netdev_set_addr_lockdep_class(struct net_device *dev)
 }
 #endif
 
+/*******************************************************************************
 
+		Protocol management and registration routines
+
+*******************************************************************************/
+
+/*
+ *	Add a protocol ID to the list. Now that the input handler is
+ *	smarter we can dispense with all the messy stuff that used to be
+ *	here.
+ *
+ *	BEWARE!!! Protocol handlers, mangling input packets,
+ *	MUST BE last in hash buckets and checking protocol handlers
+ *	MUST start from promiscuous ptype_all chain in net_bh.
+ *	It is true now, do not change it.
+ *	Explanation follows: if protocol handler, mangling packet, will
+ *	be the first on list, it is not able to sense, that packet
+ *	is cloned and should be copied-on-write, so that it will
+ *	change it and subsequent readers will get broken packet.
+ *							--ANK (980803)
+ */
 
 static inline struct list_head *ptype_head(const struct packet_type *pt)
 {
@@ -4254,7 +4274,7 @@ static void napi_reuse_skb(struct napi_struct *napi, struct sk_buff *skb)
 	skb->encapsulation = 0;
 	skb_shinfo(skb)->gso_type = 0;
 	skb->truesize = SKB_TRUESIZE(skb_end_offset(skb));
-    BUG_ON(skb->truesize == 0x6B6B6B6A);
+
 	napi->skb = skb;
 }
 

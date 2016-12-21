@@ -118,12 +118,12 @@
 #include <linux/security.h>
 #include <linux/freezer.h>
 
-
 struct hlist_head unix_socket_table[2 * UNIX_HASH_SIZE];
 EXPORT_SYMBOL_GPL(unix_socket_table);
 DEFINE_SPINLOCK(unix_table_lock);
 EXPORT_SYMBOL_GPL(unix_table_lock);
 static atomic_long_t unix_nr_socks;
+
 
 static struct hlist_head *unix_sockets_unbound(void *addr)
 {

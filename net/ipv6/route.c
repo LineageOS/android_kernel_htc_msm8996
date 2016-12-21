@@ -2790,7 +2790,6 @@ void inet6_rt_notify(int event, struct rt6_info *rt, struct nl_info *info)
 		kfree_skb(skb);
 		goto errout;
 	}
-
 	rtnl_notify(skb, net, info->portid, RTNLGRP_IPV6_ROUTE,
 		    info->nlh, gfp_any());
 	return;
