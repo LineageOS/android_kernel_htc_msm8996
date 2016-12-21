@@ -834,9 +834,7 @@ static int mmc_blk_ioctl_rpmb_cmd(struct block_device *bdev,
 	u32 status = 0;
 	int err_retry = 50;
 
-	pr_info("%s start\n", __func__);
-
-	
+	/* The caller must have CAP_SYS_RAWIO */
 	if (!capable(CAP_SYS_RAWIO))
 		return -EPERM;
 
@@ -1006,7 +1004,6 @@ cmd_done:
 	mmc_blk_put(md);
 	if (card->cmdq_init)
 		wake_up(&card->host->cmdq_ctx.wait);
-	pr_info("%s: %s done, return %d\n", mmc_hostname(card->host), __func__, err);
 	return err;
 }
 
@@ -1476,11 +1473,8 @@ static int mmc_blk_reset(struct mmc_blk_data *md, struct mmc_host *host,
 {
 	int err;
 
-	if (md->reset_done & type) {
-		pr_info("%s: %s return %d\n", mmc_hostname(host),
-			__func__, -EEXIST);
+	if (md->reset_done & type)
 		return -EEXIST;
-	}
 
 	md->reset_done |= type;
 	err = mmc_hw_reset(host);
@@ -1498,14 +1492,13 @@ static int mmc_blk_reset(struct mmc_blk_data *md, struct mmc_host *host,
 		main_md->part_curr = main_md->part_type;
 		part_err = mmc_blk_part_switch(host->card, md);
 		if (part_err) {
-			pr_info("%s: %s return %d\n", mmc_hostname(host),
-				__func__, -ENODEV);
+			/*
+			 * We have failed to get back into the correct
+			 * partition, so we need to abort the whole request.
+			 */
 			return -ENODEV;
 		}
 	}
-	if (err)
-		pr_info("%s: %s return %d\n", mmc_hostname(host),
-			__func__, err);
 	return err;
 }
 
@@ -1807,7 +1800,6 @@ static int mmc_blk_err_check(struct mmc_card *card,
 	struct mmc_blk_request *brq = &mq_mrq->brq;
 	struct request *req = mq_mrq->req;
 	int ecc_err = 0, gen_err = 0;
-	unsigned long time_alarm = 0;
 
 	/*
 	 * sbc.error indicates a problem with the set block count
@@ -1860,14 +1852,8 @@ static int mmc_blk_err_check(struct mmc_card *card,
 			gen_err = 1;
 		}
 
-		time_alarm = jiffies + msecs_to_jiffies(MMC_BLK_TIME_WARN_MS);
 		err = card_busy_detect(card, MMC_BLK_TIMEOUT_MS, false, req,
 					&gen_err);
-		if (time_after(jiffies, time_alarm)) {
-			pr_err("%s: Card spend over 1 sec !"\
-				" %s %s\n", mmc_hostname(card->host),
-				req->rq_disk->disk_name, __func__);
-		}
 		if (err)
 			return MMC_BLK_CMD_ERR;
 	}
@@ -2823,7 +2809,7 @@ static int mmc_blk_cmdq_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 	struct mmc_cmdq_context_info *ctx = &host->cmdq_ctx;
 	struct mmc_cmdq_req *mc_rq;
 	u8 active_small_sector_read = 0;
-	int ret = 0, err;
+	int ret = 0;
 
 	mmc_deferred_scaling(host);
 	mmc_cmdq_clk_scaling_start_busy(host, true);
@@ -2847,14 +2833,20 @@ static int mmc_blk_cmdq_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 	ret = mmc_blk_cmdq_start_req(card->host, mc_rq);
 	if (!ret && active_small_sector_read)
 		host->cmdq_ctx.active_small_sector_read_reqs++;
-	if (!ret && (host->clk_scaling.state == MMC_LOAD_LOW)) {
-		err = wait_event_interruptible_timeout(ctx->queue_empty_wq,
-					(!ctx->active_reqs), msecs_to_jiffies(500));
-		if (err <= 0)
-			pr_err("%s: %s: active_reqs=%lu, err:%d\n"
-				, mmc_hostname(card->host), __func__
-				, ctx->active_reqs, err);
-	}
+	/*
+	 * When in SVS2 on low load scenario and there are lots of requests
+	 * queued for CMDQ we need to wait till the queue is empty to scale
+	 * back up to Nominal even if there is a sudden increase in load.
+	 * This impacts performance where lots of IO get executed in SVS2
+	 * frequency since the queue is full. As SVS2 is a low load use case
+	 * we can serialize the requests and not queue them in parallel
+	 * without impacting other use cases. This makes sure the queue gets
+	 * empty faster and we will be able to scale up to Nominal frequency
+	 * when needed.
+	 */
+	if (!ret && (host->clk_scaling.state == MMC_LOAD_LOW))
+		wait_event_interruptible(ctx->queue_empty_wq,
+					(!ctx->active_reqs));
 
 	return ret;
 }
@@ -3203,9 +3195,6 @@ void mmc_blk_cmdq_complete_rq(struct request *rq)
 		err = mrq->data->error;
 
 	if (err || cmdq_req->resp_err) {
-		pr_err("%s: %s: tag=%d, curr_state=%lu\n",
-			mmc_hostname(mrq->host), __func__,
-			cmdq_req->tag, ctx_info->curr_state);
 		pr_err("%s: %s: txfr error(%d)/resp_err(%d)\n",
 				mmc_hostname(mrq->host), __func__, err,
 				cmdq_req->resp_err);

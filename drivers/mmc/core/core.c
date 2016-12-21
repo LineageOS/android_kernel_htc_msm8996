@@ -60,7 +60,11 @@
 
 extern unsigned int get_tamper_sf(void);
 
-#define MMC_BKOPS_MAX_TIMEOUT	(30 * 1000) 
+/*
+ * Background operations can take a long time, depending on the housekeeping
+ * operations the card has to perform.
+ */
+#define MMC_BKOPS_MAX_TIMEOUT	(30 * 1000) /* max time to wait in ms */
 #define MMC_DETECT_RETRIES	5
 
 #define MMC_WORKLOAD_DURATION (60 * 60 * 1000) 
@@ -433,6 +437,9 @@ void mmc_stats(struct work_struct *work)
 	return;
 }
 
+/*
+ * Internal function. Schedule delayed work in the MMC work queue.
+ */
 static int mmc_schedule_delayed_work(struct delayed_work *work,
 				     unsigned long delay)
 {
@@ -4637,7 +4644,14 @@ int mmc_simple_transfer(struct mmc_card *card,
 }
 EXPORT_SYMBOL(mmc_simple_transfer);
 
-
+/**
+ * mmc_init_context_info() - init synchronization context
+ * @host: mmc host
+ *
+ * Init struct context_info needed to implement asynchronous
+ * request mechanism, used by mmc core, host driver and mmc requests
+ * supplier.
+ */
 void mmc_init_context_info(struct mmc_host *host)
 {
 	spin_lock_init(&host->context_info.lock);

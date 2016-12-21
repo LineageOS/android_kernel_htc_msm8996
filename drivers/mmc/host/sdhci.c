@@ -2833,6 +2833,11 @@ static void sdhci_underclocking(struct sdhci_host *host)
 }
 
 
+/*****************************************************************************\
+ *                                                                           *
+ * Interrupt handling                                                        *
+ *                                                                           *
+\*****************************************************************************/
 
 static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask, u32 *mask)
 {
@@ -4146,7 +4151,7 @@ int sdhci_add_host(struct sdhci_host *host)
 	
 	mmc->caps_uhs = mmc->caps;
 
-	
+	/* Does the host need tuning for SDR104 / HS200? */
 	if (mmc->caps2 & MMC_CAP2_HS200)
 		host->flags |= SDHCI_SDR104_NEEDS_TUNING;
 
@@ -4275,6 +4280,11 @@ int sdhci_add_host(struct sdhci_host *host)
 			printk("%s %s alloc prev_sg err : %d\n", mmc_hostname(mmc), __func__, ret);
 	}
 
+	/*
+	 * Maximum number of sectors in one transfer. Limited by DMA boundary
+	 * size (512KiB), unless specified by platform specific driver. Each
+	 * descriptor can transfer a maximum of 64KB.
+	 */
 	if (host->flags & SDHCI_USE_ADMA)
 		mmc->max_req_size = (host->adma_max_desc * 65536);
 	else

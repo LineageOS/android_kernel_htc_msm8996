@@ -200,6 +200,9 @@ static int mmc_decode_csd(struct mmc_card *card)
 	return 0;
 }
 
+/*
+ * Read extended CSD.
+ */
 int mmc_get_ext_csd(struct mmc_card *card, u8 **new_ext_csd)
 {
 	int err;

@@ -35,6 +35,9 @@
 struct scatterlist	*cur_sg = NULL;
 struct scatterlist	*prev_sg = NULL;
 
+/*
+ * Prepare a MMC request. This just filters out odd stuff.
+ */
 static int mmc_prep_request(struct request_queue *q, struct request *req)
 {
 	struct mmc_queue *mq = q->queuedata;
