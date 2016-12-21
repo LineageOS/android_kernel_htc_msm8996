@@ -38,20 +38,6 @@ struct msm_rtb_platform_data {
 
 #if defined(CONFIG_MSM_RTB)
 
-#ifdef CONFIG_HTC_EARLY_RTB
-
-enum early_rtb_status {
-	EARLY_RTB_INIT,
-	EARLY_RTB_RUNNING,
-	EARLY_RTB_STOP,
-	EARLY_RTB_ERROR,
-};
-
-int htc_early_rtb_init(void);
-int htc_early_rtb_deinit(void);
-
-#endif
-
 /*
  * returns 1 if data was logged, 0 otherwise
  */

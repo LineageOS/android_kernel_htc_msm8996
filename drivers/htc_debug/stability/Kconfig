@@ -18,14 +18,6 @@ config HTC_DEBUG_RAMOOPS
 	  This enables panic and oops messages to be logged to a circular
 	  buffer in RAM where it can be read back at some later point.
 
-config HTC_EARLY_RTB
-       bool "HTC debug feature for enabling RTB before driver is initial"
-       default y
-       depends on MSM_RTB && HTC_DEBUG && OF && OF_ADDRESS
-       help
-         This option enables the RTB mechanism before RTB driver is brought up.
-         The RTB Log buffer start-address and buffer-size is defined by device-tree.
-
 config HTC_DEBUG_RESTART_TIMER
 	bool "add a timer in restart notifier chain"
 	default y

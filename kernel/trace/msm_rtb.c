@@ -34,14 +34,6 @@
 
 #define RTB_COMPAT_STR	"qcom,msm-rtb"
 
-#ifdef CONFIG_HTC_EARLY_RTB
-#include <linux/of.h>
-#include <linux/of_address.h>
-#include <linux/delay.h>
-
-int early_rtb_stat = EARLY_RTB_INIT;
-#endif
-
 /* Write
  * 1) 3 bytes sentinel
  * 2) 1 bytes of log type
@@ -101,13 +93,8 @@ static struct notifier_block msm_rtb_panic_blk = {
 
 int notrace msm_rtb_event_should_log(enum logk_event_type log_type)
 {
-#ifdef CONFIG_HTC_EARLY_RTB
-	return ((early_rtb_stat == EARLY_RTB_RUNNING) || msm_rtb.initialized) &&
-		msm_rtb.enabled && ((1 << (log_type & ~LOGTYPE_NOPC)) & msm_rtb.filter);
-#else
 	return msm_rtb.initialized && msm_rtb.enabled &&
 		((1 << (log_type & ~LOGTYPE_NOPC)) & msm_rtb.filter);
-#endif
 }
 EXPORT_SYMBOL(msm_rtb_event_should_log);
 
@@ -244,121 +231,6 @@ noinline int notrace uncached_logk(enum logk_event_type log_type, void *data)
 }
 EXPORT_SYMBOL(uncached_logk);
 
-#ifdef CONFIG_HTC_EARLY_RTB
-int htc_early_rtb_init(void)
-{
-#if defined(CONFIG_MSM_RTB_SEPARATE_CPUS)
-        unsigned int cpu;
-#endif
-	struct device_node *dt_node = NULL;
-	char* rtb_node_name = "qcom,msm-rtb";
-	char* rtb_resource_name = "msm_rtb_res";
-	struct resource r;
-	int i = 0, of_ret = 0;
-
-	if(msm_rtb.initialized == 1) {
-		pr_err("RTB already initialized, quit early rtb!!\n");
-		early_rtb_stat = EARLY_RTB_ERROR;
-		return 1;
-	}
-
-	if(early_rtb_stat != EARLY_RTB_INIT) {
-		pr_err("early rtb not in initial state : %u !!\n", early_rtb_stat);
-		early_rtb_stat = EARLY_RTB_ERROR;
-		return 1;
-	}
-
-	/* Start to search DTB for RTB setting */
-	dt_node = of_find_node_by_name(NULL, rtb_node_name);
-
-	if(dt_node == NULL) {
-		pr_err("RTB node node <%s> not found in DTB!!\n", rtb_node_name);
-		early_rtb_stat = EARLY_RTB_ERROR;
-		return 1;
-	}
-
-	for(i = 0 ; (of_ret = of_address_to_resource(dt_node, i, &r)) == 0 ; i++) {
-		if(!strcmp(rtb_resource_name, r.name))
-			break;
-	}
-
-	if(of_ret) {
-		printk("early rtb : couldn't found resource \"%s\" in node %s\n", rtb_resource_name, rtb_node_name);
-		early_rtb_stat = EARLY_RTB_ERROR;
-		return 1;
-	}
-	/* End of DTB Searching */
-
-	msm_rtb.size = resource_size(&r);
-	msm_rtb.phys = r.start;
-
-	pr_info("early rtb size: 0x%x\n", (unsigned int)msm_rtb.size);
-	pr_info("early rtb phys: 0x%x\n", (unsigned int)msm_rtb.phys);
-
-	if((msm_rtb.phys == 0) || (msm_rtb.size == 0)) {
-		pr_err("early rtb with error phys/size\n");
-		early_rtb_stat = EARLY_RTB_ERROR;
-		return 1;
-	}
-
-	msm_rtb.rtb = ioremap(msm_rtb.phys, msm_rtb.size);
-
-	if (!msm_rtb.rtb) {
-		pr_err("early rtb ioremap fail!!\n");
-		early_rtb_stat = EARLY_RTB_ERROR;
-		return -ENOMEM;
-	}
-
-	msm_rtb.nentries = msm_rtb.size / sizeof(struct msm_rtb_layout);
-	msm_rtb.nentries = __rounddown_pow_of_two(msm_rtb.nentries);
-	memset_io(msm_rtb.rtb, 0, msm_rtb.size);
-
-#if defined(CONFIG_MSM_RTB_SEPARATE_CPUS)
-        for_each_possible_cpu(cpu) {
-                atomic_t *a = &per_cpu(msm_rtb_idx_cpu, cpu);
-                atomic_set(a, cpu);
-        }
-        msm_rtb.step_size = num_possible_cpus();
-#else
-        atomic_set(&msm_rtb_idx, 0);
-        msm_rtb.step_size = 1;
-#endif
-
-	early_rtb_stat = EARLY_RTB_RUNNING;
-	smp_mb();
-
-	return 0;
-}
-
-int htc_early_rtb_deinit(void)
-{
-	uint32_t backup_filter = msm_rtb.filter;
-	int backup_enabled = msm_rtb.enabled;
-
-	if(early_rtb_stat == EARLY_RTB_RUNNING) {
-		/* Doesn't want to add extra protection to increase RTB overhead. */
-		/* Try to put delay here for all the RTB user finishing current   */
-		/* job, no one could write early-rtb after set to EARLY_RTB_STOP. */
-		early_rtb_stat = EARLY_RTB_STOP;
-		smp_mb();
-		mdelay(10);
-
-		iounmap(msm_rtb.rtb);
-		memset_io(&msm_rtb, 0, sizeof(struct msm_rtb_state));
-
-		msm_rtb.filter = backup_filter;
-		msm_rtb.enabled = backup_enabled;
-		pr_info("early rtb deinitialized\n");
-
-		return 0;
-	}
-
-	WARN(1, "Early-RTB deinit called with state : %u\n", early_rtb_stat);
-
-	return 1;
-}
-#endif
-
 static int msm_rtb_probe(struct platform_device *pdev)
 {
 	struct msm_rtb_platform_data *d = pdev->dev.platform_data;
@@ -367,10 +239,6 @@ static int msm_rtb_probe(struct platform_device *pdev)
 	unsigned int cpu;
 #endif
 	int ret;
-
-#ifdef CONFIG_HTC_EARLY_RTB
-	htc_early_rtb_deinit();
-#endif
 
 	if (!pdev->dev.of_node) {
 		if (!d) {

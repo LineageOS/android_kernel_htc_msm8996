@@ -89,10 +89,6 @@
 #include <asm/smp.h>
 #endif
 
-#ifdef CONFIG_HTC_EARLY_RTB
-#include <linux/msm_rtb.h>
-#endif
-
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
@@ -1049,9 +1045,6 @@ static noinline void __init kernel_init_freeable(void)
 	lockup_detector_init();
 
 	smp_init();
-#ifdef CONFIG_HTC_EARLY_RTB
-	htc_early_rtb_init();
-#endif
 	sched_init_smp();
 
 	do_basic_setup();
