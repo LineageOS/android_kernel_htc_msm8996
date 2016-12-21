@@ -117,7 +117,6 @@
 #include <net/checksum.h>
 #include <linux/security.h>
 #include <linux/freezer.h>
-#include <net/htc_net_debug.h>
 
 
 struct hlist_head unix_socket_table[2 * UNIX_HASH_SIZE];
@@ -125,7 +124,6 @@ EXPORT_SYMBOL_GPL(unix_socket_table);
 DEFINE_SPINLOCK(unix_table_lock);
 EXPORT_SYMBOL_GPL(unix_table_lock);
 static atomic_long_t unix_nr_socks;
-struct socket *g_dbg_sk;
 
 static struct hlist_head *unix_sockets_unbound(void *addr)
 {
@@ -1955,8 +1953,7 @@ static int unix_dgram_recvmsg(struct kiocb *iocb, struct socket *sock,
 	struct sk_buff *skb;
 	int err;
 	int peeked, skip;
-    g_dbg_sk = sock; 
-    NET_DEBUG("%s: [0x%p] socket:0x%p, sock:0x%p, pid:%d, process:%s.\n", __func__, current_thread_info()->task, sock, sk , current->pid, current->comm);
+
 	err = -EOPNOTSUPP;
 	if (flags&MSG_OOB)
 		goto out;

@@ -76,4 +76,3 @@ obj-$(CONFIG_HSR)		+= hsr/
 obj-$(CONFIG_NET_ACTIVITY_STATS)		+= activity_stats.o
 obj-$(CONFIG_IPC_ROUTER)        += ipc_router/
 obj-$(CONFIG_RMNET_DATA) += rmnet_data/
-obj-$(CONFIG_HTC_NET_DEBUG)	+= htc_net_debug.o

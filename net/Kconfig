@@ -375,12 +375,6 @@ endmenu
 
 endmenu
 
-config HTC_NET_DEBUG
-    bool "HTC network debug feature"
-    default y
-    ---help---
-    This feature provides mechanism to store net related log to buffer.
-
 source "net/ax25/Kconfig"
 source "net/can/Kconfig"
 source "net/irda/Kconfig"
