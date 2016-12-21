@@ -75,6 +75,7 @@ struct sdhci_msm_pin_data {
 struct sdhci_pinctrl_data {
 	struct pinctrl          *pctrl;
 	struct pinctrl_state    *pins_active;
+	struct pinctrl_state    *pins_active_sdr104;
 	struct pinctrl_state    *pins_sleep;
 };
 
@@ -149,6 +150,7 @@ struct sdhci_msm_pltfm_data {
 	int sdiowakeup_irq;
 	u32 *sup_ice_clk_table;
 	unsigned char sup_ice_clk_cnt;
+	int slot_type;
 	u32 ice_clk_max;
 	u32 ice_clk_min;
 	struct sdhci_msm_pm_qos_data pm_qos_data;
@@ -207,6 +209,8 @@ struct sdhci_msm_host {
 	u32 caps_0;
 	struct sdhci_msm_ice_data ice;
 	u32 ice_clk_rate;
+	struct proc_dir_entry   *speed_class;
+	struct proc_dir_entry   *sd_tray_state;
 	struct sdhci_msm_pm_qos_group *pm_qos;
 	int pm_qos_prev_cpu;
 	struct device_attribute pm_qos_group_enable_attr;

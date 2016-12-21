@@ -27,6 +27,25 @@ struct mmc_gpio {
 	char cd_label[0];
 };
 
+int mmc_gpio_send_uevent(struct mmc_host *host)
+{
+	char *envp[2];
+	char state_string[16];
+	int status;
+
+	status = mmc_gpio_get_cd(host);
+	if (unlikely(status < 0))
+		goto out;
+
+	snprintf(state_string, sizeof(state_string), "SWITCH_STATE=%d", status);
+	envp[0] = state_string;
+	envp[1] = NULL;
+	kobject_uevent_env(&host->class_dev.kobj, KOBJ_ADD, envp);
+
+out:
+	return status;
+}
+
 static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 {
 	/* Schedule a card detection after a debounce timeout */
@@ -34,6 +53,11 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 
 	host->trigger_card_event = true;
 	mmc_detect_change(host, msecs_to_jiffies(200));
+	mmc_gpio_send_uevent(host);
+	host->removed_cnt = 0;
+	/* Recover Host capabilities */
+	host->caps |= host->caps_uhs;
+	host->crc_count = 0;
 
 	return IRQ_HANDLED;
 }
