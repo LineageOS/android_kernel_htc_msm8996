@@ -372,9 +372,9 @@ enum smbchg_wa {
 	SMBCHG_BATT_OV_WA = BIT(3),
 	SMBCHG_CC_ESR_WA = BIT(4),
 	SMBCHG_FLASH_ICL_DISABLE_WA = BIT(5),
-    SMBCHG_RESTART_WA = BIT(6),
-    SMBCHG_FLASH_BUCK_SWITCH_FREQ_WA = BIT(7),
-    SMBCHG_ICL_CONTROL_WA = BIT(8),
+	SMBCHG_RESTART_WA = BIT(6),
+	SMBCHG_FLASH_BUCK_SWITCH_FREQ_WA = BIT(7),
+	SMBCHG_ICL_CONTROL_WA = BIT(8),
 };
 
 #ifdef CONFIG_HTC_BATT
@@ -1150,14 +1150,14 @@ static inline char *get_usb_type_name(int type)
 }
 
 static enum power_supply_type usb_type_enum[] = {
-	POWER_SUPPLY_TYPE_USB,		
-	POWER_SUPPLY_TYPE_USB_DCP,	
-	POWER_SUPPLY_TYPE_USB_DCP,	
-	POWER_SUPPLY_TYPE_USB_CDP,	
+	POWER_SUPPLY_TYPE_USB,		/* bit 0 */
+	POWER_SUPPLY_TYPE_USB_DCP,	/* bit 1 */
+	POWER_SUPPLY_TYPE_USB_DCP,	/* bit 2 */
+	POWER_SUPPLY_TYPE_USB_CDP,	/* bit 3 */
 #ifdef CONFIG_HTC_BATT_WA_PCN0007
-	POWER_SUPPLY_TYPE_UNKNOWN,	
+	POWER_SUPPLY_TYPE_UNKNOWN,	/* bit 4 */
 #else
-	POWER_SUPPLY_TYPE_USB_DCP,	
+	POWER_SUPPLY_TYPE_USB_DCP,	/* bit 4 error case, report DCP */
 #endif 
 };
 
@@ -3780,11 +3780,7 @@ static void smbchg_vfloat_adjust_check(struct smbchg_chip *chip)
 		return;
 
 	smbchg_stay_awake(chip, PM_REASON_VFLOAT_ADJUST);
-#ifdef CONFIG_HTC_BATT
-	pr_smb(PR_MISC, "Starting vfloat adjustments\n");
-#else
 	pr_smb(PR_STATUS, "Starting vfloat adjustments\n");
-#endif
 	schedule_delayed_work(&chip->vfloat_adjust_work, 0);
 }
 
@@ -3813,29 +3809,17 @@ static void smbchg_cc_esr_wa_check(struct smbchg_chip *chip)
 		return;
 
 	if (!is_usb_present(chip) && !is_dc_present(chip)) {
-#ifdef CONFIG_HTC_BATT
-		pr_smb(PR_MISC, "No inputs present, skipping\n");
-#else
 		pr_smb(PR_STATUS, "No inputs present, skipping\n");
-#endif
 		return;
 	}
 
 	if (get_prop_charge_type(chip) != POWER_SUPPLY_CHARGE_TYPE_FAST) {
-#ifdef CONFIG_HTC_BATT
-		pr_smb(PR_MISC, "Not in fast charge, skipping\n");
-#else
 		pr_smb(PR_STATUS, "Not in fast charge, skipping\n");
-#endif
 		return;
 	}
 
 	if (!smbchg_is_input_current_limited(chip)) {
-#ifdef CONFIG_HTC_BATT
-		pr_smb(PR_MISC, "Not input current limited, skipping\n");
-#else
 		pr_smb(PR_STATUS, "Not input current limited, skipping\n");
-#endif
 		return;
 	}
 
@@ -3864,27 +3848,15 @@ static void smbchg_cc_esr_wa_check(struct smbchg_chip *chip)
 	 * 0.
 	 */
 	if (esr_count != 0) {
-#ifdef CONFIG_HTC_BATT
-		pr_smb(PR_MISC, "ESR count is not zero, skipping\n");
-#else
 		pr_smb(PR_STATUS, "ESR count is not zero, skipping\n");
-#endif
 		return;
 	}
 
-#ifdef CONFIG_HTC_BATT
-	pr_smb(PR_MISC, "Lowering charge current for ESR pulse\n");
-#else
 	pr_smb(PR_STATUS, "Lowering charge current for ESR pulse\n");
-#endif
 	smbchg_stay_awake(chip, PM_ESR_PULSE);
 	smbchg_sw_esr_pulse_en(chip, true);
 	msleep(SW_ESR_PULSE_MS);
-#ifdef CONFIG_HTC_BATT
-	pr_smb(PR_MISC, "Raising charge current for ESR pulse\n");
-#else
 	pr_smb(PR_STATUS, "Raising charge current for ESR pulse\n");
-#endif
 	smbchg_relax(chip, PM_ESR_PULSE);
 	smbchg_sw_esr_pulse_en(chip, false);
 }
@@ -4867,11 +4839,7 @@ static void smbchg_vfloat_adjust_work(struct work_struct *work)
 	}
 
 	if (get_prop_batt_health(chip) != POWER_SUPPLY_HEALTH_GOOD) {
-#ifdef CONFIG_HTC_BATT
-		pr_smb(PR_MISC, "JEITA active, skipping\n");
-#else
 		pr_smb(PR_STATUS, "JEITA active, skipping\n");
-#endif
 		goto stop;
 	}
 
@@ -4886,11 +4854,7 @@ static void smbchg_vfloat_adjust_work(struct work_struct *work)
 	vbat_mv = vbat_uv / 1000;
 
 	if ((vbat_mv - chip->vfloat_mv) < -1 * vf_adjust_max_delta_mv) {
-#ifdef CONFIG_HTC_BATT
-		pr_smb(PR_MISC, "Skip vbat out of range: %d\n", vbat_mv);
-#else
 		pr_smb(PR_STATUS, "Skip vbat out of range: %d\n", vbat_mv);
-#endif
 		goto reschedule;
 	}
 
@@ -4903,47 +4867,26 @@ static void smbchg_vfloat_adjust_work(struct work_struct *work)
 	}
 
 	if (ibat_ua / 1000 > -chip->iterm_ma) {
-#ifdef CONFIG_HTC_BATT
-		pr_smb(PR_MISC, "Skip ibat too high: %d\n", ibat_ua);
-#else
 		pr_smb(PR_STATUS, "Skip ibat too high: %d\n", ibat_ua);
-#endif
 		goto reschedule;
 	}
 
-#ifdef CONFIG_HTC_BATT
-	pr_smb(PR_MISC, "sample number = %d vbat_mv = %d ibat_ua = %d\n",
-		chip->n_vbat_samples,
-		vbat_mv,
-		ibat_ua);
-#else
 	pr_smb(PR_STATUS, "sample number = %d vbat_mv = %d ibat_ua = %d\n",
 		chip->n_vbat_samples,
 		vbat_mv,
 		ibat_ua);
-#endif
 
 	chip->max_vbat_sample = max(chip->max_vbat_sample, vbat_mv);
 	chip->n_vbat_samples += 1;
 	if (chip->n_vbat_samples < vf_adjust_n_samples) {
-#ifdef CONFIG_HTC_BATT
-		pr_smb(PR_MISC, "Skip %d samples; max = %d\n",
-			chip->n_vbat_samples, chip->max_vbat_sample);
-#else
 		pr_smb(PR_STATUS, "Skip %d samples; max = %d\n",
 			chip->n_vbat_samples, chip->max_vbat_sample);
-#endif
 		goto reschedule;
 	}
 	/* if max vbat > target vfloat, delta_vfloat_mv could be negative */
 	delta_vfloat_mv = chip->vfloat_mv - chip->max_vbat_sample;
-#ifdef CONFIG_HTC_BATT
-	pr_smb(PR_MISC, "delta_vfloat_mv = %d, samples = %d, mvbat = %d\n",
-		delta_vfloat_mv, chip->n_vbat_samples, chip->max_vbat_sample);
-#else
 	pr_smb(PR_STATUS, "delta_vfloat_mv = %d, samples = %d, mvbat = %d\n",
 		delta_vfloat_mv, chip->n_vbat_samples, chip->max_vbat_sample);
-#endif
 	if (delta_vfloat_mv > vf_adjust_high_threshold
 			|| delta_vfloat_mv < -1 * vf_adjust_low_threshold) {
 		rc = smbchg_adjust_vfloat_mv_trim(chip, delta_vfloat_mv);
@@ -7669,6 +7612,12 @@ static irqreturn_t wdog_timeout_handler(int irq, void *_chip)
  #define MS_TO_US   1000
  #define OCP_RELEASE_TIME_UPPER_BOUND_MS	180000
  #endif 
+
+/**
+ * power_ok_handler() - called when the switcher turns on or turns off
+ * @chip: pointer to smbchg_chip
+ * @rt_stat: the status bit indicating switcher turning on or off
+ */
 static irqreturn_t power_ok_handler(int irq, void *_chip)
 {
 	struct smbchg_chip *chip = _chip;
@@ -7795,11 +7744,7 @@ static irqreturn_t usbin_ov_handler(int irq, void *_chip)
 	if (reg & USBIN_OV_BIT) {
 		chip->usb_ov_det = true;
 		if (chip->usb_psy) {
-#ifdef CONFIG_HTC_BATT
-			pr_smb(PR_STATUS, "setting usb psy health OV\n");
-#else
 			pr_smb(PR_MISC, "setting usb psy health OV\n");
-#endif 
 			rc = power_supply_set_health_state(chip->usb_psy,
 					POWER_SUPPLY_HEALTH_OVERVOLTAGE);
 			if (rc)
@@ -8018,6 +7963,10 @@ out:
 #endif 
 
 #define OTG_OC_RETRY_DELAY_US		50000
+
+/**
+ * otg_oc_handler() - called when the usb otg goes over current
+ */
 static irqreturn_t otg_oc_handler(int irq, void *_chip)
 {
 	int rc;
@@ -8149,6 +8098,11 @@ void check_charger_ability(int aicl_level)
 	return;
 }
 #endif 
+
+/**
+ * aicl_done_handler() - called when the usb AICL algorithm is finished
+ *                     and a current is set.
+ */
 static irqreturn_t aicl_done_handler(int irq, void *_chip)
 {
 	struct smbchg_chip *chip = _chip;

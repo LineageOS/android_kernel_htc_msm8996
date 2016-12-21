@@ -141,7 +141,6 @@ static void add_to_ptable(unsigned int *arg)
 	if (node->ptr)
 		node->ptr->len = node->len;
 }
-EXPORT_SYMBOL(add_to_ptable);
 
 static int split_ptable_args(char *line, unsigned int *arg, uint32_t n)
 {

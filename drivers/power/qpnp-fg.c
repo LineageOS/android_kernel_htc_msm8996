@@ -603,8 +603,8 @@ struct fg_chip {
 	bool			batt_cool;
 	int			cold_hysteresis;
 	int			hot_hysteresis;
-	
-    struct fg_wakeup_source	esr_extract_wakeup_source;
+	/* ESR pulse tuning */
+	struct fg_wakeup_source	esr_extract_wakeup_source;
 	struct work_struct	esr_extract_config_work;
 	bool			esr_extract_disabled;
 	bool			imptr_pulse_slow_en;
@@ -672,6 +672,7 @@ static const char *missing_batt_type	= "Disconnected Battery";
 static struct fg_chip *the_chip;
 #endif 
 
+/* Log buffer */
 struct fg_log_buffer {
 	size_t rpos;	/* Current 'read' position in buffer */
 	size_t wpos;	/* Current 'write' position in buffer */
@@ -1259,7 +1260,8 @@ static int fg_run_iacs_clear_sequence(struct fg_chip *chip)
 	int rc = 0;
 	u8 temp;
 
-	pr_info("Running IACS clear sequence\n");
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("Running IACS clear sequence\n");
 
 	/* clear the error */
 	rc = fg_masked_write(chip, chip->mem_base + MEM_INTF_IMA_CFG,
@@ -1296,7 +1298,8 @@ static int fg_run_iacs_clear_sequence(struct fg_chip *chip)
 		return rc;
 	}
 
-	pr_info("IACS clear sequence complete!\n");
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("IACS clear sequence complete!\n");
 	return rc;
 }
 
@@ -1387,11 +1390,11 @@ static void fg_enable_irqs(struct fg_chip *chip, bool enable)
 static void fg_check_ima_error_handling(struct fg_chip *chip)
 {
 	if (chip->ima_error_handling) {
-		pr_info("IMA error is handled already!\n");
+		if (fg_debug_mask & FG_STATUS)
+			pr_info("IMA error is handled already!\n");
 		return;
 	}
 
-    pr_info("Attempting to Start recovery.\n");
 	mutex_lock(&chip->ima_recovery_lock);
 	fg_enable_irqs(chip, false);
 	chip->use_last_cc_soc = true;
@@ -1481,7 +1484,10 @@ static int fg_check_iacs_ready(struct fg_chip *chip)
 	}
 #endif 
 
-
+	/*
+	 * Additional delay to make sure IACS ready bit is set after
+	 * Read/Write operation.
+	 */
 	usleep_range(30, 35);
 	while (1) {
 		rc = fg_read(chip, &ima_opr_sts,
@@ -2507,11 +2513,7 @@ static int fg_is_batt_id_valid(struct fg_chip *chip)
 	}
 
 	if (fg_debug_mask & FG_IRQS)
-#ifdef CONFIG_HTC_BATT
-		pr_debug("fg batt sts 0x%x\n", fg_batt_sts);
-#else
 		pr_info("fg batt sts 0x%x\n", fg_batt_sts);
-#endif
 
 	return (fg_batt_sts & BATT_IDED) ? 1 : 0;
 }
@@ -2657,50 +2659,50 @@ out:
 	return rc;
 }
 
-#define SANITY_CHECK_PERIOD_MS  5000
+#define SANITY_CHECK_PERIOD_MS	5000
 static void check_sanity_work(struct work_struct *work)
 {
-    struct fg_chip *chip = container_of(work,
-                struct fg_chip,
-                check_sanity_work.work);
-    int rc = 0;
-    u8 beat_count;
-    bool tried_once = false;
+	struct fg_chip *chip = container_of(work,
+				struct fg_chip,
+				check_sanity_work.work);
+	int rc = 0;
+	u8 beat_count;
+	bool tried_once = false;
 
-    fg_stay_awake(&chip->sanity_wakeup_source);
+	fg_stay_awake(&chip->sanity_wakeup_source);
 
 try_again:
-    rc = fg_read(chip, &beat_count,
-            chip->mem_base + MEM_INTF_FG_BEAT_COUNT, 1);
-    if (rc) {
-        pr_err("failed to read beat count rc=%d\n", rc);
-        goto resched;
-    }
+	rc = fg_read(chip, &beat_count,
+			chip->mem_base + MEM_INTF_FG_BEAT_COUNT, 1);
+	if (rc) {
+		pr_err("failed to read beat count rc=%d\n", rc);
+		goto resched;
+	}
 
-    if (fg_debug_mask & FG_STATUS)
-        pr_info("current: %d, prev: %d\n", beat_count,
-            chip->last_beat_count);
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("current: %d, prev: %d\n", beat_count,
+		chip->last_beat_count);
 
-    if (chip->last_beat_count == beat_count) {
-        if (!tried_once) {
-            
-            msleep(1500);
-            tried_once = true;
-            goto try_again;
-        } else {
-            pr_err("Beat count not updating\n");
-            fg_check_ima_error_handling(chip);
-            goto out;
-        }
-    } else {
-        chip->last_beat_count = beat_count;
-    }
+	if (chip->last_beat_count == beat_count) {
+		if (!tried_once) {
+
+			msleep(1500);
+			tried_once = true;
+			goto try_again;
+		} else {
+			pr_err("Beat count not updating\n");
+			fg_check_ima_error_handling(chip);
+			goto out;
+		}
+	} else {
+		chip->last_beat_count = beat_count;
+	}
 resched:
-    schedule_delayed_work(
-        &chip->check_sanity_work,
-        msecs_to_jiffies(SANITY_CHECK_PERIOD_MS));
+	schedule_delayed_work(
+		&chip->check_sanity_work,
+		msecs_to_jiffies(SANITY_CHECK_PERIOD_MS));
 out:
-    fg_relax(&chip->sanity_wakeup_source);
+	fg_relax(&chip->sanity_wakeup_source);
 }
 
 #define SRAM_TIMEOUT_MS			3000
@@ -8341,21 +8343,21 @@ static void ima_error_recovery_work(struct work_struct *work)
 		fg_relax(&chip->fg_reset_wakeup_source);
 		return;
 	}
-    pr_info("ima_error_recovery_work start\n");
+	/*
+	 * SOC should be read and used until the error recovery completes.
+	 * Without this, there could be a fluctuation in SOC values notified
+	 * to the userspace.
+	 */
 	chip->use_last_soc = true;
 
 	/* Block SRAM access till FG reset is complete */
 	chip->block_sram_access = true;
 
-	
-    pr_info("Cancelling all works, unlocking mutex\n");
+	/* Release the mutex to avoid deadlock while cancelling the works */
 	mutex_unlock(&chip->ima_recovery_lock);
 
 	/* Cancel all the works */
 	fg_cancel_all_works(chip);
-    pr_info("Cancelling all works finished\n");
-
-    pr_info("last_soc: %d\n", chip->last_soc);
 
 	if (fg_debug_mask & FG_STATUS)
 		pr_info("last_soc: %d\n", chip->last_soc);
@@ -8378,7 +8380,8 @@ static void ima_error_recovery_work(struct work_struct *work)
 		goto out;
 	}
 
-	pr_info("resetting FG\n");
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("resetting FG\n");
 #ifdef CONFIG_HTC_BATT_WA_PCN0019
 	chip->skip_check_iacs_ready = false;
 #endif 
@@ -8393,7 +8396,8 @@ static void ima_error_recovery_work(struct work_struct *work)
 	/* Wait for a small time before deasserting FG reset */
 	msleep(100);
 
-	pr_info("clearing FG from reset\n");
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("clearing FG from reset\n");
 
 	/* Deassert FG reset */
 	rc = fg_reset(chip, false);
@@ -8412,7 +8416,8 @@ static void ima_error_recovery_work(struct work_struct *work)
 		goto wait;
 	}
 
-	pr_info("Calling hw_init\n");
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("Calling hw_init\n");
 
 	/*
 	 * Once FG is reset, everything in SRAM will be wiped out. Redo
@@ -8424,7 +8429,7 @@ static void ima_error_recovery_work(struct work_struct *work)
 		pr_err("Error in hw_init, rc=%d\n", rc);
 		goto out;
 	}
-    pr_info("Calling update_jeita_setting\n");
+
 	update_jeita_setting(&chip->update_jeita_setting.work);
 
 	if (chip->wa_flag & IADC_GAIN_COMP_WA) {
@@ -8433,7 +8438,8 @@ static void ima_error_recovery_work(struct work_struct *work)
 			goto out;
 	}
 
-	pr_info("loading battery profile\n");
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("loading battery profile\n");
 	if (!chip->use_otp_profile) {
 		chip->battery_missing = true;
 		chip->profile_loaded = false;
@@ -8443,7 +8449,6 @@ static void ima_error_recovery_work(struct work_struct *work)
 	}
 
 wait:
-    pr_info("wait_for_completion_interruptible_timeout\n");
 	rc = wait_for_completion_interruptible_timeout(&chip->fg_reset_done,
 			msecs_to_jiffies(FG_RESTART_TIMEOUT_MS));
 
@@ -8472,7 +8477,7 @@ out:
 	update_sram_data_work(&chip->update_sram_data.work);
 	update_temp_data(&chip->update_temp_work.work);
 	schedule_delayed_work(&chip->check_sanity_work,
-			msecs_to_jiffies(1000));
+		msecs_to_jiffies(1000));
 	chip->ima_error_handling = false;
 #ifdef CONFIG_HTC_BATT_PCN0002
 	g_is_ima_error_handling = false;
