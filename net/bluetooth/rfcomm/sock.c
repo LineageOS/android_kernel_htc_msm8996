@@ -343,8 +343,6 @@ static int rfcomm_sock_bind(struct socket *sock, struct sockaddr *addr, int addr
 	if (!addr || addr->sa_family != AF_BLUETOOTH)
 		return -EINVAL;
 
-	BT_ERR("%s", __func__); // [HTC_BT] add logs for Android Security Bulletin_201609
-
 	memset(&sa, 0, sizeof(sa));
 	len = min_t(unsigned int, sizeof(sa), addr_len);
 	memcpy(&sa, addr, len);
