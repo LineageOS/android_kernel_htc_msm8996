@@ -2791,25 +2791,6 @@ void inet6_rt_notify(int event, struct rt6_info *rt, struct nl_info *info)
 		goto errout;
 	}
 
-#ifdef CONFIG_HTC_NETWORK_MODIFY
-    if((rt->rt6i_dst.addr.s6_addr32[0] == 0x0) && (rt->rt6i_dst.addr.s6_addr32[1] == 0x0) &&
-       (rt->rt6i_dst.addr.s6_addr32[2] == 0x0) && (rt->rt6i_dst.addr.s6_addr32[3] == 0x0))  
-    {
-        pr_info("[NET]%s: process:%s(pid:%d), parent:%s(pid:%d), rt->rt6i_dst.addr:%pI6, rt->rt6i_idev->dev->name:%s, rt->rt6i_gateway:%pI6, rt->rt6i_table->tb6_id:%d, event:%s\n",
-            __func__,
-            current->comm,
-            current->pid,
-            (current->parent) ? current->parent->comm : "(Invalid)",
-            (current->parent) ? current->parent->pid : 0,
-            &rt->rt6i_dst.addr,
-            rt->rt6i_idev->dev->name,
-            &rt->rt6i_gateway,
-            rt->rt6i_table->tb6_id,
-            (event == RTM_NEWROUTE) ? "RTM_NEWROUTE" : ((event == RTM_DELROUTE) ? "RTM_DELROUTE" : "UNKNOWN")
-            );
-    }
-#endif
-
 	rtnl_notify(skb, net, info->portid, RTNLGRP_IPV6_ROUTE,
 		    info->nlh, gfp_any());
 	return;
