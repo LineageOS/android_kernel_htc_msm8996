@@ -47,7 +47,6 @@
 #include <linux/prefetch.h>
 #include <linux/printk.h>
 #include <linux/debugfs.h>
-#include <linux/jiffies.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -1218,7 +1217,6 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 {
 	struct scan_control sc = {
 		.gfp_mask = GFP_KERNEL,
-		.order = 0,
 		.priority = DEF_PRIORITY,
 		.may_unmap = 1,
 		/* Doesn't allow to write out dirty page */
@@ -1250,7 +1248,6 @@ unsigned long reclaim_pages_from_list(struct list_head *page_list,
 {
 	struct scan_control sc = {
 		.gfp_mask = GFP_KERNEL,
-		.order = 0,
 		.priority = DEF_PRIORITY,
 		.may_writepage = 1,
 		.may_unmap = 1,
@@ -2506,7 +2503,6 @@ static bool shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 	gfp_t orig_mask;
 	struct shrink_control shrink = {
 		.gfp_mask = sc->gfp_mask,
-		.order = sc->order,
 	};
 	enum zone_type requested_highidx = gfp_zone(sc->gfp_mask);
 	bool reclaimable = false;
@@ -2628,11 +2624,6 @@ static unsigned long do_try_to_free_pages(struct zonelist *zonelist,
 	unsigned long total_scanned = 0;
 	unsigned long writeback_threshold;
 	bool zones_reclaimable;
-	struct reclaim_state *reclaim_state = current->reclaim_state;
-	unsigned long start_jiffies = jiffies;
-
-	if (reclaim_state)
-		reclaim_state->trigger_lmk = 0;
 
 	delayacct_freepages_start();
 
@@ -2675,30 +2666,6 @@ static unsigned long do_try_to_free_pages(struct zonelist *zonelist,
 	} while (--sc->priority >= 0);
 
 	delayacct_freepages_end();
-
-	if (reclaim_state) {
-		unsigned int msecs_age = jiffies_to_msecs(jiffies - start_jiffies);
-		if (sc->order > PAGE_ALLOC_COSTLY_ORDER)
-			count_vm_event(ALLOCSTALL_HORDER);
-
-		if (msecs_age >= FOREGROUND_RECLAIM_1000MS)
-			count_vm_event(ALLOCSTALL_1000);
-		else if (msecs_age >= FOREGROUND_RECLAIM_500MS)
-			count_vm_event(ALLOCSTALL_500);
-		else if (msecs_age >= FOREGROUND_RECLAIM_250MS)
-			count_vm_event(ALLOCSTALL_250);
-		else if (msecs_age >= FOREGROUND_RECLAIM_100MS)
-			count_vm_event(ALLOCSTALL_100);
-
-		if ((reclaim_state->trigger_lmk && sc->order >= 2) || msecs_age >= FOREGROUND_RECLAIM_500MS ||
-				sc->order > PAGE_ALLOC_COSTLY_ORDER) {
-			pr_warn("%s(%d:%d): direct reclaim alloc order:%d gfp:0x%x, reclaim %lu in %d.%03ds pri %d, scan %lu, trigger lmk %d times\n",
-					current->comm, current->tgid, current->pid,
-					sc->order, sc->gfp_mask, sc->nr_reclaimed, msecs_age / 1000, msecs_age % 1000, sc->priority, total_scanned,
-					reclaim_state->trigger_lmk);
-			dump_stack();
-		}
-	}
 
 	if (sc->nr_reclaimed)
 		return sc->nr_reclaimed;
@@ -2883,7 +2850,6 @@ unsigned long mem_cgroup_shrink_node_zone(struct mem_cgroup *memcg,
 {
 	struct scan_control sc = {
 		.nr_to_reclaim = SWAP_CLUSTER_MAX,
-		.order = 0,
 		.target_mem_cgroup = memcg,
 		.may_writepage = !laptop_mode,
 		.may_unmap = 1,
@@ -2926,7 +2892,6 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 		.nr_to_reclaim = max(nr_pages, SWAP_CLUSTER_MAX),
 		.gfp_mask = (gfp_mask & GFP_RECLAIM_MASK) |
 				(GFP_HIGHUSER_MOVABLE & ~GFP_RECLAIM_MASK),
-		.order = 0,
 		.target_mem_cgroup = memcg,
 		.priority = DEF_PRIORITY,
 		.may_writepage = !laptop_mode,
@@ -3098,7 +3063,6 @@ static bool kswapd_shrink_zone(struct zone *zone,
 	struct reclaim_state *reclaim_state = current->reclaim_state;
 	struct shrink_control shrink = {
 		.gfp_mask = sc->gfp_mask,
-		.order = sc->order,
 	};
 	bool lowmem_pressure;
 
@@ -3579,7 +3543,6 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
 	struct scan_control sc = {
 		.nr_to_reclaim = nr_to_reclaim,
 		.gfp_mask = GFP_HIGHUSER_MOVABLE,
-		.order = 0,
 		.priority = DEF_PRIORITY,
 		.may_writepage = 1,
 		.may_unmap = 1,

@@ -14,11 +14,6 @@
 #include <linux/fs.h>
 #include <linux/mm.h>
 
-#define FOREGROUND_RECLAIM_100MS		100
-#define FOREGROUND_RECLAIM_250MS		250
-#define FOREGROUND_RECLAIM_500MS		500
-#define FOREGROUND_RECLAIM_1000MS		1000
-
 void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *start_vma,
 		unsigned long floor, unsigned long ceiling);
 

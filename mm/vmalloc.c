@@ -517,7 +517,6 @@ overflow:
 		printk(KERN_WARNING
 			"vmap allocation for size %lu failed: "
 			"use vmalloc=<size> to increase size.\n", size);
-
 	kfree(va);
 	return ERR_PTR(-EBUSY);
 }

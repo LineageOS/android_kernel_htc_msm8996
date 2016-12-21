@@ -853,7 +853,6 @@ bool is_cma_pageblock(struct page *page)
 {
 	return get_pageblock_migratetype(page) == MIGRATE_CMA;
 }
-EXPORT_SYMBOL(is_cma_pageblock);
 
 /* Free whole pageblock and set its migration type to MIGRATE_CMA. */
 void __init init_cma_reserved_pageblock(struct page *page)
@@ -2493,13 +2492,10 @@ __alloc_pages_direct_compact(gfp_t gfp_mask, unsigned int order,
 	struct zone *last_compact_zone = NULL;
 	unsigned long compact_result;
 	struct page *page;
-	unsigned long start_jiffies;
-	unsigned int msecs_age;
 
 	if (!order)
 		return NULL;
 
-	start_jiffies = jiffies;
 	current->flags |= PF_MEMALLOC;
 	compact_result = try_to_compact_pages(zonelist, order, gfp_mask,
 						nodemask, mode,
@@ -2524,27 +2520,7 @@ __alloc_pages_direct_compact(gfp_t gfp_mask, unsigned int order,
 	 */
 	count_vm_event(COMPACTSTALL);
 
-	msecs_age = jiffies_to_msecs(jiffies - start_jiffies);
-	if (order > PAGE_ALLOC_COSTLY_ORDER)
-		count_vm_event(COMPACTSTALL_HORDER);
-
-	if (msecs_age >= FOREGROUND_RECLAIM_1000MS)
-		count_vm_event(COMPACTSTALL_1000);
-	else if (msecs_age >= FOREGROUND_RECLAIM_500MS)
-		count_vm_event(COMPACTSTALL_500);
-	else if (msecs_age >= FOREGROUND_RECLAIM_250MS)
-		count_vm_event(COMPACTSTALL_250);
-	else if (msecs_age >= FOREGROUND_RECLAIM_100MS)
-		count_vm_event(COMPACTSTALL_100);
-
-	if (msecs_age >= FOREGROUND_RECLAIM_500MS || order > PAGE_ALLOC_COSTLY_ORDER) {
-		pr_warn("%s(%d:%d): direct compact alloc order:%d gfp:0x%x mode %d, spend %d.%03ds\n",
-			current->comm, current->tgid, current->pid,
-			order, gfp_mask, mode, msecs_age / 1000, msecs_age % 1000);
-		dump_stack();
-	}
-
-	
+	/* Page migration frees to the PCP lists but we want merging */
 	drain_pages(get_cpu());
 	put_cpu();
 
@@ -6019,22 +5995,30 @@ static void __meminit setup_per_zone_inactive_ratio(void)
 		calculate_zone_inactive_ratio(zone);
 }
 
-int vm_inactive_ratio = 0;
-int vm_inactive_ratio_handler(struct ctl_table *table, int write,
-	void __user *buffer, size_t *length, loff_t *ppos)
-{
-	struct zone *zone;
-	int old_ratio = vm_inactive_ratio;
-	int ret;
-
-	ret = proc_dointvec_minmax(table, write, buffer, length, ppos);
-	if (ret == 0 && write && vm_inactive_ratio != old_ratio) {
-		for_each_zone(zone){
-			zone->inactive_ratio = vm_inactive_ratio;
-		}
-	}
-	return ret;
-}
+/*
+ * Initialise min_free_kbytes.
+ *
+ * For small machines we want it small (128k min).  For large machines
+ * we want it large (64MB max).  But it is not linear, because network
+ * bandwidth does not increase linearly with machine size.  We use
+ *
+ *	min_free_kbytes = 4 * sqrt(lowmem_kbytes), for better accuracy:
+ *	min_free_kbytes = sqrt(lowmem_kbytes * 16)
+ *
+ * which yields
+ *
+ * 16MB:	512k
+ * 32MB:	724k
+ * 64MB:	1024k
+ * 128MB:	1448k
+ * 256MB:	2048k
+ * 512MB:	2896k
+ * 1024MB:	4096k
+ * 2048MB:	5792k
+ * 4096MB:	8192k
+ * 8192MB:	11584k
+ * 16384MB:	16384k
+ */
 int __meminit init_per_zone_wmark_min(void)
 {
 	unsigned long lowmem_kbytes;
