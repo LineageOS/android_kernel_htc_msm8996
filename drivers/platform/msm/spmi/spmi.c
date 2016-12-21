@@ -809,7 +809,6 @@ static int spmi_register_controller(struct spmi_controller *ctrl)
 					ctrl->nr, &ctrl->dev);
 
 	spmi_dfs_add_controller(ctrl);
-
 	return 0;
 
 exit:
