@@ -270,7 +270,6 @@ config WIFI_CONTROL_FUNC
 	help
 	  Enables Power/Reset/Carddetect function abstraction
 
-if 0
 config WCNSS_CORE
 	tristate "Qualcomm WCNSS CORE driver"
 	select WIRELESS_EXT
@@ -303,7 +302,6 @@ config WCNSS_MEM_PRE_ALLOC
 	  This feature enable cld wlan driver to use pre allocated memory
 	  for it's internal usage and release it to back to pre allocated pool.
 	  This memory is allocated at the cold boot time.
-endif
 
 config WCNSS_SKB_PRE_ALLOC
 	tristate "CNSS pre-alloc memory support for skb"
@@ -345,7 +343,7 @@ source "drivers/net/wireless/zd1211rw/Kconfig"
 source "drivers/net/wireless/mwifiex/Kconfig"
 source "drivers/net/wireless/cw1200/Kconfig"
 source "drivers/net/wireless/rsi/Kconfig"
-#source "drivers/net/wireless/cnss/Kconfig"
+source "drivers/net/wireless/cnss/Kconfig"
 
 # HTC WLAN
 source "drivers/net/wireless/bcmdhd_4359/Kconfig"
