@@ -46,7 +46,9 @@ enum pon_power_off_type {
 	PON_POWER_OFF_RESERVED		= 0x00,
 	PON_POWER_OFF_WARM_RESET	= 0x01,
 	PON_POWER_OFF_SHUTDOWN		= 0x04,
+	PON_POWER_OFF_xVDD_SHUTDOWN	= 0x06,
 	PON_POWER_OFF_HARD_RESET	= 0x07,
+	PON_POWER_OFF_xVDD_HARD_RESET	= 0x09,
 	PON_POWER_OFF_MAX_TYPE		= 0x10,
 };
 
@@ -67,7 +69,9 @@ int qpnp_pon_trigger_config(enum pon_trigger_source pon_src, bool enable);
 int qpnp_pon_wd_config(bool enable);
 int qpnp_pon_set_restart_reason(enum pon_restart_reason reason);
 bool qpnp_pon_check_hard_reset_stored(void);
-
+int qpnp_config_s2_enable(int pon_type, int en);
+int qpnp_get_s2_en(int pon_type);
+void qpnp_kick_s2_timer(void);
 #else
 static int qpnp_pon_system_pwr_off(enum pon_power_off_type type)
 {
@@ -91,6 +95,15 @@ static inline bool qpnp_pon_check_hard_reset_stored(void)
 {
 	return false;
 }
+static inline int qpnp_config_s2_enable(int pon_type, int en)
+{
+	return -ENODEV;
+}
+static inline int qpnp_get_s2_en(int pon_type)
+{
+	return -ENODEV;
+}
+static inline void qpnp_kick_s2_timer(void){}
 #endif
 
 #endif

@@ -301,7 +301,7 @@ static void power_supply_callback(struct power_supply *psy)
 		pr_debug("Battery SOC reported:%d", battery_soc_val);
 		trace_bcl_sw_mitigation("SoC reported", battery_soc_val);
 		prev_soc_state = bcl_soc_state;
-		bcl_soc_state = (battery_soc_val <= soc_low_threshold) ?
+		bcl_soc_state = (battery_soc_val < soc_low_threshold) ?
 					BCL_LOW_THRESHOLD : BCL_HIGH_THRESHOLD;
 		if (bcl_soc_state == prev_soc_state)
 			return;
@@ -1763,6 +1763,18 @@ static int bcl_probe(struct platform_device *pdev)
 
 	return 0;
 }
+
+void set_bcl_freq_limit(uint32_t freq_limit)
+{
+	uint32_t *freq_lim = NULL;
+
+	freq_lim = (gbcl->bcl_monitor_type == BCL_IBAT_MONITOR_TYPE) ?
+			&gbcl->btm_freq_max : &gbcl->bcl_p_freq_max;
+
+	if (freq_lim)
+		*freq_lim = freq_limit;
+}
+
 
 static int bcl_remove(struct platform_device *pdev)
 {
