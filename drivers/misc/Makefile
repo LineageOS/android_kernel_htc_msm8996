@@ -2,7 +2,6 @@
 # Makefile for misc devices that really don't fit anywhere else.
 #
 
-obj-$(CONFIG_VIB_TRIGGERS)	+= vib-triggers.o
 obj-$(CONFIG_IBM_ASM)		+= ibmasm/
 obj-$(CONFIG_AD525X_DPOT)	+= ad525x_dpot.o
 obj-$(CONFIG_AD525X_DPOT_I2C)	+= ad525x_dpot-i2c.o
@@ -51,7 +50,6 @@ obj-$(CONFIG_USB_SWITCH_FSA9480) += fsa9480.o
 obj-$(CONFIG_ALTERA_STAPL)	+=altera-stapl/
 obj-$(CONFIG_INTEL_MEI)		+= mei/
 obj-$(CONFIG_VMWARE_VMCI)	+= vmw_vmci/
-obj-$(CONFIG_FPR_FPC)  += fpr_FingerprintCard/
 obj-$(CONFIG_LATTICE_ECP3_CONFIG)	+= lattice-ecp3-config.o
 obj-$(CONFIG_SRAM)		+= sram.o
 obj-y				+= mic/
@@ -67,11 +65,13 @@ obj-$(CONFIG_CXL_BASE)		+= cxl/
 obj-$(CONFIG_UID_CPUTIME) += uid_cputime.o
 obj-y				+= qcom/
 obj-$(CONFIG_TI_DRV2667) += ti_drv2667.o
-#HTC_AUD_START
-#obj-y				+= headset/
-obj-$(CONFIG_RT_REGMAP) += rt-regmap.o
-#HTC_AUD_END
 obj-$(CONFIG_USB_EXT_TYPE_C_PERICOM)	+= type-c-pericom.o
 obj-$(CONFIG_USB_EXT_TYPE_C_TI)		+= type-c-ti.o
-obj-$(CONFIG_HTC_FLASHLIGHT) += htc_flashlight.o
 obj-$(CONFIG_QPNP_MISC) 	+= qpnp-misc.o
+
+# HTC Additions
+obj-$(CONFIG_FPR_FPC)		+= fpr_FingerprintCard/
+#obj-y				+= headset/
+obj-$(CONFIG_HTC_FLASHLIGHT)	+= htc_flashlight.o
+obj-$(CONFIG_RT_REGMAP)		+= rt-regmap.o
+obj-$(CONFIG_VIB_TRIGGERS)	+= vib-triggers.o
