@@ -5201,9 +5201,8 @@ void ipa_suspend_apps_pipes(bool suspend)
 	cfg.ipa_ep_suspend = suspend;
 
 	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
-	if(ipa_ep_idx >= 0)
-		ep = &ipa_ctx->ep[ipa_ep_idx];
-	if (ep && ep->valid) {
+	ep = &ipa_ctx->ep[ipa_ep_idx];
+	if (ep->valid) {
 		ipa2_cfg_ep_ctrl(ipa_ep_idx, &cfg);
 		/* Check if the pipes are empty. */
 		ret = sps_is_pipe_empty(ep->ep_hdl, &lan_empty);
