@@ -140,6 +140,12 @@ config IMX132
 		snapshot config = 1920 x 1080 at 30 fps,
 		Video HDR support.
 
+config S5K4E6_HTC
+	bool "Sensor S5K4E6_HTC (BAYER 5M)"
+	depends on MSMB_CAMERA
+	---help---
+		Support for S5K4E6_HTC sensor driver.
+
 config OV9724
 	bool "Sensor OV9724 (BAYER 2M)"
 	depends on MSMB_CAMERA
@@ -241,3 +247,15 @@ config MSM_JPEGDMA
         select V4L2_MEM2MEM_DEV
 	---help---
 	  Enable support for Jpeg dma engine.
+
+config OIS_CALIBRATION
+	    bool "OIS GYRO offset calibration"
+	    depends on MSMB_CAMERA
+        ---help---
+		OIS GYRO offset calibration
+
+config CAM_REG_LASER
+	    bool "Camera register Laser"
+	    depends on MSMB_CAMERA
+        ---help---
+		Camera register Laser

@@ -6,6 +6,73 @@
 
 #include <linux/compat.h>
 
+#define MAX_ACT_NAME_SIZE_32 32
+#define LC898214_HEX_MAX_32 0x7FFF 
+#define LC898214_HEX_MIN_32 0x8001 
+#define LC898214_DEC_MAX_32 1023
+
+struct fuse_id32{
+	uint32_t fuse_id_word1;
+	uint32_t fuse_id_word2;
+	uint32_t fuse_id_word3;
+	uint32_t fuse_id_word4;
+};
+
+typedef struct{
+	char    ACT_NAME[MAX_ACT_NAME_SIZE_32]; 
+	uint8_t VCM_START_MSB;
+	uint8_t VCM_START_LSB;
+	uint8_t AF_INF_MSB;
+	uint8_t AF_INF_LSB;
+	uint8_t AF_MACRO_MSB;
+	uint8_t AF_MACRO_LSB;
+	uint8_t VCM_BIAS;
+	uint8_t VCM_OFFSET;
+	uint8_t VCM_BOTTOM_MECH_MSB;
+	uint8_t VCM_BOTTOM_MECH_LSB;
+	uint8_t VCM_TOP_MECH_MSB;
+	uint8_t VCM_TOP_MECH_LSB;
+	uint8_t VCM_VENDOR_ID_VERSION;
+	uint8_t VCM_VENDOR;
+	uint8_t ACT_ID;
+	uint32_t MODULE_ID_AB;
+}af_value_t32;
+
+struct pixel_tt32 {
+	int   x;
+	int   y;
+};
+
+struct pixels_array_tt32 {
+	struct pixel_tt32 pix[40];
+	int	count;
+};
+
+enum actuator_I2C_func_select32 {
+        WRITE_SEQ_TABLE_32,
+        WRITE_TABLE_W_MICRODELAY_32,
+        WRITE_MULTI_TABLE_32
+};
+
+struct msm_actuator_af_OTP_info_t32 {
+        uint8_t VCM_OTP_Read;
+        uint16_t VCM_Start;
+        uint16_t VCM_Infinity;
+        uint16_t VCM_Macro;
+        
+        uint8_t VCM_Bias;
+        uint8_t VCM_Offset;
+        uint16_t VCM_Bottom_Mech;
+        uint16_t VCM_Top_Mech;
+        uint8_t VCM_Vendor_Id_Version;
+        
+        uint8_t VCM_Vendor;
+        uint8_t act_id;
+        char act_name[MAX_SENSOR_NAME];
+        uint32_t MODULE_ID_AB;
+};
+
+
 #ifdef CONFIG_COMPAT
 
 struct msm_sensor_power_setting32 {
@@ -151,11 +218,17 @@ struct msm_actuator_params_t32 {
 	compat_uptr_t reg_tbl_params;
 	compat_uptr_t init_settings;
 	struct park_lens_data_t park_lens;
+	
+	char ACT_NAME[MAX_ACT_NAME_SIZE_32];
+	
 };
 
 struct msm_actuator_set_info_t32 {
 	struct msm_actuator_params_t32 actuator_params;
 	struct msm_actuator_tuning_params_t32 af_tuning_params;
+	uint8_t enable_focus_step_log;
+	compat_uptr_t step_position_table;                
+	enum actuator_I2C_func_select32 act_i2c_select; 
 };
 
 struct sensor_init_cfg_data32 {
@@ -179,12 +252,18 @@ struct msm_actuator_move_params_t32 {
 struct msm_actuator_cfg_data32 {
 	int cfgtype;
 	uint8_t is_af_supported;
+	
+	uint32_t ois_gain;
+	
 	union {
 		struct msm_actuator_move_params_t32 move;
 		struct msm_actuator_set_info_t32 set_info;
 		struct msm_actuator_get_info_t get_info;
 		struct msm_actuator_set_position_t setpos;
 		enum af_camera_name cam_name;
+		
+		af_value_t32 af_value;
+		
 	} cfg;
 };
 
@@ -198,12 +277,26 @@ struct csiphy_cfg_data32 {
 
 struct sensorb_cfg_data32 {
 	int cfgtype;
+	
+	int8_t sensor_ver;
+	int8_t lens_id;
+	af_value_t32 af_value;
+	
 	union {
 		struct msm_sensor_info_t      sensor_info;
 		struct msm_sensor_init_params sensor_init_params;
 		compat_uptr_t                 setting;
 		struct msm_sensor_i2c_sync_params sensor_i2c_sync_params;
+		
+		struct fuse_id32 fuse;
+		
 	} cfg;
+	
+	int cam_id;
+	
+	
+	struct pixels_array_tt32 pixels_array;
+	
 };
 
 struct msm_ois_params_t32 {

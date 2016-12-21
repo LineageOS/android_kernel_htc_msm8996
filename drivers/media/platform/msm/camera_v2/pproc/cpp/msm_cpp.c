@@ -1059,6 +1059,10 @@ static int32_t cpp_load_fw(struct cpp_device *cpp_dev, char *fw_name_bin)
 			MSM_CPP_MSG_ID_JUMP_ACK, rc);
 	}
 
+	rc = msm_cpp_update_gdscr_status(cpp_dev, true);
+	if (rc < 0)
+		pr_err("update cpp gdscr status failed\n");
+
 end:
 	return rc;
 }

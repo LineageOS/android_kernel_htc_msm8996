@@ -43,7 +43,73 @@
 #define MSM_V4L2_PIX_FMT_SGRBG14 v4l2_fourcc('B', 'A', '1', '4')
 	/* 14  GRGR.. BGBG.. */
 #define MSM_V4L2_PIX_FMT_SRGGB14 v4l2_fourcc('R', 'G', '1', '4')
-	/* 14  RGRG.. GBGB.. */
+	
+
+#define MAX_ACT_NAME_SIZE 32
+#define LC898214_HEX_MAX 0x7FFF 
+#define LC898214_HEX_MIN 0x8001 
+#define LC898214_DEC_MAX 1023
+
+struct fuse_id{
+        uint32_t fuse_id_word1;
+        uint32_t fuse_id_word2;
+        uint32_t fuse_id_word3;
+        uint32_t fuse_id_word4;
+};
+
+typedef struct{
+        char    ACT_NAME[MAX_ACT_NAME_SIZE]; 
+        uint8_t VCM_START_MSB;
+        uint8_t VCM_START_LSB;
+        uint8_t AF_INF_MSB;
+        uint8_t AF_INF_LSB;
+        uint8_t AF_MACRO_MSB;
+        uint8_t AF_MACRO_LSB;
+        uint8_t VCM_BIAS;
+        uint8_t VCM_OFFSET;
+        uint8_t VCM_BOTTOM_MECH_MSB;
+        uint8_t VCM_BOTTOM_MECH_LSB;
+        uint8_t VCM_TOP_MECH_MSB;
+        uint8_t VCM_TOP_MECH_LSB;
+        uint8_t VCM_VENDOR_ID_VERSION;
+        uint8_t VCM_VENDOR;
+        uint8_t ACT_ID;
+        uint32_t MODULE_ID_AB;
+}af_value_t;
+
+struct pixel_tt {
+        int   x;
+        int   y;
+};
+
+struct pixels_array_tt {
+        struct pixel_tt pix[40];
+        int     count;
+};
+
+struct msm_actuator_af_OTP_info_t {
+        uint8_t VCM_OTP_Read;
+        uint16_t VCM_Start;
+        uint16_t VCM_Infinity;
+        uint16_t VCM_Macro;
+        
+        uint8_t VCM_Bias;
+        uint8_t VCM_Offset;
+        uint16_t VCM_Bottom_Mech;
+        uint16_t VCM_Top_Mech;
+        uint8_t VCM_Vendor_Id_Version;
+        
+        uint8_t VCM_Vendor;
+        uint8_t act_id;
+        char act_name[MAX_SENSOR_NAME];
+        uint32_t MODULE_ID_AB;
+};
+
+enum actuator_I2C_func_select {
+        WRITE_SEQ_TABLE,
+        WRITE_TABLE_W_MICRODELAY,
+        WRITE_MULTI_TABLE
+};
 
 enum flash_type {
 	LED_FLASH = 1,
@@ -228,12 +294,26 @@ struct camera_vreg_t {
 
 struct sensorb_cfg_data {
 	int cfgtype;
+        
+        int8_t sensor_ver;
+        int8_t lens_id;
+        af_value_t af_value;
+        
 	union {
 		struct msm_sensor_info_t      sensor_info;
 		struct msm_sensor_init_params sensor_init_params;
 		void                         *setting;
 		struct msm_sensor_i2c_sync_params sensor_i2c_sync_params;
+                
+                struct fuse_id fuse;
+                
 	} cfg;
+        
+        int cam_id;
+        
+        
+        struct pixels_array_tt pixels_array;
+        
 };
 
 struct csid_cfg_data {
@@ -342,6 +422,9 @@ enum msm_sensor_cfg_type_t {
 	CFG_WRITE_I2C_ARRAY_ASYNC,
 	CFG_WRITE_I2C_ARRAY_SYNC,
 	CFG_WRITE_I2C_ARRAY_SYNC_BLOCK,
+        CFG_I2C_IOCTL_R_OTP,
+        CFG_SET_GYRO_CALIBRATION,
+        CFG_GET_GYRO_CALIBRATION,
 };
 
 enum msm_actuator_cfg_type_t {
@@ -353,6 +436,10 @@ enum msm_actuator_cfg_type_t {
 	CFG_ACTUATOR_POWERDOWN,
 	CFG_ACTUATOR_POWERUP,
 	CFG_ACTUATOR_INIT,
+        CFG_SET_ACTUATOR_AF_VALUE,
+    
+    CFG_OIS_GAIN_WRITE,
+    
 };
 
 struct msm_ois_opcode {
@@ -439,11 +526,17 @@ struct msm_actuator_params_t {
 	struct msm_actuator_reg_params_t *reg_tbl_params;
 	struct reg_settings_t *init_settings;
 	struct park_lens_data_t park_lens;
+        
+        char ACT_NAME[MAX_ACT_NAME_SIZE];
+        
 };
 
 struct msm_actuator_set_info_t {
 	struct msm_actuator_params_t actuator_params;
 	struct msm_actuator_tuning_params_t af_tuning_params;
+        uint8_t enable_focus_step_log;
+        uint16_t *step_position_table;                
+        enum actuator_I2C_func_select act_i2c_select; 
 };
 
 struct msm_actuator_get_info_t {
@@ -501,12 +594,18 @@ struct msm_actuator_set_position_t {
 struct msm_actuator_cfg_data {
 	int cfgtype;
 	uint8_t is_af_supported;
+        
+        uint32_t ois_gain;
+        
 	union {
 		struct msm_actuator_move_params_t move;
 		struct msm_actuator_set_info_t set_info;
 		struct msm_actuator_get_info_t get_info;
 		struct msm_actuator_set_position_t setpos;
 		enum af_camera_name cam_name;
+                
+                af_value_t af_value;
+                
 	} cfg;
 };
 
