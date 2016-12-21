@@ -388,83 +388,6 @@ static void __insert_vmap_area(struct vmap_area *va)
 
 static void purge_vmap_area_lazy(void);
 
-#ifdef CONFIG_HTC_DEBUG_VMALLOC_DUMP
-
-#define DUMP_VMALLOC_INTERVAL  10*HZ // the interval for each vmalloc dump
-#define MLM(b, t) b, t, ((t) - (b)) >> 20
-
-void dump_vmallocinfo(void)
-{
-	struct vmap_area *va = NULL;
-	struct vm_struct *v = NULL;
-	unsigned int used = 0;
-
-	spin_lock(&vmap_area_lock);
-	printk("[K] prepare to dump vmallocinfo\n");
-
-	va = list_entry((&vmap_area_list)->next, typeof(*va), list);
-
-	while(&va->list != &vmap_area_list) {
-		if (va->flags & (VM_LAZY_FREE | VM_LAZY_FREEING)) {
-			va = list_entry(va->list.next, typeof(*va), list);
-			continue;
-		}
-
-		if (!(va->flags & VM_VM_AREA)) {
-			printk("0x%pK-0x%pK %7ld vm_map_ram\n",
-				(void *)va->va_start, (void *)va->va_end,
-				va->va_end - va->va_start);
-			va = list_entry(va->list.next, typeof(*va), list);
-			continue;
-		}
-
-		v = va->vm;
-
-		printk("0x%p-0x%p %7ld", v->addr, v->addr + v->size, v->size);
-
-		used += v->size;
-
-		if(v->caller)
-			printk(" %pS", v->caller);
-
-		if (v->nr_pages)
-			printk(" pages=%d", v->nr_pages);
-
-		if (v->phys_addr)
-			printk(" phys=%llx", (unsigned long long)v->phys_addr);
-
-		if (v->flags & VM_IOREMAP)
-			printk(" ioremap");
-
-		if (v->flags & VM_ALLOC)
-			printk(" vmalloc");
-
-		if (v->flags & VM_MAP)
-			printk(" vmap");
-
-		if (v->flags & VM_USERMAP)
-			printk(" user");
-
-		if (v->flags & VM_VPAGES)
-			printk(" vpages");
-
-		printk("\n");
-
-		va = list_entry(va->list.next, typeof(*va), list);
-	}
-
-	printk("[K] vmalloc : 0x%08lx - 0x%08lx   (%4ld MB)\n", MLM(VMALLOC_START, VMALLOC_END));
-	printk("[K] vmalloc used : %u bytes\n", used);
-	printk("[K] end of dump vmallocinfo\n");
-
-	spin_unlock(&vmap_area_lock);
-}
-EXPORT_SYMBOL(dump_vmallocinfo);
-
-static unsigned long last_dump_jiffies = 0; // controls the dump interval.
-
-#endif
-
 /*
  * Allocate a region of KVA of the specified size and alignment, within the
  * vstart and vend.
@@ -595,12 +518,6 @@ overflow:
 			"vmap allocation for size %lu failed: "
 			"use vmalloc=<size> to increase size.\n", size);
 
-#ifdef CONFIG_HTC_DEBUG_VMALLOC_DUMP
-	if((last_dump_jiffies == 0) || time_is_before_jiffies(last_dump_jiffies + DUMP_VMALLOC_INTERVAL)) {
-		dump_vmallocinfo();
-		last_dump_jiffies = jiffies;
-	}
-#endif
 	kfree(va);
 	return ERR_PTR(-EBUSY);
 }
