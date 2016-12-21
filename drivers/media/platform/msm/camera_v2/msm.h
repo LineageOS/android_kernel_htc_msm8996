@@ -109,7 +109,7 @@ struct msm_session {
 	struct msm_queue_head stream_q;
 	struct mutex lock;
 	struct mutex lock_q;
-        struct mutex close_lock;
+	struct mutex close_lock;
 };
 
 static inline bool msm_is_daemon_present(void)

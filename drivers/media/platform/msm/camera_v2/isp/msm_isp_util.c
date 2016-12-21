@@ -1769,7 +1769,6 @@ void msm_isp_process_overflow_irq(
 	if (overflow_mask) {
 		struct msm_isp_event_data error_event;
 
-                pr_err("%s: overflow_mask:0x%x\n", __func__, overflow_mask);
 		if (vfe_dev->reset_pending == 1) {
 			pr_err("%s:%d failed: overflow %x during reset\n",
 				__func__, __LINE__, overflow_mask);
@@ -1955,8 +1954,8 @@ void msm_isp_do_tasklet(unsigned long data)
 			irq_status0, irq_status1);
 		if (atomic_read(&vfe_dev->error_info.overflow_state)
 			!= NO_OVERFLOW) {
-                        pr_err("%s: overflow_state:%d, Recovery in processing, Ignore IRQs!!!\n",
-                                __func__, atomic_read(&vfe_dev->error_info.overflow_state));
+			ISP_DBG("%s: Recovery in processing, Ignore IRQs!!!\n",
+				__func__);
 			continue;
 		}
 		msm_isp_process_error_info(vfe_dev);

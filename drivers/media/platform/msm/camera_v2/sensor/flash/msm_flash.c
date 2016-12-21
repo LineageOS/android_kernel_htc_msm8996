@@ -21,7 +21,7 @@
 #include <linux/htc_flashlight.h>
 
 #undef CDBG
-#define CDBG(fmt, args...) pr_info("[CAM][FL]"fmt, ##args)
+#define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
 #define CONFIG_HTC_FLASHLIGHT_COMMON
 #define HTC_CAM_FEATURE_FLASH_RESTRICTION
@@ -324,6 +324,7 @@ static int32_t msm_flash_gpio_init(
 	int32_t i = 0;
 	int32_t rc = 0;
 
+	CDBG("Enter");
 	for (i = 0; i < flash_ctrl->flash_num_sources; i++)
 		flash_ctrl->flash_op_current[i] = LED_FULL;
 
@@ -344,6 +345,7 @@ static int32_t msm_flash_gpio_init(
 
 	rc = flash_ctrl->func_tbl->camera_flash_off(flash_ctrl, flash_data);
 
+	CDBG("Exit");
 	return rc;
 }
 
@@ -711,6 +713,7 @@ static int32_t msm_flash_config(struct msm_flash_ctrl_t *flash_ctrl,
 
 	mutex_lock(flash_ctrl->flash_mutex);
 
+	CDBG("Enter %s type %d\n", __func__, flash_data->cfg_type);
 
 	switch (flash_data->cfg_type) {
 	case CFG_FLASH_INIT:
@@ -743,6 +746,7 @@ static int32_t msm_flash_config(struct msm_flash_ctrl_t *flash_ctrl,
 
 	mutex_unlock(flash_ctrl->flash_mutex);
 
+	CDBG("Exit %s type %d\n", __func__, flash_data->cfg_type);
 
 	return rc;
 }
@@ -753,6 +757,7 @@ static long msm_flash_subdev_ioctl(struct v4l2_subdev *sd,
 	struct msm_flash_ctrl_t *fctrl = NULL;
 	void __user *argp = (void __user *)arg;
 
+	CDBG("Enter\n");
 
 	if (!sd) {
 		pr_err("sd NULL\n");
@@ -783,6 +788,7 @@ static long msm_flash_subdev_ioctl(struct v4l2_subdev *sd,
 		pr_err_ratelimited("invalid cmd %d\n", cmd);
 		return -ENOIOCTLCMD;
 	}
+	CDBG("Exit\n");
 }
 
 static struct v4l2_subdev_core_ops msm_flash_subdev_core_ops = {
@@ -1057,6 +1063,7 @@ static long msm_flash_subdev_do_ioctl(
 	struct msm_flash_init_info_t32 flash_init_info32;
 	struct msm_flash_init_info_t flash_init_info;
 
+	CDBG("Enter");
 
 	if (!file || !arg) {
 		pr_err("%s:failed NULL parameter\n", __func__);
@@ -1114,6 +1121,7 @@ static long msm_flash_subdev_do_ioctl(
 		u32->flash_current[i] = flash_data.flash_current[i];
 		u32->flash_duration[i] = flash_data.flash_duration[i];
 	}
+	CDBG("Exit");
 	return rc;
 }
 

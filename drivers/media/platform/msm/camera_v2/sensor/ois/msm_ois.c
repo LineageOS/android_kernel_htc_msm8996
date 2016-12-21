@@ -24,11 +24,7 @@ DEFINE_MSM_MUTEX(msm_ois_mutex);
 #ifdef MSM_OIS_DEBUG
 #define CDBG(fmt, args...) pr_err(fmt, ##args)
 #else
-#if 1
-#define CDBG(fmt, args...) pr_info("[CAM][OIS]"fmt, ##args)
-#else
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
-#endif
 #endif
 
 static struct v4l2_file_operations msm_ois_v4l2_subdev_fops;
@@ -420,6 +416,8 @@ static int32_t msm_ois_config(struct msm_ois_ctrl_t *o_ctrl,
 		(struct msm_ois_cfg_data *)argp;
 	int32_t rc = 0;
 	mutex_lock(o_ctrl->ois_mutex);
+	CDBG("Enter\n");
+	CDBG("%s type %d\n", __func__, cdata->cfgtype);
 	switch (cdata->cfgtype) {
 	case CFG_OIS_INIT:
 		rc = msm_ois_init(o_ctrl);
@@ -493,6 +491,7 @@ static int32_t msm_ois_config(struct msm_ois_ctrl_t *o_ctrl,
 		break;
 	}
 	mutex_unlock(o_ctrl->ois_mutex);
+	CDBG("Exit\n");
 	return rc;
 }
 
@@ -607,6 +606,8 @@ static long msm_ois_subdev_ioctl(struct v4l2_subdev *sd,
 	int rc;
 	struct msm_ois_ctrl_t *o_ctrl = v4l2_get_subdevdata(sd);
 	void __user *argp = (void __user *)arg;
+	CDBG("Enter\n");
+	CDBG("%s:%d o_ctrl %pK argp %pK\n", __func__, __LINE__, o_ctrl, argp);
 	switch (cmd) {
 	case VIDIOC_MSM_SENSOR_GET_SUBDEV_ID:
 		return msm_ois_get_subdev_id(o_ctrl, argp);

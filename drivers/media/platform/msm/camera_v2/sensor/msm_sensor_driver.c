@@ -1314,10 +1314,16 @@ CSID_TG:
 	
 	pr_err("%s probe succeeded", slave_info->sensor_name);
         msm_sensor_read_OTP(slave_info, s_ctrl);
+	/*
+	  Set probe succeeded flag to 1 so that no other camera shall
+	 * probed on this slot
+	 */
 	s_ctrl->is_probe_succeed = 1;
 
-	if (strlen(slave_info->flash_name) == 0)
-	{
+	/*
+	 * Update the subdevice id of flash-src based on availability in kernel.
+	 */
+	if (strlen(slave_info->flash_name) == 0) {
 		s_ctrl->sensordata->sensor_info->
 			subdev_id[SUB_MODULE_LED_FLASH] = -1;
 	}

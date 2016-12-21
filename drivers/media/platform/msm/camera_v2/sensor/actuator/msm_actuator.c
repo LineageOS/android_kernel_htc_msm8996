@@ -23,7 +23,7 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #ifdef MSM_ACTUATOR_DEBUG
 #define CDBG(fmt, args...) pr_err(fmt, ##args)
 #else
-#define CDBG(fmt, args...) pr_debug("[CAM]"fmt, ##args)
+#define CDBG(fmt, args...) pr_debug(fmt, ##args)
 #endif
 
 #define PARK_LENS_LONG_STEP 7
@@ -1540,7 +1540,6 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 		a_ctrl->i2c_reg_tbl = NULL;
 		return -EFAULT;
 	}
-
 
 	if (set_info->actuator_params.init_setting_size &&
 		set_info->actuator_params.init_setting_size
