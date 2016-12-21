@@ -130,7 +130,6 @@ static dev_t qseecom_device_no;
 static DEFINE_MUTEX(qsee_bw_mutex);
 static DEFINE_MUTEX(app_access_lock);
 static DEFINE_MUTEX(clk_access_lock);
-static DEFINE_MUTEX(cmnlib_access_lock);
 
 struct qseecom_registered_listener_list {
 	struct list_head                 list;
@@ -2079,15 +2078,13 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 		return -EFAULT;
 	}
 
-	
-	mutex_lock(&cmnlib_access_lock);
+	/* Check and load cmnlib */
 	if (qseecom.qsee_version > QSEEE_VERSION_00) {
 		if (!qseecom.commonlib_loaded &&
 				load_img_req.app_arch == ELFCLASS32) {
 			ret = qseecom_load_commonlib_image(data, "cmnlib");
 			if (ret) {
 				pr_err("failed to load cmnlib\n");
-				mutex_unlock(&cmnlib_access_lock);
 				return -EIO;
 			}
 			qseecom.commonlib_loaded = true;
@@ -2099,14 +2096,12 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 			ret = qseecom_load_commonlib_image(data, "cmnlib64");
 			if (ret) {
 				pr_err("failed to load cmnlib64\n");
-				mutex_unlock(&cmnlib_access_lock);
 				return -EIO;
 			}
 			qseecom.commonlib64_loaded = true;
 			pr_debug("cmnlib64 is loaded\n");
 		}
 	}
-	mutex_unlock(&cmnlib_access_lock);
 
 	if (qseecom.support_bus_scaling) {
 		mutex_lock(&qsee_bw_mutex);
