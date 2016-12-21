@@ -162,9 +162,3 @@ config POWER_RESET_SYSCON
 
 endif
 
-config HTC_HANG_DETECT_RESTART
-	bool "Framework hanging restart"
-	depends on POWER_RESET_MSM && HTC_DEBUG
-	help
-	  This feature adjusts reset reason to make device boot
-	  to ramdump mode when framework hanging is detected.

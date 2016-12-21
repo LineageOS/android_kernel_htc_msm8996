@@ -305,10 +305,6 @@ static enum pon_power_off_type htc_restart_cmd_to_type(const char* cmd)
                 {"oem-97", PON_POWER_OFF_WARM_RESET},
                 {"oem-98", PON_POWER_OFF_WARM_RESET},
                 {"oem-99", PON_POWER_OFF_WARM_RESET},
-#ifdef CONFIG_HTC_HANG_DETECT_RESTART
-		{"oem-aa", PON_POWER_OFF_WARM_RESET},
-		{"oem-ab", PON_POWER_OFF_WARM_RESET},
-#endif
         };
 
         if (in_panic)
@@ -391,13 +387,6 @@ static void msm_restart_prepare(char mode, const char *cmd)
 		} else if (!strncmp(cmd, "oem-", 4)) {
 			unsigned long code;
 			code = simple_strtoul(cmd + 4, NULL, 16) & 0xff;
-#ifdef CONFIG_HTC_HANG_DETECT_RESTART
-			if (code == 0xaa) {
-				set_restart_to_oem(code, "framework hanging detected");
-			} else if (code == 0xab)
-				set_restart_to_oem(code, "framework hanging detected, dumpstate failed");
-			else
-#endif
 				set_restart_to_oem(code, NULL);
 		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
