@@ -541,6 +541,14 @@ config UID_CPUTIME
 	help
 	  Per UID based cpu time statistics exported to /proc/uid_cputime
 
+#HTC_AUD_START
+config RT_REGMAP
+	bool "Richtek regmap"
+	default n
+	help
+	  Say Y to enable Richtek regmap"
+#HTC_AUD_END
+
 config USB_EXT_TYPE_C_PERICOM
 	tristate "USB Type-C charger detection support using Pericom chip"
 	depends on I2C && POWER_SUPPLY
@@ -581,6 +589,20 @@ config QPNP_MISC
 	  and the driver provides an API to check if this interrupt
 	  is available on the current PMIC chip.
 
+config VIB_TRIGGERS
+    boolean "Vibrator trigger interface support"
+    default n
+    help
+      This option enables trigger support for the vibrator function.
+      These triggers allow kernel events to drive the vibrator. If
+      unsure, say N.
+
+config HTC_FLASHLIGHT
+    boolean "HTC Flashlight API"
+    default n
+    help
+      This option enables support for the htc_flahlight function.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -595,4 +617,5 @@ source "drivers/misc/mic/Kconfig"
 source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
+source "drivers/misc/fpr_FingerprintCard/Kconfig"
 endmenu

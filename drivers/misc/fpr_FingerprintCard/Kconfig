@@ -1,0 +1,26 @@
+#
+# TI's shared transport line discipline and the protocol
+# drivers (BT, FM and GPS)
+#
+menu "FingerprintCard fingerprint SPI driver"
+config FPR_FPC
+       default n
+       tristate "FPC_BTP fingerprint sensor support"
+       depends on SPI_MASTER
+
+config FPC_HTC_DISABLE_CHARGING
+       tristate "HTC FPC disable charging while capturing image during enroll/verify"
+       depends on FPR_FPC
+       default n
+
+config FPC_HTC_RECORD_IRQ_COUNT
+       tristate "HTC record IRQ count to check if interrupt works properly"
+       depends on FPR_FPC
+       default y
+
+config FPC_HTC_ADD_INPUT_DEVICE
+       tristate "HTC add input_dev to implement home key"
+       depends on FPR_FPC
+       default y
+
+endmenu
