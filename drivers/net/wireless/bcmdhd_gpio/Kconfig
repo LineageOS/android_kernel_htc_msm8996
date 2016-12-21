@@ -1,0 +1,3 @@
+config BCMDHD_GPIO
+	bool "Enable HTC GPIO settins"
+	depends on BCMDHD

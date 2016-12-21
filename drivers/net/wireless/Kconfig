@@ -345,4 +345,8 @@ source "drivers/net/wireless/cw1200/Kconfig"
 source "drivers/net/wireless/rsi/Kconfig"
 source "drivers/net/wireless/cnss/Kconfig"
 
+# HTC WLAN
+source "drivers/net/wireless/bcmdhd_4359/Kconfig"
+source "drivers/net/wireless/bcmdhd_gpio/Kconfig"
+
 endif # WLAN
