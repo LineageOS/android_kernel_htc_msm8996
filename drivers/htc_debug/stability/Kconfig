@@ -24,11 +24,6 @@ config HTC_NC_GPIO_PIN_SETTING
 	help
 	  Say Y here if you want the HTC style nc pin setting features
 
-config HTC_DEBUG_SAVE_BOOT_MSG
-	default n
-	depends on HTC_DEBUG
-	bool "HTC debug: saving kernel log of booting to memory"
-
 config HTC_DEBUG_VMALLOC_DUMP
 	bool "HTC style vmalloc fail debug features"
 	depends on HTC_DEBUG
