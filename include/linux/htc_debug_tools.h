@@ -14,11 +14,6 @@
 
 #include <linux/types.h>
 
-#if defined(CONFIG_HTC_DEBUG_WORKQUEUE)
-/* exported from kernel/workqueue.c */
-void workqueue_show_pending_work(void);
-#endif /* CONFIG_HTC_DEBUG_WORKQUEUE */
-
 /* n.b.:
  * 1. sched_clock is not irq safe
  * 2. 32 bit: overflows every 4,294,967,296 msecs

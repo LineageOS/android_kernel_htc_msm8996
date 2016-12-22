@@ -57,13 +57,6 @@ config SLUB_LIGHT_WEIGHT_DEBUG_ON
 	  Light weight memory corruption debugging for slub. Only
 	  SLAB_DEBUG_FREE was choosen.
 
-config HTC_DEBUG_WORKQUEUE
-	bool "HTC style workqueue debug features"
-	depends on HTC_DEBUG
-	default n
-	help
-	  Say Y here if you want the HTC style workqueue debug features
-
 config HTC_DEBUG_BOOTLOADER_LOG
 	bool "HTC style ram console debug features"
 	default n
