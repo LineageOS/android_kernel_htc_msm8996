@@ -583,32 +583,6 @@ power_attr(pm_freeze_timeout);
 
 #endif	/* CONFIG_FREEZER*/
 
-#ifdef CONFIG_HTC_PNPMGR
-int powersave_enabled = 0;
-static ssize_t
-powersave_show(struct kobject *kobj, struct kobj_attribute *attr,
-                char *buf)
-{
-	return sprintf(buf, "%d\n", powersave_enabled);
-}
-
-static ssize_t
-powersave_store(struct kobject *kobj, struct kobj_attribute *attr,
-                const char *buf, size_t n)
-{
-	unsigned long val;
-
-	if (kstrtoul(buf, 10, &val))
-		return -EINVAL;
-
-	printk(KERN_INFO "Change powersave attr from %d to %ld\n", powersave_enabled, val);
-	powersave_enabled = val;
-	sysfs_notify(kobj, NULL, "powersave");
-	return n;
-}
-power_attr(powersave);
-#endif
-
 static char ktop_buf[1024];
 static ssize_t
 ktop_accu_show(struct kobject *kobj, struct kobj_attribute *attr,
@@ -685,9 +659,6 @@ static struct attribute * g[] = {
 #endif
 #ifdef CONFIG_FREEZER
 	&pm_freeze_timeout_attr.attr,
-#endif
-#ifdef CONFIG_HTC_PNPMGR
-	&powersave_attr.attr,
 #endif
 	&thermal_monitor_attr.attr,
 	&ktop_accu_attr.attr,
