@@ -100,6 +100,10 @@ static void setup_shared_ram_perms(u32 client_id, phys_addr_t addr, u32 size)
 	}
 }
 
+#if 1 //+Modem_BSP: for smlog via sharedmem driver
+extern bool is_smlog_enabled(void);
+#endif //-Modem_BSP
+
 static int msm_sharedmem_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -142,6 +146,14 @@ static int msm_sharedmem_probe(struct platform_device *pdev)
 		pr_err("Shared memory size is zero\n");
 		return -EINVAL;
 	}
+
+        #if 1 //+Modem_BSP: for smlog via sharedmem driver
+        if (!strncmp(clnt_res->name, "rmtfs", 5) && is_smlog_enabled()){
+                //addr need to align htc_smlog_mem in arch/arm/boot/dts/qcom/msmxxxx-htc-commoon.dtsi
+                shared_mem_size = 0x1400000;
+	        shared_mem_pyhsical = 0x84000000;	  
+        }
+        #endif //-Modem_BSP
 
 	if (shared_mem_pyhsical == 0) {
 		is_addr_dynamic = true;
