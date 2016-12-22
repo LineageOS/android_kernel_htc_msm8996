@@ -5114,13 +5114,99 @@ static void cpr3_regulator_debugfs_vreg_add(struct cpr3_regulator *vreg,
 					  &vreg->current_corner);
 }
 
-/**
- * cpr3_regulator_debugfs_thread_add() - add debugfs files to expose
- *		configuration data for the CPR thread
- * @thread:		Pointer to the CPR3 thread
- *
- * Return: none
- */
+static int cpr3_debug_info_open(struct inode *inode, struct file *file)
+{
+	file->private_data = inode->i_private;
+
+	return 0;
+}
+
+#define MSM8996_HMSS_FUSE_CORNERS	5
+
+struct cpr3_msm8996_hmss_fuses {
+	u64	ro_sel[MSM8996_HMSS_FUSE_CORNERS];
+	u64	init_voltage[MSM8996_HMSS_FUSE_CORNERS];
+	u64	target_quot[MSM8996_HMSS_FUSE_CORNERS];
+	u64	quot_offset[MSM8996_HMSS_FUSE_CORNERS];
+	u64	speed_bin;
+	u64	cpr_fusing_rev;
+	u64	redundant_fusing;
+	u64	limitation;
+};
+
+enum cpr3_msm8996_hmss_fuse_corner {
+	CPR3_MSM8996_HMSS_FUSE_CORNER_MINSVS	= 0,
+	CPR3_MSM8996_HMSS_FUSE_CORNER_LOWSVS	= 1,
+	CPR3_MSM8996_HMSS_FUSE_CORNER_SVS	= 2,
+	CPR3_MSM8996_HMSS_FUSE_CORNER_NOM	= 3,
+	CPR3_MSM8996_HMSS_FUSE_CORNER_TURBO	= 4,
+};
+
+static const char * const cpr3_msm8996_hmss_fuse_corner_name[] = {
+	[CPR3_MSM8996_HMSS_FUSE_CORNER_MINSVS]	= "MinSVS",
+	[CPR3_MSM8996_HMSS_FUSE_CORNER_LOWSVS]	= "LowSVS",
+	[CPR3_MSM8996_HMSS_FUSE_CORNER_SVS]	= "SVS",
+	[CPR3_MSM8996_HMSS_FUSE_CORNER_NOM]	= "NOM",
+	[CPR3_MSM8996_HMSS_FUSE_CORNER_TURBO]	= "TURBO",
+};
+
+static ssize_t cpr3_debug_info_read(struct file *file, char __user *buff,
+				size_t count, loff_t *ppos)
+{
+	struct cpr3_thread *thread = file->private_data;
+	struct cpr3_regulator *vreg;
+	struct cpr3_corner *corner;
+	struct cpr3_msm8996_hmss_fuses *fuse;
+	char *debugfs_buf;
+	ssize_t len, ret = 0;
+	int i, ro_sel;
+	u32 *quot;
+
+	vreg = thread->vreg;
+	fuse = vreg->platform_fuses;
+	debugfs_buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!debugfs_buf)
+		return -ENOMEM;
+
+	len = snprintf(debugfs_buf + ret, PAGE_SIZE - ret,
+			"Corner: Frequency (Hz), Fuse Corner, Quots, Floor (uV), Open-Loop (uV), Last (uV), Ceiling (uV)\n");
+	ret += len;
+
+	mutex_lock(&thread->ctrl->lock);
+	for (i = 0; i < vreg->corner_count; i++) {
+		corner = &vreg->corner[i];
+		quot = corner->target_quot;
+		ro_sel = fuse->ro_sel[corner->cpr_fuse_corner];
+		len = snprintf(debugfs_buf + ret, PAGE_SIZE - ret,
+				"%3d: %10u, %2d, %u, %7d, %7d, %7d, %7d\n",
+				i, corner->proc_freq, corner->cpr_fuse_corner, quot[ro_sel],
+				corner->floor_volt, corner->open_loop_volt,
+				corner->last_volt, corner->ceiling_volt);
+		ret += len;
+	}
+	mutex_unlock(&thread->ctrl->lock);
+
+	len = snprintf(debugfs_buf + ret, PAGE_SIZE - ret,
+			"\ncorner_name, quot\n");
+	ret += len;
+
+	for (i = 0; i < MSM8996_HMSS_FUSE_CORNERS; i++) {
+		len = snprintf(debugfs_buf + ret, PAGE_SIZE - ret,
+			"%3d: %6s, %4llu\n", i, cpr3_msm8996_hmss_fuse_corner_name[i],
+			fuse->target_quot[i]);
+		ret += len;
+	}
+
+	ret = simple_read_from_buffer(buff, count, ppos, debugfs_buf, ret);
+	kfree(debugfs_buf);
+	return ret;
+}
+
+static const struct file_operations cpr3_debug_info_fops = {
+	.open = cpr3_debug_info_open,
+	.read = cpr3_debug_info_read,
+};
+
 static void cpr3_regulator_debugfs_thread_add(struct cpr3_thread *thread)
 {
 	struct cpr3_controller *ctrl = thread->ctrl;
@@ -5174,6 +5260,13 @@ static void cpr3_regulator_debugfs_thread_add(struct cpr3_thread *thread)
 	if (IS_ERR_OR_NULL(temp)) {
 		cpr3_err(ctrl, "thread %u aggr last_volt debugfs file creation failed\n",
 			thread->thread_id);
+		return;
+	}
+
+	temp = debugfs_create_file("cpr3_debug_info", S_IRUGO, thread_dir,
+			thread, &cpr3_debug_info_fops);
+	if (IS_ERR_OR_NULL(temp)) {
+		cpr3_err(ctrl, "cpr_debug_info debugfs file creation failed\n");
 		return;
 	}
 
