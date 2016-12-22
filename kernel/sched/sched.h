@@ -76,8 +76,6 @@ extern void update_cpu_load_active(struct rq *this_rq);
 #define NICE_0_LOAD		SCHED_LOAD_SCALE
 #define NICE_0_SHIFT		SCHED_LOAD_SHIFT
 
-#define SCHED_LOAD_WINDOW_SIZE  10
-
 /*
  * Single value that decides SCHED_DEADLINE internal math precision.
  * 10 -> just above 1us
@@ -720,13 +718,6 @@ struct rq {
 	unsigned int static_cpu_pwr_cost;
 	struct task_struct *ed_task;
 	struct cpu_cycle cc;
-
-	u64 load_history[SCHED_LOAD_WINDOW_SIZE];
-	int load_avg;
-	int budget;
-	int load_history_index;
-	u64 load_last_update_timestamp;
-
 
 #ifdef CONFIG_SCHED_FREQ_INPUT
 	u64 old_busy_time, old_busy_time_group;
