@@ -26,12 +26,15 @@
 #include <linux/iommu.h>
 #include <linux/seq_file.h>
 
-enum ion_heap_mem_usage {
-	ION_IN_USE = 0U,
-	ION_TOTAL = 1U,
-	ION_USAGE_MAX,
-};
-
+/**
+ * struct mem_map_data - represents information about the memory map for a heap
+ * @node:		list node used to store in the list of mem_map_data
+ * @addr:		start address of memory region.
+ * @addr:		end address of memory region.
+ * @size:		size of memory region
+ * @client_name:		name of the client who owns this buffer.
+ *
+ */
 struct mem_map_data {
 	struct list_head node;
 	ion_phys_addr_t addr;
@@ -130,12 +133,15 @@ int ion_system_secure_heap_unassign_sg(struct sg_table *sgt, int source_vmid);
 int ion_system_secure_heap_assign_sg(struct sg_table *sgt, int dest_vmid);
 
 
-void ion_alloc_inc_usage(const enum ion_heap_mem_usage usage,
-			 const size_t size);
-
-void ion_alloc_dec_usage(const enum ion_heap_mem_usage usage,
-			 const size_t size);
-
+/**
+ * ion_create_chunked_sg_table - helper function to create sg table
+ * with specified chunk size
+ * @buffer_base:	The starting address used for the sg dma address
+ * @chunk_size:		The size of each entry in the sg table
+ * @total_size:		The total size of the sg table (i.e. the sum of the
+ *			entries). This will be rounded up to the nearest
+ *			multiple of `chunk_size'
+ */
 struct sg_table *ion_create_chunked_sg_table(phys_addr_t buffer_base,
 					size_t chunk_size, size_t total_size);
 

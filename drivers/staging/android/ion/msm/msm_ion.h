@@ -157,7 +157,6 @@ int ion_handle_get_size(struct ion_client *client, struct ion_handle *handle,
 int msm_ion_do_cache_op(struct ion_client *client, struct ion_handle *handle,
 			void *vaddr, unsigned long len, unsigned int cmd);
 
-uintptr_t msm_ion_heap_meminfo(const bool is_total);
 #else
 static inline struct ion_client *msm_ion_client_create(const char *name)
 {
@@ -177,10 +176,6 @@ static inline int msm_ion_do_cache_op(struct ion_client *client,
 	return -ENODEV;
 }
 
-static inline uintptr_t msm_ion_heap_meminfo(const bool is_total)
-{
-	return 0;
-}
-#endif 
+#endif /* CONFIG_ION */
 
 #endif
