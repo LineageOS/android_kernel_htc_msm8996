@@ -17,15 +17,8 @@
 #include <linux/list.h>
 #include <linux/rbtree.h>
 #include <linux/slab.h>
-#include <linux/syscalls.h>
-#include <linux/suspend.h>
 
 #include "power.h"
-
-static int suspend_sys_sync_count;
-static DEFINE_SPINLOCK(suspend_sys_sync_lock);
-static struct workqueue_struct *suspend_sys_sync_work_queue;
-static DECLARE_COMPLETION(suspend_sys_sync_comp);
 
 static DEFINE_MUTEX(wakelocks_lock);
 
@@ -37,25 +30,6 @@ struct wakelock {
 	struct list_head	lru;
 #endif
 };
-
-static int __init sys_sync_queue_init(void)
-{
-	int ret = 0;
-
-	init_completion(&suspend_sys_sync_comp);
-	suspend_sys_sync_work_queue =
-		create_singlethread_workqueue("suspend_sys_sync");
-	if (suspend_sys_sync_work_queue == NULL) {
-		ret = -ENOMEM;
-	}
-
-	return ret;
-}
-
-static void  __exit sys_sync_queue_exit(void)
-{
-	destroy_workqueue(suspend_sys_sync_work_queue);
-}
 
 static struct rb_root wakelocks_tree = RB_ROOT;
 
@@ -292,65 +266,3 @@ int pm_wake_unlock(const char *buf)
 	mutex_unlock(&wakelocks_lock);
 	return ret;
 }
-
-static void suspend_sys_sync(struct work_struct *work)
-{
-	pr_info("PM: Syncing filesystems...\n");
-
-	sys_sync();
-
-	pr_info("sync done.\n");
-
-	spin_lock(&suspend_sys_sync_lock);
-	suspend_sys_sync_count--;
-	spin_unlock(&suspend_sys_sync_lock);
-}
-static DECLARE_WORK(suspend_sys_sync_work, suspend_sys_sync);
-
-void suspend_sys_sync_queue(void)
-{
-	int ret;
-
-	spin_lock(&suspend_sys_sync_lock);
-	ret = queue_work(suspend_sys_sync_work_queue, &suspend_sys_sync_work);
-	if (ret)
-		suspend_sys_sync_count++;
-	spin_unlock(&suspend_sys_sync_lock);
-}
-
-static bool suspend_sys_sync_abort;
-static void suspend_sys_sync_handler(unsigned long);
-static DEFINE_TIMER(suspend_sys_sync_timer, suspend_sys_sync_handler, 0, 0);
-#define SUSPEND_SYS_SYNC_TIMEOUT (HZ/4)
-static void suspend_sys_sync_handler(unsigned long arg)
-{
-	if (suspend_sys_sync_count == 0) {
-		complete(&suspend_sys_sync_comp);
-	} else if (pm_wakeup_pending()) {
-		suspend_sys_sync_abort = true;
-		complete(&suspend_sys_sync_comp);
-	} else {
-		mod_timer(&suspend_sys_sync_timer, jiffies +
-						SUSPEND_SYS_SYNC_TIMEOUT);
-	}
-}
-
-int suspend_sys_sync_wait(void)
-{
-	suspend_sys_sync_abort = false;
-
-	if (suspend_sys_sync_count != 0) {
-		mod_timer(&suspend_sys_sync_timer, jiffies +
-				SUSPEND_SYS_SYNC_TIMEOUT);
-		wait_for_completion(&suspend_sys_sync_comp);
-	}
-	if (suspend_sys_sync_abort) {
-		pr_info("suspend aborted....while waiting for sys_sync\n");
-		return -EAGAIN;
-	}
-
-	return 0;
-}
-
-core_initcall(sys_sync_queue_init);
-module_exit(sys_sync_queue_exit);
