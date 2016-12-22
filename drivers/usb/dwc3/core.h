@@ -991,9 +991,6 @@ struct dwc3 {
 	struct work_struct disable_work;
 	void	(*notify_usb_disabled)(void);
 	
-	
-	int		max_speed_backup;
-	
 	void			*dwc_ipc_log_ctxt;
 };
 
