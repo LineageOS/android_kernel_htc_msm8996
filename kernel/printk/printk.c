@@ -231,15 +231,11 @@ struct printk_log {
 #if defined(CONFIG_LOG_BUF_MAGIC)
 	u32 magic;		/* handle for ramdump analysis tools */
 #endif
-	unsigned int cpu;
-	pid_t pid;
 }
 #ifdef CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS
 __packed __aligned(4)
 #endif
 ;
-
-struct printk_log *last_msg = NULL;
 
 static DEFINE_RAW_SPINLOCK(logbuf_lock);
 
@@ -477,9 +473,6 @@ static int log_store(int facility, int level,
 	/* insert message */
 	log_next_idx += msg->len;
 	log_next_seq++;
-
-	
-	last_msg = msg;
 
 	return msg->text_len;
 }
@@ -1034,43 +1027,6 @@ static size_t print_time(u64 ts, char *buf)
 		       (unsigned long)ts, rem_nsec / 1000);
 }
 
-static bool printk_cpu = IS_ENABLED(CONFIG_PRINTK_CPU_ID);
-module_param_named(cpu, printk_cpu, bool, S_IRUGO | S_IWUSR);
-
-static bool printk_pid = IS_ENABLED(CONFIG_PRINTK_PID);
-module_param_named(pid, printk_pid, bool, S_IRUGO | S_IWUSR);
-
-static size_t print_cpu(unsigned int cpu, char *buf)
-{
-	if (!printk_cpu)
-		return 0;
-
-	if (!buf)
-		return snprintf(NULL, 0, "c%u ", cpu);
-
-	return sprintf(buf, "c%u ", cpu);
-}
-
-static size_t print_pid(pid_t pid, char *buf)
-{
-	if (!printk_pid)
-		return 0;
-
-	if (!buf)
-		return snprintf(NULL, 0, "%6u ", pid);
-
-	return sprintf(buf, "%6u ", pid);
-}
-
-static void update_msg_ext(unsigned int cpu, pid_t pid)
-{
-	if (!last_msg)
-		return;
-
-	last_msg->cpu = cpu;
-	last_msg->pid = pid;
-}
-
 static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 {
 	size_t len = 0;
@@ -1091,9 +1047,6 @@ static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 	}
 
 	len += print_time(msg->ts_nsec, buf ? buf + len : NULL);
-	len += print_cpu(msg->cpu, buf ? buf + len : NULL);
-	len += print_pid(msg->pid, buf ? buf + len : NULL);
-
 	return len;
 }
 
@@ -1637,8 +1590,6 @@ static struct cont {
 	u8 facility;			
 	enum log_flags flags;		
 	bool flushed:1;			
-	unsigned int cpu;
-	pid_t pid;
 } cont;
 
 static void cont_flush(enum log_flags flags)
@@ -1658,7 +1609,6 @@ static void cont_flush(enum log_flags flags)
 			  cont.ts_nsec, NULL, 0, cont.buf, cont.len);
 		cont.flags = flags;
 		cont.flushed = true;
-		update_msg_ext(cont.cpu, cont.pid);
 	} else {
 		/*
 		 * If no fragment of this line ever reached the console,
@@ -1666,7 +1616,6 @@ static void cont_flush(enum log_flags flags)
 		 */
 		log_store(cont.facility, cont.level, flags, 0,
 			  NULL, 0, cont.buf, cont.len);
-		update_msg_ext(cont.cpu, cont.pid);
 		cont.len = 0;
 	}
 }
@@ -1690,8 +1639,6 @@ static bool cont_add(int facility, int level, const char *text, size_t len)
 		cont.flags = 0;
 		cont.cons = 0;
 		cont.flushed = false;
-		cont.cpu = smp_processor_id();
-		cont.pid = current->pid;
 	}
 
 	memcpy(cont.buf + cont.len, text, len);
@@ -1791,7 +1738,6 @@ asmlinkage int vprintk_emit(int facility, int level,
 		printed_len += log_store(0, 2, LOG_PREFIX|LOG_NEWLINE, 0,
 					 NULL, 0, recursion_msg,
 					 strlen(recursion_msg));
-		update_msg_ext(logbuf_cpu, current->pid);
 	}
 
 	/*
@@ -1854,7 +1800,6 @@ asmlinkage int vprintk_emit(int facility, int level,
 			printed_len += log_store(facility, level,
 						 lflags | LOG_CONT, 0,
 						 dict, dictlen, text, text_len);
-			update_msg_ext(logbuf_cpu, current->pid);
 		}
 	} else {
 		bool stored = false;
@@ -1879,7 +1824,6 @@ asmlinkage int vprintk_emit(int facility, int level,
 		} else {
 			printed_len += log_store(facility, level, lflags, 0,
 						 dict, dictlen, text, text_len);
-			update_msg_ext(logbuf_cpu, current->pid);
 		}
 	}
 
