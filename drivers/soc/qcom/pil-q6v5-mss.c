@@ -40,22 +40,6 @@
 #include "pil-q6v5.h"
 #include "pil-msa.h"
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-#include <linux/rtc.h>
-extern struct timezone sys_tz;
-static void PIL_Show_Time(void)
-{
-	struct timespec ts_rtc;
-	struct rtc_time tm;
-
-	
-	getnstimeofday(&ts_rtc);
-	rtc_time_to_tm(ts_rtc.tv_sec - (sys_tz.tz_minuteswest * 60), &tm);
-
-	pr_err("%s[%d]: %d-%02d-%02d %02d:%02d:%02d\n", __func__, __LINE__,
-        tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-}
-#endif
 #define MAX_VDD_MSS_UV		1150000
 #define PROXY_TIMEOUT_MS	10000
 #define MAX_SSR_REASON_LEN	81U
@@ -67,11 +51,7 @@ static void PIL_Show_Time(void)
 static int htc_skip_ramdump=false;
 #endif
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-static void log_modem_sfr(struct subsys_device *dev)
-#else
 static void log_modem_sfr(void)
-#endif
 {
 	u32 size;
 	char *smem_reason, reason[MAX_SSR_REASON_LEN];
@@ -91,45 +71,13 @@ static void log_modem_sfr(void)
 
 	pr_err("modem subsystem failure reason: %s.\n", reason);
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-
-       
-	PIL_Show_Time();
-       
-
-#if defined(CONFIG_HTC_FEATURES_SSR) 
-       if (get_radio_flag() & BIT(3)) 
-       {
-         if (strstr(reason, "[htc_disable_ssr]") || strstr(reason, "SFR Init: wdog or kernel error suspected") )
-         {
-           subsys_set_restart_level(dev, RESET_SOC);
-           subsys_set_enable_ramdump(dev, DISABLE_RAMDUMP);
-           pr_info("%s: [pil] Modem request full dump.\n", __func__);
-         }
-         else if (strstr(reason, "[htc_skip_ramdump]"))
-         {
-           htc_skip_ramdump=true;
-           subsys_set_restart_level(dev, RESET_SUBSYS_COUPLED);
-           subsys_set_enable_ramdump(dev, DISABLE_RAMDUMP);
-           pr_info("%s: [pil] Modem request skip ramdump.\n", __func__);
-         }
-	}
-#endif 
-
-	subsys_set_restart_reason(dev, reason);
-#endif
-
 	smem_reason[0] = '\0';
 	wmb();
 }
 
 static void restart_modem(struct modem_data *drv)
 {
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	log_modem_sfr(drv->subsys);
-#else
 	log_modem_sfr();
-#endif
 	drv->ignore_errors = true;
 	subsystem_restart_dev(drv->subsys);
 }
@@ -272,9 +220,6 @@ static irqreturn_t modem_wdog_bite_intr_handler(int irq, void *dev_id)
 		return IRQ_HANDLED;
 
 	pr_err("Watchdog bite received from modem software!\n");
-#if defined(CONFIG_HTC_DEBUG_SSR)
-	subsys_set_restart_reason(drv->subsys, "Watchdog bite received from modem software!");
-#endif
 	if (drv->subsys_desc.system_debug &&
 			!gpio_get_value(drv->subsys_desc.err_fatal_gpio))
 		panic("%s: System ramdump requested. Triggering device restart!\n",

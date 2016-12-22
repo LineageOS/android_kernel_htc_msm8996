@@ -121,10 +121,6 @@ extern bool htc_check_modem_crash_status ( void );
 
 #if defined(CONFIG_MSM_SUBSYSTEM_RESTART)
 
-#if defined(CONFIG_HTC_DEBUG_SSR)
-void subsys_set_restart_reason(struct subsys_device *dev, const char *reason);
-#endif 
-
 #if defined(CONFIG_HTC_FEATURES_SSR)
 extern void subsys_set_enable_ramdump(struct subsys_device *dev, int enable);
 extern void subsys_set_restart_level(struct subsys_device *dev, int level);
@@ -167,13 +163,6 @@ void notify_proxy_unvote(struct device *device);
 void complete_err_ready(struct subsys_device *subsys);
 extern int wait_for_shutdown_ack(struct subsys_desc *desc);
 #else
-
-#if defined(CONFIG_HTC_DEBUG_SSR)
-static inline void subsys_set_restart_reason(struct subsys_device *dev, const char *reason)
-{
-	return;
-}
-#endif 
 
 static inline int subsys_get_restart_level(struct subsys_device *dev)
 {
