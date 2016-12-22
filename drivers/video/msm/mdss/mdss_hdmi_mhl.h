@@ -24,4 +24,19 @@ struct msm_hdmi_mhl_ops {
 
 int msm_hdmi_register_mhl(struct platform_device *pdev,
 			  struct msm_hdmi_mhl_ops *ops, void *data);
-#endif /* __MDSS_HDMI_MHL_H__ */
+
+enum ds_event_type {
+	AUDIO_STATE,
+};
+
+struct msm_hdmi_sp_ops {
+	int (*set_sp_max_pclk)(struct platform_device *pdev, u32 max_val);
+	int (*set_upstream_hpd)(struct platform_device *pdev, uint8_t on);
+	int (*set_upstream_hdcp)(struct platform_device *pdev, uint8_t on);
+	int (*event_control)(int event, int val);
+};
+
+int msm_hdmi_register_sp(struct platform_device *pdev,
+			  struct msm_hdmi_sp_ops *ops);
+
+#endif 

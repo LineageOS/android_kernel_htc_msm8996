@@ -254,6 +254,8 @@ enum mdss_intf_events {
 	MDSS_EVENT_DSI_RECONFIG_CMD,
 	MDSS_EVENT_DSI_RESET_WRITE_PTR,
 	MDSS_EVENT_PANEL_TIMING_SWITCH,
+	MDSS_EVENT_PANEL_VDDIO_SWITCH_ON,
+	MDSS_EVENT_PANEL_VDDIO_SWITCH_OFF,
 	MDSS_EVENT_MAX,
 };
 
@@ -582,6 +584,17 @@ struct mdss_panel_roi_alignment {
 	u32 min_height;
 };
 
+struct htc_backlight1_table {
+	int size;
+	u16 *brt_data;
+	u16 *bl_data;
+};
+
+enum {
+	PANEL_POWER_CTRL_DEFAULT,
+	PANEL_POWER_CTRL_HX8396C2,
+};
+
 struct mdss_panel_info {
 	u32 xres;
 	u32 yres;
@@ -715,6 +728,11 @@ struct mdss_panel_info {
 
 	/* debugfs structure for the panel */
 	struct mdss_panel_debugfs_info *debugfs_info;
+
+	
+	struct htc_backlight1_table brt_bl_table;
+	int camera_blk;
+	int power_ctrl;
 };
 
 struct mdss_panel_timing {

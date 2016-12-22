@@ -29,6 +29,7 @@
 #include <linux/ioport.h>
 #include <linux/kernel.h>
 #include <linux/memory.h>
+#include <linux/minifb.h>
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -49,6 +50,7 @@
 #include <linux/kthread.h>
 #include <linux/dma-buf.h>
 #include "mdss_fb.h"
+#include "mdss_htc_util.h"
 #include "mdss_mdp_splash_logo.h"
 #define CREATE_TRACE_POINTS
 #include "mdss_debug.h"
@@ -255,6 +257,59 @@ static int mdss_fb_notify_update(struct msm_fb_data_type *mfd,
 	return ret;
 }
 
+int mdss_backlight_trans(int val, struct mdss_panel_info *panel_info, bool brightness_to_bl)
+{
+	unsigned int result;
+	int index = 0;
+	u16 *val_table;
+	u16 *ret_table;
+	struct htc_backlight1_table *brt_bl_table = &panel_info->brt_bl_table;
+	int size = brt_bl_table->size;
+
+	
+	if(!size || !brt_bl_table->brt_data || !brt_bl_table->bl_data)
+		return -ENOENT;
+
+	if (brightness_to_bl) {
+		val_table = brt_bl_table->brt_data;
+		ret_table = brt_bl_table->bl_data;
+	} else {
+		val_table = brt_bl_table->bl_data;
+		ret_table = brt_bl_table->brt_data;
+	}
+
+	if (val <= 0){
+		result = 0;
+	} else if (val < val_table[0]) {
+		
+		result = ret_table[0];
+	} else if (val >= val_table[size - 1]) {
+		
+		result = ret_table[size - 1];
+	} else {
+		
+		result = val;
+		for(index = 0; index < size - 1; index++){
+			if (val >= val_table[index] && val <= val_table[index + 1]) {
+				int x0 = val_table[index];
+				int y0 = ret_table[index];
+				int x1 = val_table[index + 1];
+				int y1 = ret_table[index + 1];
+
+				if (x0 == x1)
+					result = y0;
+				else
+					result = y0 + (y1 - y0) * (val - x0) / (x1 - x0);
+
+				break;
+			}
+		}
+	}
+
+	pr_info("mode=%d, %d => %d\n", brightness_to_bl, val, result);
+	return result;
+}
+
 static int lcd_backlight_registered;
 
 static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
@@ -271,10 +326,11 @@ static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 	if (value > mfd->panel_info->brightness_max)
 		value = mfd->panel_info->brightness_max;
 
-	/* This maps android backlight level 0 to 255 into
-	   driver backlight level 0 to bl_max with rounding */
-	MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
-				mfd->panel_info->brightness_max);
+	bl_lvl = mdss_backlight_trans(value, mfd->panel_info, true);
+	if (bl_lvl < 0) {
+		MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
+					mfd->panel_info->brightness_max);
+	}
 
 	if (!bl_lvl && value)
 		bl_lvl = 1;
@@ -1176,6 +1232,9 @@ static int mdss_fb_probe(struct platform_device *pdev)
 			pr_err("led_classdev_register failed\n");
 		else
 			lcd_backlight_registered = 1;
+
+		
+		htc_register_attrs(&backlight_led.dev->kobj, mfd);
 	}
 
 	mdss_fb_init_panel_modes(mfd, pdata);
@@ -1524,6 +1583,7 @@ void mdss_fb_set_backlight(struct msm_fb_data_type *mfd, u32 bkl_lvl)
 		|| !mfd->allow_bl_update) && !IS_CALIB_MODE_BL(mfd)) ||
 		mfd->panel_info->cont_splash_enabled) {
 		mfd->unset_bl_level = bkl_lvl;
+		pr_info("defer backlight value %d\n", bkl_lvl);
 		return;
 	} else if (mdss_fb_is_power_on(mfd) && mfd->panel_info->panel_dead) {
 		mfd->unset_bl_level = mfd->bl_level;
@@ -1557,6 +1617,8 @@ void mdss_fb_set_backlight(struct msm_fb_data_type *mfd, u32 bkl_lvl)
 			mfd->bl_level = bkl_lvl;
 			mfd->bl_level_scaled = temp;
 		}
+		
+		htc_set_burst(mfd);
 		if (ad_bl_notify_needed)
 			mdss_fb_bl_update_notify(mfd,
 				NOTIFY_TYPE_BL_AD_ATTEN_UPDATE);
@@ -1578,6 +1640,8 @@ void mdss_fb_update_backlight(struct msm_fb_data_type *mfd)
 	if (!mfd->allow_bl_update) {
 		pdata = dev_get_platdata(&mfd->pdev->dev);
 		if ((pdata) && (pdata->set_backlight)) {
+			pr_info("bl_level %d => %d\n", mfd->bl_level, mfd->unset_bl_level);
+			udelay(16666);
 			mfd->bl_level = mfd->unset_bl_level;
 			temp = mfd->bl_level;
 			if (mfd->mdp.ad_calc_bl)
@@ -1772,6 +1836,11 @@ static int mdss_fb_blank_unblank(struct msm_fb_data_type *mfd)
 
 	/* Reset the backlight only if the panel was off */
 	if (mdss_panel_is_power_off(cur_power_state)) {
+		if (!mfd->panel_info->cont_splash_enabled && mfd->panel_info->pdest == DISPLAY_1) {
+			htc_set_color_temp(mfd, 1);
+			htc_set_color_profile(mfd, 1);
+		}
+
 		mutex_lock(&mfd->bl_lock);
 		if (!mfd->allow_bl_update) {
 			mfd->allow_bl_update = true;
@@ -1824,12 +1893,7 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 
 	cur_power_state = mfd->panel_power_state;
 
-	/*
-	 * Low power (lp) and ultra low pwoer (ulp) modes are currently only
-	 * supported for command mode panels. For all other panel, treat lp
-	 * mode as full unblank and ulp mode as full blank.
-	 */
-	if (mfd->panel_info->type != MIPI_CMD_PANEL) {
+	if (mfd->panel_info->type != MIPI_CMD_PANEL || mfd->panel_info->sim_panel_mode) {
 		if (BLANK_FLAG_LP == blank_mode) {
 			pr_debug("lp mode only valid for cmd mode panels\n");
 			if (mdss_fb_is_power_on_interactive(mfd))
@@ -2486,7 +2550,12 @@ static int mdss_fb_register(struct msm_fb_data_type *mfd)
 
 	var->xres_virtual = var->xres;
 	var->yres_virtual = panel_info->yres * mfd->fb_page;
-	var->bits_per_pixel = bpp * 8;	/* FrameBuffer color depth */
+	var->bits_per_pixel = bpp * 8;	
+
+	
+	if (panel_info->camera_blk) {
+		htc_register_camera_bkl(panel_info->camera_blk);
+	}
 
 	/*
 	 * Populate smem length here for uspace to get the
@@ -3261,6 +3330,7 @@ int mdss_fb_atomic_commit(struct fb_info *info,
 	atomic_inc(&mfd->mdp_sync_pt_data.commit_cnt);
 	atomic_inc(&mfd->commits_pending);
 	atomic_inc(&mfd->kickoff_pending);
+	MDSS_XLOG(mfd->index, atomic_read(&mfd->commits_pending), atomic_read(&mfd->kickoff_pending));
 	wake_up_all(&mfd->commit_wait_q);
 	mutex_unlock(&mfd->mdp_sync_pt_data.sync_mutex);
 
@@ -3493,8 +3563,14 @@ static int __mdss_fb_perform_commit(struct msm_fb_data_type *mfd)
 	}
 
 skip_commit:
-	if (!ret)
+	if (!ret) {
+		if (mfd->panel_info->pdest == DISPLAY_1) {
+			htc_set_cabc(mfd, 0);	
+			htc_set_color_temp(mfd, 0);
+			htc_set_color_profile(mfd, 0);
+		}
 		mdss_fb_update_backlight(mfd);
+	}
 
 	if (IS_ERR_VALUE(ret) || !sync_pt_data->flushed) {
 		mdss_fb_release_kickoff(mfd);
@@ -3541,7 +3617,7 @@ static int __mdss_fb_display_thread(void *data)
 		if (kthread_should_stop())
 			break;
 
-		MDSS_XLOG(mfd->index, XLOG_FUNC_ENTRY);
+		MDSS_XLOG(mfd->index, XLOG_FUNC_ENTRY, atomic_read(&mfd->commits_pending));
 		ret = __mdss_fb_perform_commit(mfd);
 		MDSS_XLOG(mfd->index, XLOG_FUNC_EXIT);
 
@@ -4640,6 +4716,19 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 
 	case MSMFB_ASYNC_POSITION_UPDATE:
 		ret = mdss_fb_async_position_update_ioctl(info, argp);
+		break;
+
+	case MSMFB_USBFB_INIT:
+		ret = minifb_ioctl_handler(MINIFB_INIT, argp);
+		break;
+	case MSMFB_USBFB_TERMINATE:
+		ret = minifb_ioctl_handler(MINIFB_TERMINATE, argp);
+		break;
+	case MSMFB_USBFB_QUEUE_BUFFER:
+		ret = minifb_ioctl_handler(MINIFB_QUEUE_BUFFER, argp);
+		break;
+	case MSMFB_USBFB_DEQUEUE_BUFFER:
+		ret = minifb_ioctl_handler(MINIFB_DEQUEUE_BUFFER, argp);
 		break;
 
 	default:

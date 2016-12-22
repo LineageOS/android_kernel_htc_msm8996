@@ -719,8 +719,8 @@ void *mdss_dba_utils_init(struct mdss_dba_utils_init_data *uid)
 
 	/* Initialize EDID feature */
 	edid_init_data.kobj = uid->kobj;
-	edid_init_data.ds_data.ds_registered = true;
-	edid_init_data.ds_data.ds_max_clk = MSM_DBA_MAX_PCLK;
+	edid_init_data.ds_data->ds_registered = true;
+	edid_init_data.ds_data->ds_max_clk = MSM_DBA_MAX_PCLK;
 	edid_init_data.max_pclk_khz = MSM_DBA_MAX_PCLK;
 
 	/* register with edid module for parsing edid buffer */

@@ -136,6 +136,9 @@ struct hdmi_tx_ctrl {
 	char disp_switch_name[MAX_SWITCH_NAME_SIZE];
 
 	hdmi_tx_evt_handler evt_handler[MDSS_EVENT_MAX - 1];
+
+	u8 ds_hdcp;
+	int (*ds_eventctrl)(int event, int val);
 };
 
 #endif /* __MDSS_HDMI_TX_H__ */
