@@ -18,12 +18,6 @@ config HTC_DEBUG_RAMOOPS
 	  This enables panic and oops messages to be logged to a circular
 	  buffer in RAM where it can be read back at some later point.
 
-config HTC_REBOOT_BLOCK
-	bool "Store reboot reason / msg ...etc. in IMEM or storage"
-	default n
-	help
-	  Say Y here if you want the HTC Reboot Block features
-
 config HTC_DEBUG_PAGE_ENTRIES_NR
 	int
 	default 4
