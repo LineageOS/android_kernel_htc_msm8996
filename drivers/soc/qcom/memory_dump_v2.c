@@ -81,7 +81,9 @@ static struct msm_dump_table *msm_dump_get_table(enum msm_dump_table_ids id)
 		return ERR_PTR(-EINVAL);
 	}
 
+	/* Get the apps table pointer */
 	table = phys_to_virt(table->entries[i].addr);
+
 	return table;
 }
 
@@ -151,7 +153,7 @@ static int __init init_memory_dump(void)
 		ret = -ENOMEM;
 		goto err1;
 	}
-        kmemleak_not_leak(table);
+	kmemleak_not_leak(table);
 	table->version = MSM_DUMP_TABLE_VERSION;
 
 	entry.id = MSM_DUMP_TABLE_APPS;

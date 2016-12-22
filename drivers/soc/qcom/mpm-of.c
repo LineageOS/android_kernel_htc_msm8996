@@ -531,12 +531,12 @@ static bool msm_mpm_interrupts_detectable(int d, bool from_idle)
 	if (debug_mask && !ret) {
 		int i = 0;
 		i = find_first_bit(irq_bitmap, unlisted->size);
-		pr_warn("%s(): %s preventing system sleep modes during %s\n",
+		pr_info("%s(): %s preventing system sleep modes during %s\n",
 				__func__, unlisted->domain_name,
 				from_idle ? "idle" : "suspend");
 
 		while (i < unlisted->size) {
-			pr_warn("\thwirq: %d\n", i);
+			pr_info("\thwirq: %d\n", i);
 			i = find_next_bit(irq_bitmap, unlisted->size, i + 1);
 		}
 	}

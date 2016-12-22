@@ -327,8 +327,7 @@ static int service_locator_send_msg(struct pd_qmi_client_data *pd)
 	rc = 0;
 out:
 	kfree(req);
-	if(resp)
-		kfree(resp);
+	kfree(resp);
 	return rc;
 }
 

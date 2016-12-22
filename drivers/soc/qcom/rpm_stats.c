@@ -27,7 +27,6 @@
 #include <linux/uaccess.h>
 #include <asm/arch_timer.h>
 #include "rpm_stats.h"
-#include <soc/qcom/htc_util.h>
 
 #define GET_PDATA_OF_ATTR(attr) \
 	(container_of(attr, struct msm_rpmstats_kobj_attr, ka)->pd)
@@ -495,6 +494,7 @@ static int msm_rpmstats_probe(struct platform_device *pdev)
 			"qcom,sleep-stats-version", &pdata->version);
 
 	if (!ret) {
+
 		dent = debugfs_create_file("rpm_stats", S_IRUGO, NULL,
 				pdata, &msm_rpmstats_fops);
 
@@ -504,6 +504,7 @@ static int msm_rpmstats_probe(struct platform_device *pdev)
 			kfree(pdata);
 			return -ENOMEM;
 		}
+
 	} else {
 		kfree(pdata);
 		return -EINVAL;
@@ -523,7 +524,9 @@ static int msm_rpmstats_probe(struct platform_device *pdev)
 		}
 		pdata->heap_phys_addrbase = res->start;
 	}
+
 	msm_rpmstats_create_sysfs(pdata);
+
 	platform_set_drvdata(pdev, dent);
 	return 0;
 }

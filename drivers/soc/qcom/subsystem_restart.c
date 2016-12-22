@@ -96,6 +96,17 @@ static const char * const restart_levels[] = {
 	[RESET_SUBSYS_COUPLED] = "RELATED",
 };
 
+/**
+ * struct subsys_tracking - track state of a subsystem or restart order
+ * @p_state: private state of subsystem/order
+ * @state: public state of subsystem/order
+ * @s_lock: protects p_state
+ * @lock: protects subsystem/order callbacks and state
+ *
+ * Tracks the state of a subsystem or a set of subsystems (restart order).
+ * Doing this avoids the need to grab each subsystem's lock and update
+ * each subsystems state when restarting an order.
+ */
 struct subsys_tracking {
 	enum p_subsys_state p_state;
 	spinlock_t s_lock;

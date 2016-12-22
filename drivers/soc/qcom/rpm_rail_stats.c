@@ -242,8 +242,8 @@ static int msm_rpm_rail_stats_probe(struct platform_device *pdev)
 
 	phys_ptr = ioremap_nocache(offset->start, SZ_4);
 	if (!phys_ptr) {
-		pr_err("%s: Failed to ioremap address: %llx\n",
-				__func__, offset->start);
+		pr_err("%s: Failed to ioremap address: %x\n",
+				__func__, offset_addr);
 		return -ENODEV;
 	}
 	offset_addr = readl_relaxed(phys_ptr);

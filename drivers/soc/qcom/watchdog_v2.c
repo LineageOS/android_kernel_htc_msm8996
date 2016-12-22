@@ -333,7 +333,6 @@ static __ref int watchdog_kthread(void *arg)
 		 * Could have been changed on other cpu */
 		mod_timer(&wdog_dd->pet_timer, jiffies + delay_time);
 	}
-
 	return 0;
 }
 
@@ -680,7 +679,6 @@ static int msm_wdog_dt_to_pdata(struct platform_device *pdev,
 
 	pdata->irq_ppi = irq_is_percpu(pdata->bark_irq);
 	dump_pdata(pdata);
-
 	return 0;
 }
 
