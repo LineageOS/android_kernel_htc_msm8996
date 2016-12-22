@@ -83,13 +83,6 @@ config HTC_DEBUG_VMALLOC_DUMP
 	  This option enables the dump for vmalloc info when vmalloc failed.
 	  The same information could also be get under /proc/vmallocinfo
 
-config HTC_DEBUG_DYING_PROCS
-	bool "HTC debug feature for recording dying processes"
-	default n
-	help
-	  This option enables the recording of latest 10 killed processes in
-	  /proc/dying_processes
-
 config HTC_PROCESS_DEBUG
 	bool "process/thread debug support"
 	default n

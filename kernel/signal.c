@@ -1159,59 +1159,6 @@ ret:
 	return ret;
 }
 
-#if defined(CONFIG_HTC_DEBUG_DYING_PROCS)
-#include <linux/proc_fs.h>
-#include <linux/seq_file.h>
-#define MAX_DYING_PROC_COUNT (10)
-struct dying_pid {
-	pid_t pid;
-	unsigned long jiffy;
-};
-static DEFINE_SPINLOCK(dying_pid_lock);
-static int sigkill_pending(struct task_struct *tsk);
-static struct dying_pid dying_pid_buf[MAX_DYING_PROC_COUNT];
-static unsigned int dying_pid_buf_idx;
-
-static int proc_dying_processors_show(struct seq_file *m, void *v)
-{
-	unsigned long jiffy = jiffies;
-	unsigned long flags;
-	int i;
-
-	spin_lock_irqsave(&dying_pid_lock, flags);
-	for (i = 0; i < MAX_DYING_PROC_COUNT; i++)
-		if (dying_pid_buf[i].pid) {
-			seq_printf(m, "%ld:%ld\n",
-					(long int) dying_pid_buf[i].pid,
-					jiffy - dying_pid_buf[i].jiffy);
-		}
-	spin_unlock_irqrestore(&dying_pid_lock, flags);
-
-	return 0;
-}
-
-static int proc_dying_processors_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, proc_dying_processors_show, PDE_DATA(inode));
-}
-
-static const struct file_operations proc_dying_processors_fops = {
-	.open           = proc_dying_processors_open,
-	.read           = seq_read,
-	.llseek         = seq_lseek,
-	.release        = single_release,
-};
-
-static int __init dying_processors_init(void)
-{
-	memset(dying_pid_buf, 0, sizeof(dying_pid_buf));
-	proc_create_data("dying_processes", 0, NULL,
-			&proc_dying_processors_fops, NULL);
-	return 0;
-}
-module_init(dying_processors_init);
-#endif
-
 static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			int group)
 {
@@ -1219,17 +1166,6 @@ static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 
 #ifdef CONFIG_HTC_PROCESS_DEBUG
 	send_signal_debug_dump(sig, t);
-#endif
-
-#if defined(CONFIG_HTC_DEBUG_DYING_PROCS)
-	if (sig == SIGKILL && !sigkill_pending(t)) {
-		unsigned long flags;
-		spin_lock_irqsave(&dying_pid_lock, flags);
-		dying_pid_buf_idx = ((dying_pid_buf_idx + 1) % MAX_DYING_PROC_COUNT);
-		dying_pid_buf[dying_pid_buf_idx].pid = t->pid;
-		dying_pid_buf[dying_pid_buf_idx].jiffy = jiffies;
-		spin_unlock_irqrestore(&dying_pid_lock, flags);
-	}
 #endif
 
 #ifdef CONFIG_PID_NS
