@@ -51,22 +51,22 @@ static ssize_t map_name_show(struct uio_mem *mem, char *buf)
 	if (unlikely(!mem->name))
 		mem->name = "";
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", mem->name);
+	return sprintf(buf, "%s\n", mem->name);
 }
 
 static ssize_t map_addr_show(struct uio_mem *mem, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "0x%llx\n", (unsigned long long)mem->addr);
+	return sprintf(buf, "0x%llx\n", (unsigned long long)mem->addr);
 }
 
 static ssize_t map_size_show(struct uio_mem *mem, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "0x%lx\n", mem->size);
+	return sprintf(buf, "0x%lx\n", mem->size);
 }
 
 static ssize_t map_offset_show(struct uio_mem *mem, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "0x%llx\n", (unsigned long long)mem->addr & ~PAGE_MASK);
+	return sprintf(buf, "0x%llx\n", (unsigned long long)mem->addr & ~PAGE_MASK);
 }
 
 struct map_sysfs_entry {
@@ -134,17 +134,17 @@ static ssize_t portio_name_show(struct uio_port *port, char *buf)
 	if (unlikely(!port->name))
 		port->name = "";
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", port->name);
+	return sprintf(buf, "%s\n", port->name);
 }
 
 static ssize_t portio_start_show(struct uio_port *port, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "0x%lx\n", port->start);
+	return sprintf(buf, "0x%lx\n", port->start);
 }
 
 static ssize_t portio_size_show(struct uio_port *port, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "0x%lx\n", port->size);
+	return sprintf(buf, "0x%lx\n", port->size);
 }
 
 static ssize_t portio_porttype_show(struct uio_port *port, char *buf)
@@ -154,7 +154,7 @@ static ssize_t portio_porttype_show(struct uio_port *port, char *buf)
 	if ((port->porttype < 0) || (port->porttype > UIO_PORT_OTHER))
 		return -EINVAL;
 
-	return snprintf(buf, PAGE_SIZE, "port_%s\n", porttypes[port->porttype]);
+	return sprintf(buf, "port_%s\n", porttypes[port->porttype]);
 }
 
 struct portio_sysfs_entry {
@@ -215,7 +215,7 @@ static ssize_t name_show(struct device *dev,
 			 struct device_attribute *attr, char *buf)
 {
 	struct uio_device *idev = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "%s\n", idev->info->name);
+	return sprintf(buf, "%s\n", idev->info->name);
 }
 static DEVICE_ATTR_RO(name);
 
@@ -223,7 +223,7 @@ static ssize_t version_show(struct device *dev,
 			    struct device_attribute *attr, char *buf)
 {
 	struct uio_device *idev = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "%s\n", idev->info->version);
+	return sprintf(buf, "%s\n", idev->info->version);
 }
 static DEVICE_ATTR_RO(version);
 
@@ -231,7 +231,7 @@ static ssize_t event_show(struct device *dev,
 			  struct device_attribute *attr, char *buf)
 {
 	struct uio_device *idev = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "%u\n", (unsigned int)atomic_read(&idev->event));
+	return sprintf(buf, "%u\n", (unsigned int)atomic_read(&idev->event));
 }
 static DEVICE_ATTR_RO(event);
 
