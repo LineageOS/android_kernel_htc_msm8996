@@ -54,7 +54,7 @@
 				qcom,pon-type = <0>;
 				qcom,pull-up = <1>;
 				linux,code = <116>;
-				qcom,support-reset = <1>;
+				qcom,support-reset = <0>;
 				qcom,s1-timer = <10256>;
 				qcom,s2-timer = <2000>;
 				qcom,s2-type = <1>;
@@ -63,16 +63,16 @@
 			qcom,pon_2 {
 				qcom,pon-type = <1>;
 				qcom,pull-up = <1>;
-				linux,code = <114>;
+				//linux,code = <114>;
 			};
 
 			qcom,pon_3 {
 				qcom,pon-type = <3>;
 				qcom,support-reset = <1>;
 				qcom,pull-up = <1>;
-				qcom,s1-timer = <6720>;
+				qcom,s1-timer = <10256>;
 				qcom,s2-timer = <2000>;
-				qcom,s2-type = <7>;
+				qcom,s2-type = <8>;
 				qcom,use-bark;
 			};
 		};
@@ -314,6 +314,39 @@
 				qcom,hw-settle-time = <0>;
 				qcom,fast-avg-setup = <0>;
 			};
+
+            chan@11 {
+                label = "mpp2";
+                reg = <0x11>;
+                qcom,decimation = <0>;
+                qcom,pre-div-channel-scaling = <0>;
+                qcom,calibration-type = "absolute";
+                qcom,scale-function = <0>;
+                qcom,hw-settle-time = <0>;
+                qcom,fast-avg-setup = <0>;
+            };
+
+            chan@14 {
+                    label = "mpp5";
+                    reg = <0x14>;
+                    qcom,decimation = <0>;
+                    qcom,pre-div-channel-scaling = <0>;
+                    qcom,calibration-type = "absolute";
+                    qcom,scale-function = <0>;
+                    qcom,hw-settle-time = <0>;
+                    qcom,fast-avg-setup = <0>;
+            };
+
+            chan@16 {
+                    label = "mpp7";
+                    reg = <0x16>;
+                    qcom,decimation = <0>;
+                    qcom,pre-div-channel-scaling = <0>;
+                    qcom,calibration-type = "absolute";
+                    qcom,scale-function = <0>;
+                    qcom,hw-settle-time = <0>;
+                    qcom,fast-avg-setup = <0>;
+            };
 		};
 
 		pm8994_adc_tm: vadc@3400 {

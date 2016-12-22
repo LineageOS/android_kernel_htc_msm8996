@@ -130,7 +130,11 @@
 			mpp@a100 {
 				reg = <0xa100 0x100>;
 				qcom,pin-num = <2>;
-				status = "disabled";
+				qcom,mode = <0>;        /* QPNP_PIN_MODE_DIG_IN */
+				qcom,vin-sel = <2>;     /* QPNP_PIN_VIN2 */
+				qcom,src-sel = <0>;     /* QPNP_PIN_SEL_FUNC_CONSTANT */
+				qcom,master-en = <1>;   /* Enable */
+				status = "okay";
 			};
 
 			mpp@a200 {
@@ -145,6 +149,7 @@
 				status = "disabled";
 			};
 		};
+
 
 		bcl@4200 {
 			compatible = "qcom,msm-bcl";
@@ -202,21 +207,25 @@
 			#address-cells = <1>;
 			#size-cells = <1>;
 
-			qcom,iterm-ma = <100>;
-			qcom,fastchg-current-ma = <2000>;
-			qcom,float-voltage-mv = <4350>;
-			qcom,resume-delta-mv = <200>;
+			qcom,iterm-ma = <50>;
+            qcom,high-fastchg-current-ma = <3000>;
+			qcom,fastchg-current-ma = <3000>;
+            /* CONFIG_HTC_BATT_PCN0013++ */
+			qcom,float-voltage-mv = <4400>;
+			qcom,float-voltage-comp = <0x1E>;
+            /* CONFIG_HTC_BATT_PCN0013-- */
+			qcom,charging-timeout-mins = <768>;
+			qcom,precharging-timeout-mins = <24>;
+			qcom,resume-delta-mv = <100>;
 			qcom,chg-inhibit-fg;
 			qcom,dc-psy-type = "Mains";
 			qcom,dc-psy-ma = <1500>;
 			qcom,rparasitic-uohm = <100000>;
 			qcom,bms-psy-name = "bms";
 			qcom,thermal-mitigation = <1500 700 600 0>;
-			qcom,parallel-usb-min-current-ma = <1400>;
-			qcom,parallel-usb-9v-min-current-ma = <900>;
-			qcom,parallel-allowed-lowering-ma = <500>;
 			qcom,autoadjust-vfloat;
 			qcom,pmic-revid = <&pmi8994_revid>;
+			qcom,usbin-vadc = <&pmi8994_vadc>;
 			qcom,force-aicl-rerun;
 			qcom,aicl-rerun-period-s = <180>;
 
@@ -317,16 +326,34 @@
 			compatible = "qcom,qpnp-fg";
 			#address-cells = <1>;
 			#size-cells = <1>;
-			qcom,resume-soc = <95>;
+			qcom,resume-soc = <98>;
 			status = "okay";
+            /* CONFIG_HTC_BATT_PCN0013++ */
+			qcom,warm-bat-decidegc = <470>;
+			qcom,cool-bat-decidegc = <100>;
+			qcom,hot-bat-decidegc = <550>;
+			qcom,cold-bat-decidegc = <0>;
+            /* CONFIG_HTC_BATT_PCN0013-- */
 			qcom,bcl-lm-threshold-ma = <127>;
 			qcom,bcl-mh-threshold-ma = <405>;
-			qcom,fg-iterm-ma = <125>;
-			qcom,fg-chg-iterm-ma = <100>;
+            /* CONFIG_HTC_BATT_PCN0001++ */
+			qcom,fg-iterm-ma = <300>;
+            /* CONFIG_HTC_BATT_PCN0001-- */
+			qcom,fg-chg-iterm-ma = <50>;
 			qcom,cycle-counter-en;
 			qcom,capacity-learning-on;
-			qcom,fg-cc-cv-threshold-mv = <4340>;
+            /* CONFIG_HTC_BATT_WA_PCN0015++ */
+			qcom,fg-cc-cv-threshold-mv = <4390>;
+            /* CONFIG_HTC_BATT_WA_PCN0015-- */
 			qcom,pmic-revid = <&pmi8994_revid>;
+            /* CONFIG_HTC_BATT_PCN0013++ */
+			qcom,thermal-coefficients = [97 85 62 49 5A 35];
+            /* CONFIG_HTC_BATT_PCN0013-- */
+			qcom,ext-sense-type = <1>;
+            /* CONFIG_HTC_BATT_PCN0013++ */
+			qcom,cold-hot-jeita-hysteresis = <20 30>;
+            /* CONFIG_HTC_BATT_PCN0013-- */
+			qcom,fg-cutoff-voltage-mv = <3400>;
 			qcom,capacity-learning-feedback;
 
 			qcom,fg-soc@4000 {
@@ -444,6 +471,7 @@
 			qcom,supported-sizes = <6>, <9>;
 			qcom,ramp-index = <3>;
 			#pwm-cells = <2>;
+			qcom,force-pwm-size = <9>;
 		};
 
 		labibb: qpnp-labibb-regulator {
@@ -550,7 +578,7 @@
 		};
 
 		pmi8994_haptics: qcom,haptic@c000 {
-			status = "disabled";
+			status = "disable";
 			compatible = "qcom,qpnp-haptic";
 			reg = <0xc000 0x100>;
 			interrupts = <0x3 0xc0 0x0>,
@@ -558,10 +586,10 @@
 			interrupt-names = "sc-irq", "play-irq";
 			vcc_pon-supply = <&pon_perph_reg>;
 			qcom,play-mode = "direct";
-			qcom,wave-play-rate-us = <5263>;
+			qcom,wave-play-rate-us = <4255>;
 			qcom,actuator-type = "lra";
-			qcom,wave-shape = "square";
-			qcom,vmax-mv = <2000>;
+			qcom,wave-shape = "sine";
+			qcom,vmax-mv = <2828>;
 			qcom,ilim-ma = <800>;
 			qcom,sc-deb-cycles = <8>;
 			qcom,int-pwm-freq-khz = <505>;
@@ -578,12 +606,12 @@
 		};
 
 		qcom,leds@d000 {
-			compatible = "qcom,leds-qpnp";
+			compatible = "qcom,rgb-qpnp";
 			reg = <0xd000 0x100>;
 			label = "rgb";
 			status = "okay";
 
-			red_led: qcom,rgb_0 {
+			qcom,rgb_0 {
 				label = "rgb";
 				qcom,id = <3>;
 				qcom,mode = "pwm";
@@ -591,12 +619,10 @@
 				qcom,pwm-us = <1000>;
 				qcom,max-current = <12>;
 				qcom,default-state = "off";
-				linux,name = "red";
-				linux,default-trigger =
-					"battery-charging";
+				linux,name = "rgb_amber";
+				qcom,pwm_coefficient = <20>;
 			};
-
-			green_led: qcom,rgb_1 {
+			qcom,rgb_1 {
 				label = "rgb";
 				qcom,id = <4>;
 				qcom,mode = "pwm";
@@ -604,20 +630,8 @@
 				qcom,pwm-us = <1000>;
 				qcom,max-current = <12>;
 				qcom,default-state = "off";
-				linux,name = "green";
-				linux,default-trigger = "battery-full";
-			};
-
-			blue_led: qcom,rgb_2 {
-				label = "rgb";
-				qcom,id = <5>;
-				qcom,mode = "pwm";
-				pwms = <&pmi8994_pwm_1 0 0>;
-				qcom,pwm-us = <1000>;
-				qcom,max-current = <12>;
-				qcom,default-state = "off";
-				linux,name = "blue";
-				linux,default-trigger = "boot-indication";
+				linux,name = "rgb_green";
+				qcom,pwm_coefficient = <35>;
 			};
 		};
 
@@ -644,6 +658,7 @@
 			qcom,headroom-sense-ch1-enabled;
 			qcom,power-detect-enabled;
 			qcom,pmic-revid = <&pmi8994_revid>;
+			qcom,gpio-flash-strobe = <&tlmm 22 0x00>;
 
 			pmi8994_flash0: qcom,flash_0 {
 				label = "flash";
@@ -651,7 +666,7 @@
 				qcom,default-led-trigger =
 						"flash0_trigger";
 				qcom,id = <0>;
-				qcom,duration = <1280>;
+				qcom,duration = <600>;
 				qcom,current = <625>;
 				qcom,max-current = <1000>;
 			};
@@ -662,7 +677,7 @@
 				qcom,default-led-trigger =
 						"flash1_trigger";
 				qcom,id = <1>;
-				qcom,duration = <1280>;
+				qcom,duration = <600>;
 				qcom,current = <625>;
 				qcom,max-current = <1000>;
 			};
@@ -685,6 +700,24 @@
 				qcom,id = <1>;
 				qcom,current = <120>;
 				qcom,max-current = <200>;
+			};
+
+			pmi8994_flashlight: qcom,flashlight {
+				label = "dual_leds";
+				qcom,led-name = "flashlight";
+				qcom,default-led-trigger =
+						"torch0_trigger";
+				qcom,max-current = <1000>;
+				qcom,id = <3>;
+				qcom,current = <120>;
+				reg0 {
+					regulator-name =
+						"pmi8994_boostbypass";
+					max-voltage = <3600000>;
+				};
+				reg1 {
+					regulator-name = "pon_spare_reg";
+				};
 			};
 
 			pmi8994_switch: qcom,switch {

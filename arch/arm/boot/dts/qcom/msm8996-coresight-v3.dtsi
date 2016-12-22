@@ -34,43 +34,17 @@
 		clock-names = "core_clk", "core_a_clk";
 	};
 
-	tpiu: tpiu@3020000 {
-		compatible = "arm,coresight-tpiu";
-		reg = <0x3020000 0x1000>;
-		reg-names = "tpiu-base";
-
-		coresight-id = <1>;
-		coresight-name = "coresight-tpiu";
-		coresight-nr-inports = <1>;
-
-		vdd-supply = <&pm8994_l21>;
-		qcom,vdd-voltage-level = <2950000 2950000>;
-		qcom,vdd-current-level = <200 800000>;
-
-		vdd-io-supply = <&pm8994_l13>;
-		qcom,vdd-io-voltage-level = <2950000 2950000>;
-		qcom,vdd-io-current-level = <200 22000>;
-
-		qcom,nidntsw;
-		qcom,nidnt-swduart;
-		qcom,nidnt-swdtrc;
-
-		clocks = <&clock_gcc clk_qdss_clk>,
-			 <&clock_gcc clk_qdss_a_clk>;
-		clock-names = "core_clk", "core_a_clk";
-	};
-
 	replicator: replicator@3026000 {
 		compatible = "qcom,coresight-replicator";
 		reg = <0x3026000 0x1000>;
 		reg-names = "replicator-base";
 
-		coresight-id = <2>;
+		coresight-id = <1>;
 		coresight-name = "coresight-replicator";
 		coresight-nr-inports = <1>;
-		coresight-outports = <0 1>;
-		coresight-child-list = <&tmc_etr &tpiu>;
-		coresight-child-ports = <0 0>;
+		coresight-outports = <0>;
+		coresight-child-list = <&tmc_etr>;
+		coresight-child-ports = <0>;
 
 		clocks = <&clock_gcc clk_qdss_clk>,
 			 <&clock_gcc clk_qdss_a_clk>;
@@ -82,7 +56,7 @@
 		reg = <0x3027000 0x1000>;
 		reg-names = "tmc-base";
 
-		coresight-id = <3>;
+		coresight-id = <2>;
 		coresight-name = "coresight-tmc-etf";
 		coresight-nr-inports = <1>;
 		coresight-outports = <0>;
@@ -104,7 +78,7 @@
 		reg = <0x3025000 0x1000>;
 		reg-names = "funnel-base";
 
-		coresight-id = <4>;
+		coresight-id = <3>;
 		coresight-name = "coresight-funnel-merg";
 		coresight-nr-inports = <2>;
 		coresight-outports = <0>;
@@ -121,7 +95,7 @@
 		reg = <0x3021000 0x1000>;
 		reg-names = "funnel-base";
 
-		coresight-id = <5>;
+		coresight-id = <4>;
 		coresight-name = "coresight-funnel-in0";
 		coresight-nr-inports = <8>;
 		coresight-outports = <0>;
@@ -138,7 +112,7 @@
 		reg = <0x3022000 0x1000>;
 		reg-names = "funnel-base";
 
-		coresight-id = <6>;
+		coresight-id = <5>;
 		coresight-name = "coresight-funnel-in1";
 		coresight-nr-inports = <8>;
 		coresight-outports = <0>;
