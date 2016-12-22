@@ -31,6 +31,7 @@
 #define SOCINFO_VERSION_MAJOR(ver) (((ver) & 0xffff0000) >> 16)
 #define SOCINFO_VERSION_MINOR(ver) ((ver) & 0x0000ffff)
 #define SOCINFO_VERSION(maj, min)  ((((maj) & 0xffff) << 16)|((min) & 0xffff))
+#define SOCINFO_VERSION_DBG(ver) ((ver) & 0x0000000f)
 
 #ifdef CONFIG_OF
 #define of_board_is_cdp()	of_machine_is_compatible("qcom,cdp")

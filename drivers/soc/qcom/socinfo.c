@@ -205,6 +205,7 @@ struct socinfo_v0_11 {
 	struct socinfo_v0_10 v0_10;
 	uint32_t num_pmics;
 	uint32_t pmic_array_offset;
+	uint32_t apc0_cpu0_dbg_midr_el1;
 };
 
 struct socinfo_v0_12 {
@@ -614,6 +615,11 @@ static char *socinfo_get_id_string(void)
 uint32_t socinfo_get_version(void)
 {
 	return (socinfo) ? socinfo->v0_1.version : 0;
+}
+
+uint32_t socinfo_get_version_dbg(void)
+{
+	return (socinfo) ? socinfo->v0_11.apc0_cpu0_dbg_midr_el1 : 0;
 }
 
 char *socinfo_get_build_id(void)
@@ -1352,13 +1358,23 @@ static void __init populate_soc_sysfs_files(struct device *msm_soc_device)
 static void  __init soc_info_populate(struct soc_device_attribute *soc_dev_attr)
 {
 	uint32_t soc_version = socinfo_get_version();
+	uint32_t soc_version_dbg = socinfo_get_version_dbg();
 
 	soc_dev_attr->soc_id   = kasprintf(GFP_KERNEL, "%d", socinfo_get_id());
 	soc_dev_attr->family  =  "Snapdragon";
 	soc_dev_attr->machine  = socinfo_get_id_string();
-	soc_dev_attr->revision = kasprintf(GFP_KERNEL, "%u.%u",
-			SOCINFO_VERSION_MAJOR(soc_version),
-			SOCINFO_VERSION_MINOR(soc_version));
+	if(SOCINFO_VERSION_MAJOR(soc_version) > 2) {
+		soc_dev_attr->revision = kasprintf(GFP_KERNEL, "%u.%u(%u)",
+				SOCINFO_VERSION_MAJOR(soc_version),
+				SOCINFO_VERSION_MINOR(soc_version),
+				SOCINFO_VERSION_DBG(soc_version_dbg));
+	}
+	else {
+                soc_dev_attr->revision = kasprintf(GFP_KERNEL, "%u.%u",
+                                SOCINFO_VERSION_MAJOR(soc_version),
+                                SOCINFO_VERSION_MINOR(soc_version));
+	}
+
 	return;
 
 }

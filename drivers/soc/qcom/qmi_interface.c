@@ -1748,6 +1748,10 @@ int qmi_connect_to_service(struct qmi_handle *handle,
 	if (rc <= 0) {
 		pr_err("%s: Server %08x:%08x not found\n",
 			__func__, service_id, instance_id);
+		if ( svc_dest_addr ) {
+			kfree(svc_dest_addr);
+			svc_dest_addr = NULL;
+		}
 		return -ENODEV;
 	}
 	svc_dest_addr->addrtype = MSM_IPC_ADDR_ID;
@@ -1756,6 +1760,10 @@ int qmi_connect_to_service(struct qmi_handle *handle,
 	mutex_lock(&handle->handle_lock);
 	if (handle->handle_reset) {
 		mutex_unlock(&handle->handle_lock);
+		if ( svc_dest_addr ) {
+			kfree(svc_dest_addr);
+			svc_dest_addr = NULL;
+		}
 		return -ENETRESET;
 	}
 	handle->dest_info = svc_dest_addr;

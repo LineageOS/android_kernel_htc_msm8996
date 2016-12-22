@@ -143,6 +143,8 @@ load_adsp:
 	}
 fail:
 	dev_err(&pdev->dev, "%s: Q6 image loading failed\n", __func__);
+	pr_err("%s: trigger BUG due to Q6/ADSP image is loaded failed\n", __func__);
+	BUG();
 	return;
 }
 

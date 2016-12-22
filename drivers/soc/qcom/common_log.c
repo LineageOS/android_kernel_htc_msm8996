@@ -24,6 +24,12 @@
 #define VSENSE_DUMP_DATA_LEN		4096
 #define RPM_DUMP_DATA_LEN		(160 * 1024)
 
+/* Using QCT backup design for RPM CodeRam or RPM CodeRam  /
+/  will be blurred after PBL load XBL SBL1_RPM_ROM section /
+/  QCT will backup the RPM CodeRam to this address in SDI  /
+/  --> HTC no needs to backup it in XBL                   */
+#define HTC_RAMDUMP_BACKUP_CODERAM	0x83C20000
+
 void register_misc_dump(void)
 {
 	void *misc_buf;
@@ -133,7 +139,9 @@ err0:
 
 void register_rpm_dump(void)
 {
+#if 0
 	static void *dump_addr;
+#endif
 	int ret;
 	struct msm_dump_entry dump_entry;
 	struct msm_dump_data *dump_data;
@@ -144,6 +152,12 @@ void register_rpm_dump(void)
 			pr_err("rpm dump data structure allocation failed\n");
 			return;
 		}
+
+/* Using QCT backup design for RPM CodeRam or RPM CodeRam  /
+/  will be blurred after PBL load XBL SBL1_RPM_ROM section /
+/  QCT will backup the RPM CodeRam to this address in SDI  /
+/  --> HTC no needs to backup it in XBL                   */
+#if 0
 		dump_addr = kzalloc(RPM_DUMP_DATA_LEN, GFP_KERNEL);
 		if (!dump_addr) {
 			pr_err("rpm dump buffer space allocation failed\n");
@@ -151,6 +165,8 @@ void register_rpm_dump(void)
 		}
 
 		dump_data->addr = virt_to_phys(dump_addr);
+#endif
+		dump_data->addr = HTC_RAMDUMP_BACKUP_CODERAM;
 		dump_data->len = RPM_DUMP_DATA_LEN;
 		dump_entry.id = MSM_DUMP_DATA_RPM;
 		dump_entry.addr = virt_to_phys(dump_data);
@@ -161,8 +177,10 @@ void register_rpm_dump(void)
 		}
 		return;
 err1:
+#if 0
 		kfree(dump_addr);
 err0:
+#endif
 		kfree(dump_data);
 	}
 }
