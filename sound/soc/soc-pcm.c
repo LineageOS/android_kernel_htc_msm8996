@@ -52,17 +52,7 @@ static const struct snd_pcm_hardware no_host_hardware = {
 	 */
 	.buffer_bytes_max	= PAGE_SIZE * 4,
 };
-
-/**
- * snd_soc_runtime_activate() - Increment active count for PCM runtime components
- * @rtd: ASoC PCM runtime that is activated
- * @stream: Direction of the PCM stream
- *
- * Increments the active count for all the DAIs and components attached to a PCM
- * runtime. Should typically be called when a stream is opened.
- *
- * Must be called with the rtd->pcm_mutex being held
- */
+char former_device[100] = {0}; 
 void snd_soc_runtime_activate(struct snd_soc_pcm_runtime *rtd, int stream)
 {
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
@@ -2362,8 +2352,11 @@ static int dpcm_fe_dai_prepare(struct snd_pcm_substream *substream)
 
 	/* there is no point preparing this FE if there are no BEs */
 	if (list_empty(&fe->dpcm[stream].be_clients)) {
-		dev_err(fe->dev, "ASoC: no backend DAIs enabled for %s\n",
-				fe->dai_link->name);
+		if(strcmp(fe->dai_link->name, former_device) != 0) { 
+			dev_err(fe->dev, "ASoC: no backend DAIs enabled for %s\n",
+					fe->dai_link->name);
+			strlcpy(former_device, fe->dai_link->name, sizeof(former_device)); 
+		}
 		ret = -EINVAL;
 		goto out;
 	}

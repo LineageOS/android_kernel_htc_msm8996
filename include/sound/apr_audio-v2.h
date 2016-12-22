@@ -1042,6 +1042,10 @@ struct adm_cmd_connect_afe_port_v5 {
 #define AFE_PORT_ID_SECONDARY_PCM_TX        0x100D
 #define AFE_PORT_ID_MULTICHAN_HDMI_RX       0x100E
 #define AFE_PORT_ID_SECONDARY_MI2S_RX_SD1	0x1010
+#define AFE_PORT_ID_TERTIARY_PCM_RX          0x1012
+#define AFE_PORT_ID_TERTIARY_PCM_TX          0x1013
+#define AFE_PORT_ID_QUATERNARY_PCM_RX        0x1014
+#define AFE_PORT_ID_QUATERNARY_PCM_TX        0x1015
 #define AFE_PORT_ID_QUINARY_MI2S_RX		0x1016
 #define AFE_PORT_ID_QUINARY_MI2S_TX		0x1017
 /* ID of the senary MI2S Rx port. */
@@ -1298,6 +1302,8 @@ struct afe_mod_enable_param {
  * #AFE_MODULE_SIDETONE_IIR_FILTER module.
  */
 #define AFE_PARAM_ID_SIDETONE_IIR_FILTER_CONFIG	0x00010204
+#define MAX_SIDETONE_IIR_DATA_SIZE 220
+#define MAX_NO_IIR_FILTER_STAGE   10
 
 struct afe_sidetone_iir_filter_config_params {
 	u16                  num_biquad_stages;
@@ -1306,9 +1312,7 @@ struct afe_sidetone_iir_filter_config_params {
  */
 
 	u16                  pregain;
-/* Pregain for the compensating filter response.
- * Supported values: Any number in Q13 format
- */
+	uint8_t   iir_config[MAX_SIDETONE_IIR_DATA_SIZE];
 } __packed;
 
 #define AFE_MODULE_LOOPBACK	0x00010205
@@ -1459,6 +1463,43 @@ struct afe_loopback_cfg_v1 {
  */
 
 } __packed;
+
+struct afe_loopback_sidetone_gain {
+	uint16_t                  rx_port_id;
+	uint16_t                  gain;
+} __packed;
+
+struct loopback_cfg_data {
+	u32		loopback_cfg_minor_version;
+	u16                  dst_port_id;
+	
+	u16                  routing_mode;
+
+	u16                  enable;
+	u16                  reserved;
+} __packed;
+
+
+
+struct afe_st_loopback_cfg_v1 {
+	struct apr_hdr	hdr;
+	struct afe_port_cmd_set_param_v2  param;
+	struct afe_port_param_data_v2     gain_pdata;
+	struct afe_loopback_sidetone_gain gain_data;
+	struct afe_port_param_data_v2     cfg_pdata;
+	struct loopback_cfg_data          cfg_data;
+} __packed;
+
+struct afe_loopback_iir_cfg_v2 {
+	struct apr_hdr                          hdr;
+	struct afe_port_cmd_set_param_v2        param;
+	struct afe_port_param_data_v2           st_iir_enable_pdata;
+	struct afe_mod_enable_param             st_iir_mode_enable_data;
+	struct afe_port_param_data_v2           st_iir_filter_config_pdata;
+	struct afe_sidetone_iir_filter_config_params 	st_iir_filter_config_data;
+} __packed;
+
+
 
 #define AFE_MODULE_SPEAKER_PROTECTION	0x00010209
 #define AFE_PARAM_ID_SPKR_PROT_CONFIG	0x0001020a
@@ -9023,11 +9064,32 @@ struct afe_svc_cmd_set_clip_bank_selection {
 #define AFE_PARAM_ID_GROUP_DEVICE_ENABLE 0x00010256
 #define AFE_GROUP_DEVICE_ID_SECONDARY_MI2S_RX	0x1102
 
-/*  Payload of the #AFE_PARAM_ID_GROUP_DEVICE_CFG
- * parameter, which configures max of 8 AFE ports
- * into a group.
- * The fixed size of this structure is sixteen bytes.
- */
+#define AFE_MODULE_ADAPTIVE_AUDIO_M1     0x10000030
+#define AFE_MODULE_ADAPTIVE_AUDIO_M2     0x1000002A
+#define AFE_MODULE_ONEDOTONE_AUDIO       0x10000035
+#define AFE_MODULE_ID_MISC_EFFECT        0x10030001
+
+#define AFE_PARAM_ID_ADAPTIVE_AUDIO_M1_EN     0x10000032
+#define AFE_PARAM_ID_ADAPTIVE_AUDIO_M1_CONF_L 0x10000033
+#define AFE_PARAM_ID_ADAPTIVE_AUDIO_M1_CONF_R 0x10000034
+#define AFE_PARAM_ID_ADAPTIVE_AUDIO_M2_EN     0x1000002C
+#define AFE_PARAM_ID_ADAPTIVE_AUDIO_M2_CONF   0x1000002D
+#define AFE_PARAM_ID_ONEDOTONE_AUDIO_EN       0x10000037
+#define AFE_PARAM_ID_MISC_SET_ACOUSTIC_SHOCK_RAMP 0x10030101
+#define AFE_PARAM_ID_MISC_SET_ACOUSTIC_SHOCK_MUTE 0x10030111
+
+
+#define AFE_COPP_ID_ONEDOTONE_AUDIO           0x10000001
+#define AFE_COPP_ID_ADAPTIVE_AUDIO            0x10000004
+
+#define HTC_POPP_TOPOLOGY				0x10000002
+#define HTC_POPP_HD_TOPOLOGY				0x10000003
+struct asm_params {
+	struct apr_hdr	hdr;
+	struct asm_stream_cmd_set_pp_params_v2 param;
+	struct asm_stream_param_data_v2 data;
+} __packed;
+
 struct afe_group_device_group_cfg {
 	u32 minor_version;
 	u16 group_id;

@@ -962,10 +962,10 @@ void snd_usb_endpoint_stop(struct snd_usb_endpoint *ep)
 
 	if (--ep->use_count == 0) {
 		deactivate_urbs(ep, false);
-		ep->data_subs = NULL;
-		ep->sync_slave = NULL;
 		ep->retire_data_urb = NULL;
 		ep->prepare_data_urb = NULL;
+		ep->data_subs = NULL;
+		ep->sync_slave = NULL;
 		set_bit(EP_FLAG_STOPPING, &ep->flags);
 	}
 }

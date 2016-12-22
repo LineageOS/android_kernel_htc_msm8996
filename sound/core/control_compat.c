@@ -41,7 +41,11 @@ static int snd_ctl_elem_list_compat(struct snd_card *card,
 
 	data = compat_alloc_user_space(sizeof(*data));
 
-	/* offset, space, used, count */
+	
+	if (data == NULL)
+		return -EFAULT;
+	
+	
 	if (copy_in_user(data, data32, 4 * sizeof(u32)))
 		return -EFAULT;
 	/* pids */
@@ -313,7 +317,9 @@ static int ctl_elem_read_user(struct snd_card *card,
 	err = copy_ctl_value_from_user(card, data, userdata, valuep,
 				       &type, &count);
 	if (err < 0)
+	{
 		goto error;
+	} 
 
 	snd_power_lock(card);
 	err = snd_power_wait(card, SNDRV_CTL_POWER_D0);
@@ -334,7 +340,6 @@ static int ctl_elem_write_user(struct snd_ctl_file *file,
 	struct snd_ctl_elem_value *data;
 	struct snd_card *card = file->card;
 	int err, type, count;
-
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (data == NULL)
 		return -ENOMEM;
@@ -342,7 +347,9 @@ static int ctl_elem_write_user(struct snd_ctl_file *file,
 	err = copy_ctl_value_from_user(card, data, userdata, valuep,
 				       &type, &count);
 	if (err < 0)
+	{
 		goto error;
+	} 
 
 	snd_power_lock(card);
 	err = snd_power_wait(card, SNDRV_CTL_POWER_D0);
