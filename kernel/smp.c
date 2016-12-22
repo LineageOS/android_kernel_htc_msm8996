@@ -17,8 +17,6 @@
 
 #include "smpboot.h"
 
-#include <linux/htc_flags.h>
-
 enum {
 	CSD_FLAG_LOCK		= 0x01,
 	CSD_FLAG_WAIT		= 0x02,
@@ -37,8 +35,6 @@ static void flush_smp_call_function_queue(bool warn_cpu_offline);
 /* CPU mask indicating which CPUs to bring online during smp_init() */
 static bool have_boot_cpu_mask;
 static cpumask_var_t boot_cpu_mask;
-int have_cpu_mask;
-struct cpumask cpu_mask;
 
 static int
 hotplug_cfd(struct notifier_block *nfb, unsigned long action, void *hcpu)
@@ -584,18 +580,6 @@ static inline void free_boot_cpu_mask(void)
 void __init smp_init(void)
 {
 	unsigned int cpu;
-	int mask;
-
-	mask = get_cpumask_flag();
-	if (mask) {
-		struct cpumask dest;
-
-		*cpu_mask.bits = (long)mask;
-		if (!cpumask_test_cpu(0, &cpu_mask) && !cpumask_andnot(&dest, &cpu_mask, cpu_possible_mask))
-			have_cpu_mask = 1;
-		else
-			printk(KERN_ERR "cpumask error : 0x%X\n", mask);
-	}
 
 	idle_threads_init();
 

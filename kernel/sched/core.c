@@ -8103,7 +8103,6 @@ void sched_show_task(struct task_struct *p)
 	unsigned long free = 0;
 	int ppid;
 	unsigned state;
-	struct task_struct *group_leader;
 
 	state = p->state ? __ffs(p->state) + 1 : 0;
 	printk(KERN_INFO "%-15.15s %c", p->comm,
@@ -8125,29 +8124,9 @@ void sched_show_task(struct task_struct *p)
 	rcu_read_lock();
 	ppid = task_pid_nr(rcu_dereference(p->real_parent));
 	rcu_read_unlock();
-	printk(KERN_CONT "%5lu %5d %6d 0x%08lx c%d %llu\n", free,
+	printk(KERN_CONT "%5lu %5d %6d 0x%08lx\n", free,
 		task_pid_nr(p), ppid,
-		(unsigned long)task_thread_info(p)->flags, p->on_cpu,
-#if defined(CONFIG_SCHEDSTATS) || defined(CONFIG_TASK_DELAY_ACCT)
-		div64_u64(task_rq(p)->clock - p->sched_info.last_arrival, NSEC_PER_MSEC));
-#else
-		(unsigned long long)0);
-#endif
-
-	group_leader = p->group_leader;
-	printk(KERN_CONT "  tgid: %d, group leader: %s\n",
-			p->tgid, group_leader ? group_leader->comm : "unknown");
-
-#if defined(CONFIG_DEBUG_MUTEXES)
-	if (state == TASK_UNINTERRUPTIBLE) {
-		struct task_struct* blocker = p->blocked_by;
-		if (blocker) {
-			printk(KERN_CONT " blocked by %.32s (%d:%d) for %u ms\n",
-				blocker->comm, blocker->tgid, blocker->pid,
-				jiffies_to_msecs(jiffies - p->blocked_since));
-		}
-	}
-#endif
+		(unsigned long)task_thread_info(p)->flags);
 
 	print_worker_info(KERN_INFO, p);
 	show_stack(p, NULL);

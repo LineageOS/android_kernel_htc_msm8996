@@ -48,7 +48,6 @@
 #include <linux/ctype.h>
 
 #include <asm/uaccess.h>
-#include <linux/htc_debug_tools.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/printk.h>
@@ -237,6 +236,11 @@ __packed __aligned(4)
 #endif
 ;
 
+/*
+ * The logbuf_lock protects kmsg buffer, indices, counters.  This can be taken
+ * within the scheduler's rq lock. It must be released before calling
+ * console_unlock() or anything else that might wake up a process.
+ */
 static DEFINE_RAW_SPINLOCK(logbuf_lock);
 
 #ifdef CONFIG_PRINTK
@@ -1318,7 +1322,7 @@ int do_syslog(int type, char __user *buf, int len, bool from_file)
 		}
 		error = syslog_print_all(buf, len, clear);
 		break;
-	
+	/* Clear ring buffer */
 	case SYSLOG_ACTION_CLEAR:
 		syslog_print_all(NULL, 0, true);
 		break;
@@ -1527,12 +1531,12 @@ static struct cont {
 	char buf[LOG_LINE_MAX];
 	size_t len;			/* length == 0 means unused buffer */
 	size_t cons;			/* bytes written to console */
-	struct task_struct *owner;	
-	u64 ts_nsec;			
-	u8 level;			
-	u8 facility;			
-	enum log_flags flags;		
-	bool flushed:1;			
+	struct task_struct *owner;	/* task of first print*/
+	u64 ts_nsec;			/* time of first print */
+	u8 level;			/* log level of first message */
+	u8 facility;			/* log facility of first message */
+	enum log_flags flags;		/* prefix, newline flags */
+	bool flushed:1;			/* buffer sealed and committed */
 } cont;
 
 static void cont_flush(enum log_flags flags)
@@ -1736,14 +1740,13 @@ asmlinkage int vprintk_emit(int facility, int level,
 		if (cont.len && (lflags & LOG_PREFIX || cont.owner != current))
 			cont_flush(LOG_NEWLINE);
 
-		
-		if (cont_add(facility, level, text, text_len)) {
+		/* buffer line if possible, otherwise store it right away */
+		if (cont_add(facility, level, text, text_len))
 			printed_len += text_len;
-		} else {
+		else
 			printed_len += log_store(facility, level,
 						 lflags | LOG_CONT, 0,
 						 dict, dictlen, text, text_len);
-		}
 	} else {
 		bool stored = false;
 
@@ -1762,12 +1765,11 @@ asmlinkage int vprintk_emit(int facility, int level,
 			cont_flush(LOG_NEWLINE);
 		}
 
-		if (stored) {
+		if (stored)
 			printed_len += text_len;
-		} else {
+		else
 			printed_len += log_store(facility, level, lflags, 0,
 						 dict, dictlen, text, text_len);
-		}
 	}
 
 	logbuf_cpu = UINT_MAX;
@@ -2118,7 +2120,7 @@ static int console_cpu_notify(struct notifier_block *self,
  */
 void console_lock(void)
 {
-	BUG_ON(in_interrupt());
+	might_sleep();
 
 	down_console_sem();
 	if (console_suspended)

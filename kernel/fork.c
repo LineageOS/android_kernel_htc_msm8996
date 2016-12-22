@@ -1372,10 +1372,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 #endif
 
 #ifdef CONFIG_DEBUG_MUTEXES
-	/* not blocked yet */
-	p->blocked_on = NULL;
-	p->blocked_by = NULL;
-	p->blocked_since = 0;
+	p->blocked_on = NULL; /* not blocked yet */
 #endif
 #ifdef CONFIG_BCACHE
 	p->sequential_io	= 0;

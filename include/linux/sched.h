@@ -1549,8 +1549,6 @@ struct task_struct {
 #ifdef CONFIG_DEBUG_MUTEXES
 	/* mutex deadlock detection */
 	struct mutex_waiter *blocked_on;
-	struct task_struct  *blocked_by;
-	unsigned long        blocked_since;
 #endif
 #ifdef CONFIG_TRACE_IRQFLAGS
 	unsigned int irq_events;

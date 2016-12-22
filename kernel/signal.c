@@ -43,7 +43,7 @@
 #include <asm/unistd.h>
 #include <asm/siginfo.h>
 #include <asm/cacheflush.h>
-#include "audit.h"	
+#include "audit.h"	/* audit_signal_info() */
 
 /*
  * SLAB caches for signal bits.
@@ -1020,21 +1020,6 @@ static inline void userns_fixup_signal_uid(struct siginfo *info, struct task_str
 }
 #endif
 
-static void collect_sigign_sigcatch(struct task_struct *p, sigset_t *ign,
-				    sigset_t *catch)
-{
-	struct k_sigaction *k;
-	int i;
-
-	k = p->sighand->action;
-	for (i = 1; i <= _NSIG; ++i, ++k) {
-		if (k->sa.sa_handler == SIG_IGN)
-			sigaddset(ign, i);
-		else if (k->sa.sa_handler != SIG_DFL)
-			sigaddset(catch, i);
-	}
-}
-
 static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			int group, int from_ancestor_ns)
 {
@@ -1136,25 +1121,6 @@ out_set:
 	complete_signal(sig, t, group);
 ret:
 	trace_signal_generate(sig, info, t, group, result);
-
-	if (t->comm && strstr(t->comm, "dq_log")) {
-		sigset_t ignored, caught;
-		collect_sigign_sigcatch(t, &ignored, &caught);
-
-		printk("[%s] process_name %s state=%ld, exit_state=%d, signal_flags=0x%x," \
-		    " result=%d sigcnt=%d," \
-		    " live=%d, pending=%ld," \
-		    " shpending=%ld," \
-		    " blocked=%lu, ignored=%lu," \
-		    " caught=%lu\n", \
-				__func__, t->comm, t->state, t->exit_state, t->signal->flags,
-				result, atomic_read(&t->signal->sigcnt),
-				atomic_read(&t->signal->live), *(unsigned long *)&(t->pending.signal),
-				*(unsigned long *)&(t->signal->shared_pending.signal),
-				*(unsigned long *)&(t->blocked), *(unsigned long *)&ignored,
-				*(unsigned long *)&caught);
-	}
-
 	return ret;
 }
 
