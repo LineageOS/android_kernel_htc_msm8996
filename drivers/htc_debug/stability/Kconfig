@@ -18,14 +18,6 @@ config HTC_DEBUG_RAMOOPS
 	  This enables panic and oops messages to be logged to a circular
 	  buffer in RAM where it can be read back at some later point.
 
-config SLUB_LIGHT_WEIGHT_DEBUG_ON
-	bool "SLUB light weight debugging on by default"
-	depends on SLUB && SLUB_DEBUG && SLUB_DEBUG_ON && !KMEMCHECK
-	default n
-	help
-	  Light weight memory corruption debugging for slub. Only
-	  SLAB_DEBUG_FREE was choosen.
-
 config HTC_DEBUG_BOOTLOADER_LOG
 	bool "HTC style ram console debug features"
 	default n
