@@ -18,10 +18,6 @@ config HTC_DEBUG_RAMOOPS
 	  This enables panic and oops messages to be logged to a circular
 	  buffer in RAM where it can be read back at some later point.
 
-config HTC_DEBUG_PAGE_ENTRIES_NR
-	int
-	default 4
-
 config PRINTK_CPU_ID
 	depends on PRINTK
 	default y
