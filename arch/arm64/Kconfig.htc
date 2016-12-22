@@ -70,9 +70,3 @@ config HTC_DEBUG_MEM_DUMP_TABLE
 	depends on HTC_DEBUG
 	help
 	  Say Y here if you want the HTC style memory dump table features
-
-config LMK_ZYGOTE_PROTECT
-	bool "LMK zygote protect"
-	default n
-	help
-	  Say Y here if you want the HTC style for protecting zygote to be killed by LMK with invalid adj values
