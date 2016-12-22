@@ -30,6 +30,7 @@
 #define	PORT_WAKE_BITS	(PORT_WKOC_E | PORT_WKDISC_E | PORT_WKCONN_E)
 #define	PORT_RWC_BITS	(PORT_CSC | PORT_PEC | PORT_WRC | PORT_OCC | \
 			 PORT_RC | PORT_PLC | PORT_PE)
+extern bool is_bundle_headset(void);
 
 /* USB 3.0 BOS descriptor and a capability descriptor, combined */
 static u8 usb_bos_descriptor [] = {
@@ -698,6 +699,18 @@ static u32 xhci_get_port_status(struct usb_hcd *hcd,
 	}
 	/* Update Port Link State */
 	if (hcd->speed == HCD_USB3) {
+		if (is_bundle_headset()) {
+			if ((raw_port_status & PORT_PLS_MASK) == USB_SS_PORT_LS_COMP_MOD) {
+				printk("[USBH] %s: force reset COMP MODE to U0\n", __func__);
+				xhci_set_link_state(xhci, port_array, wIndex, XDEV_U0);
+
+				spin_unlock_irqrestore(&xhci->lock, flags);
+				msleep(20);
+				spin_lock_irqsave(&xhci->lock, flags);
+
+				xhci_test_and_clear_bit(xhci, port_array, wIndex, PORT_PLC);
+			}
+		}
 		xhci_hub_report_usb3_link_state(xhci, &status, raw_port_status);
 		/*
 		 * Verify if all USB3 Ports Have entered U0 already.

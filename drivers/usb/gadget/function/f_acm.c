@@ -83,7 +83,7 @@ static unsigned int no_acm_smd_ports;
 static unsigned int nr_acm_ports;
 static unsigned int acm_next_free_port;
 
-#define GSERIAL_NO_PORTS 4
+#define GSERIAL_NO_PORTS 8 
 
 static struct acm_port_info {
 	enum transport_type	transport;
@@ -728,7 +728,7 @@ acm_bind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct usb_composite_dev *cdev = c->cdev;
 	struct f_acm		*acm = func_to_acm(f);
-	struct usb_string	*us;
+	static struct usb_string	*us; 
 	int			status;
 	struct usb_ep		*ep;
 
@@ -736,7 +736,9 @@ acm_bind(struct usb_configuration *c, struct usb_function *f)
 	 * distinguish instances ...
 	 */
 
-	/* maybe allocate device-global string IDs, and patch descriptors */
+	
+	
+	if (!us)
 	us = usb_gstrings_attach(cdev, acm_strings,
 			ARRAY_SIZE(acm_string_defs));
 	if (IS_ERR(us))

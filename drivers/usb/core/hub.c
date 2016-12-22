@@ -2993,6 +2993,7 @@ EXPORT_SYMBOL_GPL(usb_enable_ltm);
  */
 static int usb_enable_remote_wakeup(struct usb_device *udev)
 {
+	printk("[USB] %s: send set_feature to accessory\n", __func__);
 	if (udev->speed < USB_SPEED_SUPER)
 		return usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
 				USB_REQ_SET_FEATURE, USB_RECIP_DEVICE,
@@ -3019,6 +3020,7 @@ static int usb_enable_remote_wakeup(struct usb_device *udev)
  */
 static int usb_disable_remote_wakeup(struct usb_device *udev)
 {
+	printk("[USB] %s: send clear_feature to accessory\n", __func__);
 	if (udev->speed < USB_SPEED_SUPER)
 		return usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
 				USB_REQ_CLEAR_FEATURE, USB_RECIP_DEVICE,

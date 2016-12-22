@@ -33,7 +33,9 @@
 #define USB_SSPHY_1P8_HPM_LOAD		23000	/* uA */
 
 
-/* USB3PHY_PCIE_USB3_PCS_PCS_STATUS bit */
+#define USB3_QSERDES_TX_EMP_POST1_LVL 0x218
+#define USB3_QSERDES_TX_DRV_LVL 0x22C
+
 #define PHYSTATUS				BIT(6)
 
 /* TCSR_PHY_CLK_SCHEME_SEL bit mask */
@@ -43,6 +45,14 @@
 #define ARCVR_DTCT_EN		BIT(0)
 #define ALFPS_DTCT_EN		BIT(1)
 #define ARCVR_DTCT_EVENT_SEL	BIT(4)
+
+unsigned int tx_drv;
+module_param(tx_drv, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(tx_drv, "QMP SSUSB PHY TX DRV");
+
+unsigned int tx_emp;
+module_param(tx_emp, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(tx_emp, "QMP SSUSB PHY TX EMP");
 
 enum qmp_phy_rev_reg {
 	USB3_REVISION_ID0,
@@ -217,75 +227,77 @@ static const struct qmp_reg_val qmp_settings_rev1[] = {
 
 /* USB3PHY_REVISION_ID3 = 0x20 where register offset is being changed. */
 static const struct qmp_reg_val qmp_settings_rev2[] = {
-	/* Common block settings */
-	{0xAC, 0x14}, /* QSERDES_COM_SYSCLK_EN_SEL */
-	{0x34, 0x08}, /* QSERDES_COM_BIAS_EN_CLKBUFLR_EN */
-	{0x174, 0x30}, /* QSERDES_COM_CLK_SELECT */
-	{0x194, 0x06}, /* QSERDES_COM_CMN_CONFIG */
-	{0x19C, 0x01}, /* QSERDES_COM_SVS_MODE_CLK_SEL */
-	{0x178, 0x00}, /* QSERDES_COM_HSCLK_SEL */
-	{0x70, 0x0F}, /* USB3PHY_QSERDES_COM_BG_TRIM */
-	{0x48, 0x0F}, /* USB3PHY_QSERDES_COM_PLL_IVCO */
-	{0x3C, 0x04}, /* QSERDES_COM_SYS_CLK_CTRL */
+	
+	{0xAC, 0x14}, 
+	{0x34, 0x08}, 
+	{0x174, 0x30}, 
+	{0x194, 0x06}, 
+	{0x19C, 0x01}, 
+	{0x178, 0x00}, 
+	{0x70, 0x0F}, 
+	{0x48, 0x0F}, 
+	{0x3C, 0x04}, 
 
-	/* PLL and Loop filter settings */
-	{0xD0, 0x82}, /* QSERDES_COM_DEC_START_MODE0 */
-	{0xDC, 0x55}, /* QSERDES_COM_DIV_FRAC_START1_MODE0 */
-	{0xE0, 0x55}, /* QSERDES_COM_DIV_FRAC_START2_MODE0 */
-	{0xE4, 0x03}, /* QSERDES_COM_DIV_FRAC_START3_MODE0 */
-	{0x78, 0x0B}, /* QSERDES_COM_CP_CTRL_MODE0 */
-	{0x84, 0x16}, /* QSERDES_COM_PLL_RCTRL_MODE0 */
-	{0x90, 0x28}, /* QSERDES_COM_PLL_CCTRL_MODE0 */
-	{0x108, 0x80}, /*QSERDES_COM_INTEGLOOP_GAIN0_MODE0 */
-	{0x124, 0x00}, /* USB3PHY_QSERDES_COM_VCO_TUNE_CTRL */
-	{0x4C, 0x15}, /* QSERDES_COM_LOCK_CMP1_MODE0 */
-	{0x50, 0x34}, /* QSERDES_COM_LOCK_CMP2_MODE0 */
-	{0x54, 0x00}, /* QSERDES_COM_LOCK_CMP3_MODE0 */
-	{0x18C, 0x00}, /* QSERDES_COM_CORE_CLK_EN */
-	{0xCC, 0x00}, /* QSERDES_COM_LOCK_CMP_CFG */
-	{0x128, 0x00}, /* QSERDES_COM_VCO_TUNE_MAP */
-	{0x0C, 0x0A}, /* QSERDES_COM_BG_TIMER */
+	
+	{0xD0, 0x82}, 
+	{0xDC, 0x55}, 
+	{0xE0, 0x55}, 
+	{0xE4, 0x03}, 
+	{0x78, 0x0B}, 
+	{0x84, 0x16}, 
+	{0x90, 0x28}, 
+	{0x108, 0x80}, 
+	{0x124, 0x00}, 
+	{0x4C, 0x15}, 
+	{0x50, 0x34}, 
+	{0x54, 0x00}, 
+	{0x18C, 0x00}, 
+	{0xCC, 0x00}, 
+	{0x128, 0x00}, 
+	{0x0C, 0x0A}, 
 
-	/* SSC settings */
-	{0x10, 0x01}, /* QSERDES_COM_SSC_EN_CENTER */
-	{0x1C, 0x31}, /* QSERDES_COM_SSC_PER1 */
-	{0x20, 0x01}, /* QSERDES_COM_SSC_PER2 */
-	{0x14, 0x00}, /* QSERDES_COM_SSC_ADJ_PER1 */
-	{0x18, 0x00}, /* QSERDES_COM_SSC_ADJ_PER2 */
-	{0x24, 0xDE}, /* QSERDES_COM_SSC_STEP_SIZE1 */
-	{0x28, 0x07}, /* QSERDES_COM_SSC_STEP_SIZE2 */
+	
+	{0x10, 0x01}, 
+	{0x1C, 0x31}, 
+	{0x20, 0x01}, 
+	{0x14, 0x00}, 
+	{0x18, 0x00}, 
+	{0x24, 0xDE}, 
+	{0x28, 0x07}, 
 
-	/* Rx settings */
-	{0x440, 0x0B}, /* QSERDES_RX_UCDR_FASTLOCK_FO_GAIN */
-	{0x41C, 0x04}, /* QSERDES_RX_UCDR_SO_GAIN */
-	{0x4D8, 0x02}, /* QSERDES_RX_RX_EQU_ADAPTOR_CNTRL2 */
-	{0x4DC, 0x4C}, /* QSERDES_RX_RX_EQU_ADAPTOR_CNTRL3 */
-	{0x4E0, 0xBB}, /* QSERDES_RX_RX_EQU_ADAPTOR_CNTRL4 */
-	{0x508, 0x77}, /* QSERDES_RX_RX_EQ_OFFSET_ADAPTOR_CNTRL1 */
-	{0x50C, 0x80}, /* QSERDES_RX_RX_OFFSET_ADAPTOR_CNTRL2 */
-	{0x514, 0x03}, /* QSERDES_RX_SIGDET_CNTRL */
-	{0x518, 0x18}, /* QSERDES_RX_SIGDET_LVL */
-	{0x51C, 0x16}, /* QSERDES_RX_SIGDET_DEGLITCH_CNTRL */
+	
+	{0x440, 0x0B}, 
+	{0x41C, 0x04}, 
+	{0x4D8, 0x02}, 
+	{0x4DC, 0x4C}, 
+	{0x4E0, 0xBB}, 
+	{0x508, 0x77}, 
+	{0x50C, 0x80}, 
+	{0x514, 0x03}, 
+	{0x518, 0x18}, 
+	{0x51C, 0x16}, 
 
-	/* TX settings */
-	{0x268, 0x45}, /* QSERDES_TX_HIGHZ_TRANSCEIVEREN_BIAS_DRVR_EN */
-	{0x2AC, 0x12}, /* QSERDES_TX_RCV_DETECT_LVL_2 */
-	{0x294, 0x06}, /* QSERDES_TX_LANE_MODE */
+	
+	{0x218, 0x0F}, 
+	{0x22C, 0x01}, 
+	{0x268, 0x45}, 
+	{0x2AC, 0x12}, 
+	{0x294, 0x06}, 
 
-	/* FLL settings */
-	{0x6C4, 0x03}, /* USB3_PHY_FLL_CNTRL2 */
-	{0x6C0, 0x02}, /* USB3_PHY_FLL_CNTRL1 */
-	{0x6C8, 0x09}, /* USB3_PHY_FLL_CNT_VAL_L */
-	{0x6CC, 0x42}, /* USB3_PHY_FLL_CNT_VAL_H_TOL */
-	{0x6D0, 0x85}, /* USB3_PHY_FLL_MAN_CODE */
+	
+	{0x6C4, 0x03}, 
+	{0x6C0, 0x02}, 
+	{0x6C8, 0x09}, 
+	{0x6CC, 0x42}, 
+	{0x6D0, 0x85}, 
 
-	/* Lock Det settings */
-	{0x680, 0xD1}, /* USB3_PHY_LOCK_DETECT_CONFIG1 */
-	{0x684, 0x1F}, /* USB3_PHY_LOCK_DETECT_CONFIG2 */
-	{0x688, 0x47}, /* USB3_PHY_LOCK_DETECT_CONFIG3 */
-	{0x664, 0x08}, /* USB3_PHY_POWER_STATE_CONFIG2 */
+	
+	{0x680, 0xD1}, 
+	{0x684, 0x1F}, 
+	{0x688, 0x47}, 
+	{0x664, 0x08}, 
 
-	{-1, 0x00} /* terminating entry */
+	{-1, 0x00} 
 };
 
 /* Override for QMP PHY revision 2 */
@@ -527,6 +539,7 @@ static int msm_ssphy_qmp_init(struct usb_phy *uphy)
 	int ret;
 	unsigned init_timeout_usec = INIT_MAX_TIME_USEC;
 	u32 revid;
+	u8 temp;
 	const struct qmp_reg_val *reg = NULL, *misc = NULL, *pll = NULL;
 
 	dev_dbg(uphy->dev, "Initializing QMP phy\n");
@@ -595,7 +608,26 @@ static int msm_ssphy_qmp_init(struct usb_phy *uphy)
 		return ret;
 	}
 
-	/* Feature specific configurations */
+	temp = readl_relaxed(phy->base + USB3_QSERDES_TX_EMP_POST1_LVL);
+	printk("[USB] USB3_QSERDES_TX_EMP_POST1_LVL = %x\n", temp);
+	temp = readl_relaxed(phy->base + USB3_QSERDES_TX_DRV_LVL);
+	printk("[USB] USB3_QSERDES_TX_DRV_LVL = %x\n", temp);
+
+	if (tx_drv) {
+		writel_relaxed(tx_drv,
+				phy->base + USB3_QSERDES_TX_DRV_LVL);
+		temp = readl_relaxed(phy->base + USB3_QSERDES_TX_DRV_LVL);
+		printk("[USB] USB3_QSERDES_TX_DRV_LVL = %x\n", temp);
+	}
+
+	if (tx_emp) {
+		writel_relaxed(tx_emp,
+				phy->base + USB3_QSERDES_TX_EMP_POST1_LVL);
+		temp = readl_relaxed(phy->base + USB3_QSERDES_TX_EMP_POST1_LVL);
+		printk("[USB] USB3_QSERDES_TX_EMP_POST1_LVL = %x\n", temp);
+	}
+
+	
 	if (phy->override_pll_cal) {
 		ret = configure_phy_regs(uphy, pll);
 		if (ret) {

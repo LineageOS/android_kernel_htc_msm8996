@@ -44,7 +44,7 @@
 #define GSERIAL_SET_XPORT_TYPE_SMD 1
 
 #define GSERIAL_BUF_LEN  256
-#define GSERIAL_NO_PORTS 3
+#define GSERIAL_NO_PORTS 8 
 
 struct ioctl_smd_write_arg_type {
 	char		*buf;
@@ -92,8 +92,18 @@ static unsigned int no_hsic_sports;
 static unsigned int nr_ports;
 static unsigned int gser_next_free_port;
 
+enum fserial_func_type {
+	USB_FSER_FUNC_NONE,
+	USB_FSER_FUNC_SERIAL,
+	USB_FSER_FUNC_MODEM,
+	USB_FSER_FUNC_MODEM_MDM,
+	USB_FSER_FUNC_ACM,
+	USB_FSER_FUNC_AUTOBOT,
+};
+
 static struct port_info {
 	enum transport_type	transport;
+	enum fserial_func_type serial_type; 
 	unsigned		port_num;
 	unsigned char		client_port_num;
 	struct f_gser		*gser_ptr;
@@ -143,9 +153,9 @@ static struct usb_interface_descriptor gser_interface_desc = {
 	/* .bInterfaceNumber = DYNAMIC */
 	.bNumEndpoints =	3,
 	.bInterfaceClass =	USB_CLASS_VENDOR_SPEC,
-	.bInterfaceSubClass =	0,
-	.bInterfaceProtocol =	0,
-	/* .iInterface = DYNAMIC */
+	.bInterfaceSubClass =	0x51,
+	.bInterfaceProtocol =	1,
+	
 };
 
 static struct usb_cdc_header_desc gser_header_desc  = {
@@ -304,11 +314,25 @@ static struct usb_descriptor_header *gser_ss_function[] = {
 	NULL,
 };
 
-/* string descriptors: */
+static struct usb_string modem_string_defs[] = {
+	[0].s = "HTC Modem",
+	[1].s = "HTC 9k Modem",
+	{  } 
+};
+
+static struct usb_gadget_strings modem_string_table = {
+	.language =		0x0409,	
+	.strings =		modem_string_defs,
+};
+
+static struct usb_gadget_strings *modem_strings[] = {
+	&modem_string_table,
+	NULL,
+};
 
 static struct usb_string gser_string_defs[] = {
-	[0].s = "Generic Serial",
-	{  } /* end of list */
+	[0].s = "HTC Serial",
+	{  } 
 };
 
 static struct usb_gadget_strings gser_string_table = {
@@ -331,18 +355,19 @@ int gport_setup(struct usb_configuration *c)
 		__func__, no_tty_ports, no_smd_ports, no_hsic_sports, nr_ports);
 
 	if (no_tty_ports) {
-		for (i = 0; i < no_tty_ports; i++) {
-			ret = gserial_alloc_line(
-					&gserial_ports[i].client_port_num);
+		for (i = 0; i < nr_ports; i++) {
+			if (gserial_ports[i].transport == USB_GADGET_XPORT_TTY)
+				ret = gserial_alloc_line(
+						&gserial_ports[i].client_port_num);
 			if (ret)
 				return ret;
 		}
 	}
 
 	if (no_char_bridge_ports)
-		gbridge_setup(c->cdev->gadget, no_char_bridge_ports);
+		gbridge_setup(NULL, no_char_bridge_ports); 
 	if (no_smd_ports)
-		ret = gsmd_setup(c->cdev->gadget, no_smd_ports);
+		ret = gsmd_setup(NULL, no_smd_ports); 
 	if (no_hsic_sports) {
 		port_idx = ghsic_data_setup(no_hsic_sports, USB_GADGET_SERIAL);
 		if (port_idx < 0)
@@ -881,15 +906,54 @@ static int gser_bind(struct usb_configuration *c, struct usb_function *f)
 	 * distinguish instances ...
 	 */
 
-	/* maybe allocate device-global string ID */
-	if (gser_string_defs[0].id == 0) {
+	
+	if (gser_string_defs[0].id == 0 &&
+		(gserial_ports[gser->port_num].serial_type == USB_FSER_FUNC_AUTOBOT ||
+		gserial_ports[gser->port_num].serial_type == USB_FSER_FUNC_SERIAL)) {
 		status = usb_string_id(c->cdev);
 		if (status < 0)
 			return status;
 		gser_string_defs[0].id = status;
 	}
 
-	/* allocate instance-specific interface IDs */
+	if (modem_string_defs[0].id == 0 &&
+		gserial_ports[gser->port_num].serial_type == USB_FSER_FUNC_MODEM) {
+		status = usb_string_id(c->cdev);
+		if (status < 0)
+			return status;
+		modem_string_defs[0].id = status;
+	}
+
+	if (modem_string_defs[1].id == 0 &&
+		gserial_ports[gser->port_num].serial_type == USB_FSER_FUNC_MODEM_MDM) {
+		status = usb_string_id(c->cdev);
+		if (status < 0)
+			return status;
+		modem_string_defs[1].id = status;
+	}
+
+	switch (gserial_ports[gser->port_num].serial_type) {
+	case USB_FSER_FUNC_MODEM:
+		gser->port.func.name = "modem";
+		gser->port.func.strings = modem_strings;
+		gser_interface_desc.iInterface = modem_string_defs[0].id;
+		break;
+	case USB_FSER_FUNC_MODEM_MDM:
+		gser->port.func.name = "modem_mdm";
+		gser->port.func.strings = modem_strings;
+		gser_interface_desc.iInterface = modem_string_defs[1].id;
+		break;
+	case USB_FSER_FUNC_AUTOBOT:
+	case USB_FSER_FUNC_SERIAL:
+		gser->port.func.name = "serial";
+		gser->port.func.strings = gser_strings;
+		gser_interface_desc.iInterface = gser_string_defs[0].id;
+		break;
+	default:
+		break;
+	}
+
+	
 	status = usb_interface_id(c, f);
 	if (status < 0)
 		goto fail;
@@ -1163,27 +1227,29 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Al Borchers");
 MODULE_AUTHOR("David Brownell");
 
-/**
- * gserial_init_port - bind a gserial_port to its transport
- */
+extern enum fserial_func_type serial_str_to_func_type(const char *name); 
 int gserial_init_port(int port_num, const char *name,
 		const char *port_name)
 {
 	enum transport_type transport;
+	enum fserial_func_type serial_type; 
 	int ret = 0;
 
 	if (port_num >= GSERIAL_NO_PORTS)
 		return -ENODEV;
 
 	transport = str_to_xport(name);
+	serial_type = serial_str_to_func_type(port_name); 
 	pr_debug("%s, port:%d, transport:%s\n", __func__,
 			port_num, xport_to_str(transport));
 
 	gserial_ports[port_num].transport = transport;
 	gserial_ports[port_num].port_num = port_num;
+	gserial_ports[port_num].serial_type = serial_type; 
 
 	switch (transport) {
 	case USB_GADGET_XPORT_TTY:
+		gserial_ports[port_num].client_port_num = no_tty_ports; 
 		no_tty_ports++;
 		break;
 	case USB_GADGET_XPORT_SMD:

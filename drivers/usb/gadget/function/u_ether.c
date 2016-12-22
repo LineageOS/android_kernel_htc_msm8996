@@ -131,7 +131,9 @@ struct eth_dev {
 	u8			host_mac[ETH_ALEN];
 	u8			dev_mac[ETH_ALEN];
 
-	/* stats */
+	int			miMaxMtu;
+
+	
 	unsigned long		tx_throttle;
 	unsigned long		rx_throttle;
 	unsigned int		tx_aggr_cnt[DL_MAX_PKTS_PER_XFER];
@@ -228,7 +230,8 @@ module_param(u_ether_rx_pending_thld, uint, S_IRUGO | S_IWUSR);
 #define INFO(dev, fmt, args...) \
 	xprintk(dev , KERN_INFO , fmt , ## args)
 
-/*-------------------------------------------------------------------------*/
+static struct eth_dev *the_dev;
+
 
 /* NETWORK DRIVER HOOKUP (to the layer above this driver) */
 
@@ -237,12 +240,17 @@ static int ueth_change_mtu(struct net_device *net, int new_mtu)
 	struct eth_dev	*dev = netdev_priv(net);
 	unsigned long	flags;
 	int		status = 0;
+	int 		iMaxMtuSet = ETH_FRAME_LEN;
 
-	/* don't change MTU on "live" link (peer won't know) */
+	if (the_dev) {
+		if (the_dev->miMaxMtu == ETH_FRAME_LEN_MAX - ETH_HLEN)
+			iMaxMtuSet = ETH_FRAME_LEN_MAX - ETH_HLEN;
+	}
+	
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->port_usb)
 		status = -EBUSY;
-	else if (new_mtu <= ETH_HLEN || new_mtu > ETH_FRAME_LEN)
+	else if (new_mtu <= ETH_HLEN || new_mtu > iMaxMtuSet)
 		status = -ERANGE;
 	else
 		net->mtu = new_mtu;
@@ -431,7 +439,8 @@ static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 		DBG(dev, "rx %s reset\n", ep->name);
 		defer_kevent(dev, WORK_RX_MEMORY);
 quiesce:
-		dev_kfree_skb_any(skb);
+		if (skb)
+			dev_kfree_skb_any(skb);
 		goto clean;
 
 	/* data overrun */
@@ -653,15 +662,19 @@ static void process_rx_w(struct work_struct *work)
 	struct eth_dev	*dev = container_of(work, struct eth_dev, rx_work);
 	struct sk_buff	*skb;
 	int		status = 0;
+	unsigned int	uiCurMtu = 0;
 
 	if (!dev->port_usb)
 		return;
 
 	set_wake_up_idle(true);
+	uiCurMtu = dev->net->mtu + ETH_HLEN;
+	if ((uiCurMtu <= ETH_HLEN) || (uiCurMtu > ETH_FRAME_LEN_MAX))
+		uiCurMtu = ETH_FRAME_LEN;
 	while ((skb = skb_dequeue(&dev->rx_frames))) {
 		if (status < 0
 				|| ETH_HLEN > skb->len
-				|| (skb->len > ETH_FRAME_LEN &&
+				|| (skb->len > uiCurMtu &&
 				test_bit(RMNET_MODE_LLP_ETH, &dev->flags))) {
 			dev->net->stats.rx_errors++;
 			dev->net->stats.rx_length_errors++;
@@ -1071,6 +1084,14 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	bool			multi_pkt_xfer = false;
 	u32			fixed_in_len;
 	bool			is_fixed;
+
+	if ((!skb) || (IS_ERR(skb)))
+		return NETDEV_TX_OK;
+
+	if ((!net) || (IS_ERR(net)))
+		return NETDEV_TX_OK;
+
+	length = skb->len;
 
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->port_usb) {
@@ -1706,6 +1727,7 @@ struct eth_dev *gether_setup_name(struct usb_gadget *g,
 	struct net_device	*net;
 	int			status;
 
+
 	net = alloc_etherdev(sizeof *dev);
 	if (!net)
 		return ERR_PTR(-ENOMEM);
@@ -1818,6 +1840,8 @@ struct net_device *gether_setup_name_default(const char *netname)
 	set_bit(RMNET_MODE_LLP_ETH, &dev->flags);
 
 	SET_NETDEV_DEVTYPE(net, &gadget_type);
+
+	the_dev = dev;
 
 	return net;
 }
@@ -1993,8 +2017,15 @@ void gether_cleanup(struct eth_dev *dev)
 	cancel_work_sync(&dev->rx_work);
 	cancel_work_sync(&dev->tx_work);
 	free_netdev(dev->net);
+	the_dev = NULL;
 }
 EXPORT_SYMBOL_GPL(gether_cleanup);
+
+int gether_change_mtu(int new_mtu)
+{
+	struct eth_dev *dev = the_dev;
+	return ueth_change_mtu(dev->net, new_mtu);
+}
 
 void gether_update_dl_max_xfer_size(struct gether *link, uint32_t s)
 {

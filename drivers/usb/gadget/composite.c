@@ -28,6 +28,10 @@
 #define SSUSB_GADGET_VBUS_DRAW_UNITS 8
 #define HSUSB_GADGET_VBUS_DRAW_UNITS 2
 
+#define MAC_FIRST_DT_LENGTH  18
+#define WIN_LINUX_FIRST_DT1_LENGTH 8
+#define WIN_LINUX_FIRST_DT2_LENGTH 64
+
 static bool enable_l1_for_hs;
 module_param(enable_l1_for_hs, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(enable_l1_for_hs, "Enable support for L1 LPM for HS devices");
@@ -48,12 +52,15 @@ struct usb_os_string {
 	__u8	bPad;
 } __packed;
 
-/*
- * The code in this file is utility code, used to build a gadget driver
- * from one or more "function" drivers, one or more "configuration"
- * objects, and a "usb_composite_driver" by gluing them together along
- * with the relevant device-wide data.
- */
+
+enum {
+	OS_NOT_YET,
+	OS_MAC,
+	OS_LINUX,
+	OS_WINDOWS,
+};
+
+static int os_type;
 
 static struct usb_gadget_strings **get_containers_gs(
 		struct usb_gadget_string_container *uc)
@@ -476,6 +483,10 @@ static u8 encode_bMaxPower(enum usb_device_speed speed,
 	}
 }
 
+extern struct usb_descriptor_header *ss_mtp_descs[];
+extern struct usb_descriptor_header *hs_mtp_descs[];
+extern struct usb_descriptor_header *fs_mtp_descs[];
+
 static int config_buf(struct usb_configuration *config,
 		enum usb_device_speed speed, void *buf, u8 type)
 {
@@ -514,12 +525,18 @@ static int config_buf(struct usb_configuration *config,
 		switch (speed) {
 		case USB_SPEED_SUPER:
 			descriptors = f->ss_descriptors;
+			if (!strcmp("mtp", f->name) && (os_type == OS_MAC))
+				descriptors = ss_mtp_descs;
 			break;
 		case USB_SPEED_HIGH:
 			descriptors = f->hs_descriptors;
+			if (!strcmp("mtp", f->name) && (os_type == OS_MAC))
+				descriptors = hs_mtp_descs;
 			break;
 		default:
 			descriptors = f->fs_descriptors;
+			if (!strcmp("mtp", f->name) && (os_type == OS_MAC))
+				descriptors = fs_mtp_descs;
 		}
 
 		if (!descriptors)
@@ -1043,6 +1060,11 @@ void usb_remove_config(struct usb_composite_dev *cdev,
 
 	spin_unlock_irqrestore(&cdev->lock, flags);
 
+	os_type = OS_NOT_YET;
+#ifdef CONFIG_HTC_USB_DEBUG_FLAG
+	printk("[USB]%s unbind+\n",__func__);
+#endif
+
 	unbind_config(cdev, config);
 }
 
@@ -1446,6 +1468,57 @@ static void composite_setup_complete(struct usb_ep *ep, struct usb_request *req)
 				req->status, req->actual, req->length);
 }
 
+/*
+ * Copyright (C) 2015 HTC, Inc.
+ * Author: HTC USB Team
+ * The following two functions are used for get OS_type for HTC device.
+ * In tranditional design,the length of request USB_DT_CONFIG will
+ * different. MAC is 4, Windows is 255, Linux is 9. But for MAC 10.11,
+ * both MAC/LINUX is 9. Therefore, the design check_MAC_or_LINUX is use
+ * for distinguish OS_type. This function will store the first length
+ * of USB_DT_STRING and USB_DT_DEVICE and base on the value to get os
+ * type.
+ * 1. The length of first USB_DT_STRING is 2 and USB_DT_DEVICE is 18
+ * for MAC.
+ * 2. The length of first USB_DT_DEVICE is 8/64 for Windows/Linux.
+ */
+static void check_MAC_or_LINUX(int first_dt_length, int first_string_length)
+{
+	switch (first_dt_length)
+	{
+		case MAC_FIRST_DT_LENGTH:
+			if (first_string_length == 2)
+				os_type = OS_MAC;
+			break;
+		case WIN_LINUX_FIRST_DT1_LENGTH:
+		case WIN_LINUX_FIRST_DT2_LENGTH:
+			os_type = OS_LINUX;
+			break;
+		default:
+			break;
+	}
+
+	if (os_type == OS_LINUX)
+		pr_info("%s: Re detect as OS_LINUX \n", __func__);
+	else if (os_type == OS_MAC)
+		pr_info("%s: Re detect as OS_MAC \n", __func__);
+	else
+		pr_info("unknown os type\n");
+}
+
+static void get_os_type(int length)
+{
+	if (length == 4) {
+		pr_info("%s: OS_MAC\n", __func__);
+		os_type = OS_MAC;
+	} else if (length == 255) {
+		pr_info("%s: OS_WINDOWS\n", __func__);
+		os_type = OS_WINDOWS;
+	} else if (length == 9 && os_type != OS_WINDOWS && os_type !=OS_MAC) {
+		check_MAC_or_LINUX(first_dt_w_length,first_string_w_length);
+	}
+}
+
 static int count_ext_compat(struct usb_configuration *c)
 {
 	int i, res;
@@ -1639,6 +1712,10 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		switch (w_value >> 8) {
 
 		case USB_DT_DEVICE:
+			if (first_dt_w_length == 0) {
+				first_dt_w_length = w_length;
+				printk("[USB] first_dt_w_length = %d \n",first_dt_w_length);
+			}
 			cdev->desc.bNumConfigurations =
 				count_configs(cdev, USB_DT_DEVICE);
 			if (cdev->desc.bNumConfigurations == 0) {
@@ -1685,6 +1762,7 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 				break;
 			/* FALLTHROUGH */
 		case USB_DT_CONFIG:
+			get_os_type(w_length);
 			spin_lock(&cdev->lock);
 			value = config_desc(cdev, w_value);
 			spin_unlock(&cdev->lock);
@@ -1692,6 +1770,10 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 				value = min(w_length, (u16) value);
 			break;
 		case USB_DT_STRING:
+			if (first_string_w_length == 0) {
+				first_string_w_length = w_length;
+				printk("[USB] first_string_w_length = %d \n",first_string_w_length);
+			}
 			spin_lock(&cdev->lock);
 			value = get_string(cdev, req->buf,
 					w_index, w_value & 0xff);
@@ -2040,8 +2122,10 @@ void composite_disconnect(struct usb_gadget *gadget)
 		}
 		reset_config(cdev);
 	}
-	if (cdev->driver->disconnect)
+	if (cdev->driver->disconnect) {
 		cdev->driver->disconnect(cdev);
+		os_type = OS_NOT_YET;
+	}
 	if (cdev->delayed_status != 0) {
 		INFO(cdev, "delayed status mismatch..resetting\n");
 		cdev->delayed_status = 0;
@@ -2049,7 +2133,21 @@ void composite_disconnect(struct usb_gadget *gadget)
 	spin_unlock_irqrestore(&cdev->lock, flags);
 }
 
-/*-------------------------------------------------------------------------*/
+void composite_mute_disconnect(struct usb_gadget *gadget)
+{
+	struct usb_composite_dev	*cdev = get_gadget_data(gadget);
+	unsigned long				flags;
+
+	spin_lock_irqsave(&cdev->lock, flags);
+	if (cdev->config)
+		reset_config(cdev);
+
+	if (cdev->delayed_status != 0) {
+		INFO(cdev, "delayed status mismatch..resetting\n");
+		cdev->delayed_status = 0;
+	}
+	spin_unlock_irqrestore(&cdev->lock, flags);
+}
 
 static ssize_t suspended_show(struct device *dev, struct device_attribute *attr,
 			      char *buf)
@@ -2357,6 +2455,8 @@ static const struct usb_gadget_driver composite_driver_template = {
 	.setup		= composite_setup,
 	.reset		= composite_disconnect,
 	.disconnect	= composite_disconnect,
+
+	.mute_disconnect = composite_mute_disconnect,   
 
 	.suspend	= composite_suspend,
 	.resume		= composite_resume,

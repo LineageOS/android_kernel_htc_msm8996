@@ -23,6 +23,22 @@
 
 #include <linux/err.h>
 
+/* DRIVER_SDLOG_FUNCTION*/
+#define SDLOG_ERR(fmt, args...) \
+	printk(KERN_ERR "[DIAGSDLOG:ERR] " fmt, ## args)
+#define SDLOG_WARNING(fmt, args...) \
+	printk(KERN_WARNING "[DIAGSDLOG] " fmt, ## args)
+#define SDLOG_INFO(fmt, args...) \
+	printk(KERN_INFO "[DIAGSDLOG] " fmt, ## args)
+#define SDLOG_DBUG(fmt, args...) \
+	do { \
+		if (diag7k_debug_mask) \
+			printk(KERN_INFO "[DIAGSDLOG] " fmt, ## args); \
+		else \
+			pr_debug("[DIAGSDLOG] " fmt, ## args); \
+	} while (0)
+#define DIAG_XPST 1        /*++ 2015/10/23, USB Team, PCN00026 ++*/
+/*-- 2015/07/15, USB Team, PCN00017 --*/
 #define DIAG_LEGACY		"diag"
 #define DIAG_MDM		"diag_mdm"
 #define DIAG_QSC		"diag_qsc"
@@ -81,5 +97,11 @@ int usb_diag_write(struct usb_diag_ch *ch, struct diag_request *d_req)
 {
 	return -ENODEV;
 }
+
 #endif /* CONFIG_USB_G_ANDROID */
+/*++ 2015/10/23, USB Team, PCN00026 ++*/
+int checkcmd_modem_epst(unsigned char *buf);
+int modem_to_userspace(void *buf, int r, int cmdtype, int is9k);
+extern int diag_initialized;
+/*-- 2015/10/23, USB Team, PCN00026 --*/
 #endif /* _DRIVERS_USB_DIAG_H_ */

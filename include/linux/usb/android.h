@@ -126,6 +126,11 @@ struct android_usb_platform_data {
 	int (*update_pid_and_serial_num)(uint32_t, const char *);
 	u32 pm_qos_latency[MAX_VOTES];
 	u8 usb_core_id;
+	const char *fserial_init_string;
+	const char *diag_client_interface;
+	const char *rmnet_transports_interface;
+	bool cdrom;
+	u32 nluns;
 };
 
 extern int gport_setup(struct usb_configuration *c);
@@ -142,4 +147,32 @@ int acm_port_setup(struct usb_configuration *c);
 void acm_port_cleanup(void);
 int acm_init_port(int port_num, const char *name);
 
-#endif	/* __LINUX_USB_ANDROID_H */
+enum fserial_func_type {
+	USB_FSER_FUNC_NONE,
+	USB_FSER_FUNC_SERIAL,
+	USB_FSER_FUNC_MODEM,
+	USB_FSER_FUNC_MODEM_MDM,
+	USB_FSER_FUNC_ACM,
+	USB_FSER_FUNC_AUTOBOT,
+};
+
+enum fserial_func_type serial_str_to_func_type(const char *name)
+{
+	if (!name)
+		return USB_FSER_FUNC_NONE;
+
+	if (!strcasecmp("MODEM", name))
+		return USB_FSER_FUNC_MODEM;
+	if (!strcasecmp("MODEM_MDM", name))
+		return USB_FSER_FUNC_MODEM_MDM;
+	if (!strcasecmp("SERIAL", name))
+		return USB_FSER_FUNC_SERIAL;
+	if (!strcasecmp("ACM", name))
+		return USB_FSER_FUNC_ACM;
+	if (!strcasecmp("AUTOBOT", name))
+		return USB_FSER_FUNC_AUTOBOT;
+
+	return USB_FSER_FUNC_NONE;
+}
+
+#endif	

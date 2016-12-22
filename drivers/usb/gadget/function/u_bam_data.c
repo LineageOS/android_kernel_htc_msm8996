@@ -1519,13 +1519,20 @@ int bam_data_connect(struct data_port *gr, enum transport_type trans,
 
 	usb_bam_type = usb_bam_get_bam_type(gr->cdev->gadget->name);
 
-	src_connection_idx = usb_bam_get_connection_idx(usb_bam_type,
+	ret = usb_bam_get_connection_idx(usb_bam_type,
 			IPA_P_BAM, USB_TO_PEER_PERIPHERAL, USB_BAM_DEVICE,
 			dev_port_num);
-	dst_connection_idx = usb_bam_get_connection_idx(usb_bam_type,
+	src_connection_idx = ret;
+	if (ret < 0) {
+		pr_err("%s: usb_bam_get_connection_idx failed\n", __func__);
+		return ret;
+	}
+
+	ret = usb_bam_get_connection_idx(usb_bam_type,
 			IPA_P_BAM, PEER_PERIPHERAL_TO_USB, USB_BAM_DEVICE,
 			dev_port_num);
-	if (src_connection_idx < 0 || dst_connection_idx < 0) {
+	dst_connection_idx = ret;
+	if (ret < 0) {
 		pr_err("%s: usb_bam_get_connection_idx failed\n", __func__);
 		return ret;
 	}

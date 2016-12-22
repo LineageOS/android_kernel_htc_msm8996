@@ -40,7 +40,7 @@
 #include <linux/configfs.h>
 #include <linux/usb/composite.h>
 
-#include "configfs.h"
+#include "../configfs.h"
 
 #define MTP_RX_BUFFER_INIT_SIZE    1048576
 #define MTP_BULK_BUFFER_SIZE       16384
@@ -86,6 +86,7 @@ module_param(mtp_tx_req_len, uint, S_IRUGO | S_IWUSR);
 
 unsigned int mtp_tx_reqs = MTP_TX_REQ_MAX;
 module_param(mtp_tx_reqs, uint, S_IRUGO | S_IWUSR);
+static int htc_mtp_open_state;
 
 static const char mtp_shortname[] = DRIVER_NAME "_usb";
 
@@ -241,23 +242,25 @@ static struct usb_ss_ep_comp_descriptor mtp_superspeed_intr_comp_desc = {
 	.wBytesPerInterval =	cpu_to_le16(INTR_BUFFER_SIZE),
 };
 
-static struct usb_descriptor_header *fs_mtp_descs[] = {
+struct usb_descriptor_header *fs_mtp_descs[] = { 
 	(struct usb_descriptor_header *) &mtp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_fullspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_fullspeed_out_desc,
 	(struct usb_descriptor_header *) &mtp_intr_desc,
 	NULL,
 };
+EXPORT_SYMBOL(fs_mtp_descs); 
 
-static struct usb_descriptor_header *hs_mtp_descs[] = {
+struct usb_descriptor_header *hs_mtp_descs[] = { 
 	(struct usb_descriptor_header *) &mtp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_highspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_highspeed_out_desc,
 	(struct usb_descriptor_header *) &mtp_intr_desc,
 	NULL,
 };
+EXPORT_SYMBOL(hs_mtp_descs); 
 
-static struct usb_descriptor_header *ss_mtp_descs[] = {
+struct usb_descriptor_header *ss_mtp_descs[] = { 
 	(struct usb_descriptor_header *) &mtp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_superspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_superspeed_in_comp_desc,
@@ -267,6 +270,7 @@ static struct usb_descriptor_header *ss_mtp_descs[] = {
 	(struct usb_descriptor_header *) &mtp_superspeed_intr_comp_desc,
 	NULL,
 };
+EXPORT_SYMBOL(ss_mtp_descs); 
 
 static struct usb_descriptor_header *fs_ptp_descs[] = {
 	(struct usb_descriptor_header *) &ptp_interface_desc,
@@ -982,9 +986,13 @@ static void receive_file_work(struct work_struct *data)
 			/* wait for our last read to complete */
 			ret = wait_event_interruptible(dev->read_wq,
 				dev->rx_done || dev->state != STATE_BUSY);
+			
 			if (dev->state == STATE_CANCELED
-					|| dev->state == STATE_OFFLINE) {
+					|| dev->state == STATE_OFFLINE
+					|| dev->state == STATE_ERROR) {
 				if (dev->state == STATE_OFFLINE)
+					r = -EIO;
+				else if (dev->state == STATE_ERROR)
 					r = -EIO;
 				else
 					r = -ECANCELED;
@@ -1241,6 +1249,7 @@ fail:
 static int mtp_open(struct inode *ip, struct file *fp)
 {
 	printk(KERN_INFO "mtp_open\n");
+	htc_mtp_open_state = 1;
 	if (mtp_lock(&_mtp_dev->open_excl)) {
 		pr_err("%s mtp_release not called returning EBUSY\n", __func__);
 		return -EBUSY;
@@ -1258,6 +1267,7 @@ static int mtp_release(struct inode *ip, struct file *fp)
 {
 	printk(KERN_INFO "mtp_release\n");
 
+	htc_mtp_open_state = 0;
 	mtp_unlock(&_mtp_dev->open_excl);
 	return 0;
 }
@@ -1541,6 +1551,12 @@ static int mtp_bind_config(struct usb_configuration *c, bool ptp_config)
 	dev->cdev = c->cdev;
 	dev->function.name = DRIVER_NAME;
 	dev->function.strings = mtp_strings;
+#if 1
+	dev->function.fs_descriptors = fs_ptp_descs;
+	dev->function.hs_descriptors = hs_ptp_descs;
+	if (gadget_is_superspeed(c->cdev->gadget))
+		dev->function.ss_descriptors = ss_ptp_descs;
+#else
 	if (ptp_config) {
 		dev->function.fs_descriptors = fs_ptp_descs;
 		dev->function.hs_descriptors = hs_ptp_descs;
@@ -1552,6 +1568,7 @@ static int mtp_bind_config(struct usb_configuration *c, bool ptp_config)
 		if (gadget_is_superspeed(c->cdev->gadget))
 			dev->function.ss_descriptors = ss_mtp_descs;
 	}
+#endif
 	dev->function.bind = mtp_function_bind;
 	dev->function.unbind = mtp_function_unbind;
 	dev->function.set_alt = mtp_function_set_alt;
@@ -1705,6 +1722,7 @@ static int __mtp_setup(struct mtp_instance *fi_mtp)
 	INIT_WORK(&dev->receive_file_work, receive_file_work);
 
 	_mtp_dev = dev;
+	htc_mtp_open_state = 0;
 
 	ret = misc_register(&mtp_device);
 	if (ret)
