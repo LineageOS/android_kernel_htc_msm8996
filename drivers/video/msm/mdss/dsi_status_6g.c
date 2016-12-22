@@ -76,6 +76,15 @@ static bool mdss_check_te_status_v2(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 	return ret;
 }
 
+/*
+ * mdss_check_dsi_ctrl_status() - Check MDP5 DSI controller status periodically.
+ * @work     : dsi controller status data
+ * @interval : duration in milliseconds to schedule work queue
+ *
+ * This function calls check_status API on DSI controller to send the BTA
+ * command. If DSI controller fails to acknowledge the BTA command, it sends
+ * the PANEL_ALIVE=0 status to HAL layer.
+ */
 void mdss_check_dsi_ctrl_status(struct work_struct *work, uint32_t interval)
 {
 	struct dsi_status_data *pstatus_data = NULL;
