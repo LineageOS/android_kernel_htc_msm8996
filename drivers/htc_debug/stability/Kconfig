@@ -17,3 +17,8 @@ config HTC_DEBUG_RAMOOPS
 	help
 	  This enables panic and oops messages to be logged to a circular
 	  buffer in RAM where it can be read back at some later point.
+
+config HTC_DEBUG_SAVE_BOOT_MSG
+	default n
+	depends on HTC_DEBUG
+	bool "HTC debug: saving kernel log of booting to memory"
