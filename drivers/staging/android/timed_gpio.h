@@ -15,7 +15,12 @@
 
 #ifndef _LINUX_TIMED_GPIO_H
 #define _LINUX_TIMED_GPIO_H
-
+#define VIB_DBG_LOG(fmt, ...) \
+		printk(KERN_DEBUG "[VIB][DBG] " fmt, ##__VA_ARGS__)
+#define VIB_INFO_LOG(fmt, ...) \
+		printk(KERN_INFO "[VIB] " fmt, ##__VA_ARGS__)
+#define VIB_ERR_LOG(fmt, ...) \
+		printk(KERN_ERR "[VIB][ERR] " fmt, ##__VA_ARGS__)
 #define TIMED_GPIO_NAME "timed-gpio"
 
 struct timed_gpio {

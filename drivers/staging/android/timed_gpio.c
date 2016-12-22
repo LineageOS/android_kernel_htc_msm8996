@@ -20,7 +20,7 @@
 #include <linux/hrtimer.h>
 #include <linux/err.h>
 #include <linux/gpio.h>
-
+#include <linux/of_gpio.h>
 #include "timed_output.h"
 #include "timed_gpio.h"
 
@@ -40,6 +40,8 @@ static enum hrtimer_restart gpio_timer_func(struct hrtimer *timer)
 		container_of(timer, struct timed_gpio_data, timer);
 
 	gpio_direction_output(data->gpio, data->active_low ? 1 : 0);
+	VIB_INFO_LOG("off, active_low(%d)\n", data->active_low);
+
 	return HRTIMER_NORESTART;
 }
 
@@ -64,23 +66,88 @@ static void gpio_enable(struct timed_output_dev *dev, int value)
 		container_of(dev, struct timed_gpio_data, dev);
 	unsigned long	flags;
 
+	if(value < 0) {
+		VIB_INFO_LOG("%s unsupport value: %d\n", __func__, value);
+		return;
+	}
+	VIB_INFO_LOG("%s= %d\n", __func__, value);
+
 	spin_lock_irqsave(&data->lock, flags);
 
 	/* cancel previous timer and set GPIO according to value */
 	hrtimer_cancel(&data->timer);
+
 	gpio_direction_output(data->gpio, data->active_low ? !value : !!value);
 
-	if (value > 0) {
+	if(value > 0) {
+		VIB_INFO_LOG("on, active_low(%d)\n", data->active_low);
 		if (value > data->max_timeout)
 			value = data->max_timeout;
 
 		hrtimer_start(&data->timer,
 			ktime_set(value / 1000, (value % 1000) * 1000000),
 			HRTIMER_MODE_REL);
-	}
+	} else	//value = 0
+		VIB_INFO_LOG("off, active_low(%d)\n", data->active_low);
 
 	spin_unlock_irqrestore(&data->lock, flags);
 }
+
+#ifdef CONFIG_OF
+static int timed_gpio_dt_parse(struct device_node *node, struct timed_gpio_platform_data *pdata)
+{
+	int ret = 0;
+
+	ret = of_property_read_u32(node, "vib,gpio_used", (u32 *)&pdata->num_gpios);
+	if(ret) {
+		VIB_ERR_LOG("%s, vib,gpio_used error\n", __func__);
+		return ret;
+	}
+
+	ret = of_get_named_gpio(node, "vib,gpio", 0);
+	if(!gpio_is_valid(ret)) {
+		VIB_ERR_LOG("%s, vib,gpio error\n", __func__);
+		return -EINVAL;
+	}
+	else {
+		pdata->gpios = kzalloc(sizeof(struct timed_gpio), GFP_KERNEL);
+		pdata->gpios->gpio = ret;
+	}
+
+	ret = of_property_read_string(node, "vib,gpio_name", &pdata->gpios->name);
+	if(ret)
+	{
+		VIB_ERR_LOG("%s, vib,gpio_name error\n", __func__);
+		return ret;
+	}
+
+	ret = of_property_read_u32(node, "vib,gpio_timeout", (u32 *)&pdata->gpios->max_timeout);
+	if(ret) {
+		VIB_ERR_LOG("%s, vib,gpio_timeout error\n", __func__);
+		return ret;
+	}
+	VIB_INFO_LOG("%s, set max_timeout : %d\n", __func__, pdata->gpios->max_timeout);
+
+	ret = of_property_read_u32(node, "vib,active_low", (u32 *)&pdata->gpios->active_low);
+	if(ret)
+	{
+		VIB_ERR_LOG("%s, vib,active_low error\n", __func__);
+		return ret;
+	}
+
+	return 0;
+}
+static struct of_device_id timed_gpio_of_match[] = {
+	{ .compatible = "htc,timed_gpio_vibrator", },
+	{ },
+};
+MODULE_DEVICE_TABLE(of, timed_gpio_of_match);
+#else
+static int timed_gpio_dt_parse(struct device_node *node, struct timed_gpio_platform_data *pdata)
+{
+	return -ENODEV;
+}
+#endif
 
 static int timed_gpio_probe(struct platform_device *pdev)
 {
@@ -89,13 +156,27 @@ static int timed_gpio_probe(struct platform_device *pdev)
 	struct timed_gpio_data *gpio_data, *gpio_dat;
 	int i, ret;
 
-	if (!pdata)
-		return -EBUSY;
+	VIB_INFO_LOG	("%s,++++++++++++++++++\n", __func__);
+	if (!pdata) {
+		pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
+		ret = timed_gpio_dt_parse(pdev->dev.of_node, pdata);
+		if (IS_ERR(pdata))
+		{
+			VIB_INFO_LOG	("%s, dt parse error\n", __func__);
+			return PTR_ERR(pdata);
+		}
+	}
 
 	gpio_data = devm_kzalloc(&pdev->dev,
 			sizeof(struct timed_gpio_data) * pdata->num_gpios,
 			GFP_KERNEL);
 	if (!gpio_data)
+		return -ENOMEM;
+
+	gpio_dat = devm_kzalloc(&pdev->dev,
+			sizeof(struct timed_gpio_data) * pdata->num_gpios,
+			GFP_KERNEL);
+	if (!gpio_dat)
 		return -ENOMEM;
 
 	for (i = 0; i < pdata->num_gpios; i++) {
@@ -111,9 +192,11 @@ static int timed_gpio_probe(struct platform_device *pdev)
 		gpio_dat->dev.get_time = gpio_get_time;
 		gpio_dat->dev.enable = gpio_enable;
 		ret = gpio_request(cur_gpio->gpio, cur_gpio->name);
+
 		if (ret < 0)
 			goto err_out;
 		ret = timed_output_dev_register(&gpio_dat->dev);
+
 		if (ret < 0) {
 			gpio_free(cur_gpio->gpio);
 			goto err_out;
@@ -124,9 +207,9 @@ static int timed_gpio_probe(struct platform_device *pdev)
 		gpio_dat->active_low = cur_gpio->active_low;
 		gpio_direction_output(gpio_dat->gpio, gpio_dat->active_low);
 	}
-
 	platform_set_drvdata(pdev, gpio_data);
 
+	VIB_INFO_LOG	("%s,----------------------\n", __func__);
 	return 0;
 
 err_out:
@@ -158,6 +241,7 @@ static struct platform_driver timed_gpio_driver = {
 	.driver		= {
 		.name		= TIMED_GPIO_NAME,
 		.owner		= THIS_MODULE,
+		.of_match_table = timed_gpio_of_match,
 	},
 };
 
