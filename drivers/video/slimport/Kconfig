@@ -1,0 +1,1 @@
+source "drivers/video/slimport/anx7816/Kconfig"
