@@ -202,6 +202,8 @@ source "drivers/gud/Kconfig"
 
 source "drivers/gud-htc/Kconfig"
 
+source "drivers/htc_debug/stability/Kconfig"
+
 source "drivers/htc_msm_serial/Kconfig"
 
 source "drivers/htc_ril/Kconfig"

@@ -1,0 +1,30 @@
+#
+# HTC_DEBUG stability Kconfig
+#
+
+config HTC_HELPER_FUNCTIONS
+	bool "HTC helper functions"
+	depends on HTC_DEBUG
+	default n
+	help
+	  Extract debug flag from kernel cmdline and define read-only
+	  functions to global kernel space
+
+config HTC_DEBUG_RAMOOPS
+	bool "Log panic/oops to a RAM buffer"
+	default n
+	depends on PSTORE_CONSOLE
+	help
+	  This enables panic and oops messages to be logged to a circular
+	  buffer in RAM where it can be read back at some later point.
+
+config HTC_REBOOT_BLOCK
+	bool "Store reboot reason / msg ...etc. in IMEM or storage"
+	default n
+	help
+	  Say Y here if you want the HTC Reboot Block features
+
+config HTC_DEBUG_SAVE_BOOT_MSG
+	default n
+	depends on HTC_DEBUG
+	bool "HTC debug: saving kernel log of booting to memory"
