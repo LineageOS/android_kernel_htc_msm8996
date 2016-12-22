@@ -28,15 +28,6 @@ config HTC_FEATURES_SSR
 	help
 	  Say Y here if you want the HTC style ssr features
 
-#HTC_AUD_START
-config HTC_DEBUG_DSP
-        bool "HTC debug feature for trigger ramdump when lpass related timeout"
-        depends on HTC_DEBUG
-        default n
-        help
-          This option enables the trigger ramdump when lpass command timeout.
-#HTC_AUD_END
-
 config HTC_FEATURES_SSR_MODEM_ENABLE
 	bool "HTC style modem ssr features"
 	depends on HTC_FEATURES_SSR

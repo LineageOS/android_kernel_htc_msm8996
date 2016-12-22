@@ -1067,13 +1067,8 @@ int msm_pcm_routing_reg_phy_compr_stream(int fe_id, int perf_mode,
 				mutex_unlock(&routing_lock);
 				return -EINVAL;
 			}
-#ifdef CONFIG_HTC_DEBUG_DSP
-			pr_err("%s: set idx bit of fe:%d, type: %d, be:%d, idex %d\n",
-				 __func__, fe_id, session_type, i, copp_idx);
-#else
 			pr_debug("%s: set idx bit of fe:%d, type: %d, be:%d\n",
 				 __func__, fe_id, session_type, i);
-#endif
 			set_bit(copp_idx,
 				&session_copp_map[fe_id][session_type][i]);
 
@@ -1225,13 +1220,8 @@ int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 				mutex_unlock(&routing_lock);
 				return -EINVAL;
 			}
-#ifdef CONFIG_HTC_DEBUG_DSP
-			pr_err("%s: setting idx bit of fe:%d, type: %d, be:%d, idex %d\n",
-				 __func__, fedai_id, session_type, i, copp_idx);
-#else
 			pr_debug("%s: setting idx bit of fe:%d, type: %d, be:%d\n",
 				 __func__, fedai_id, session_type, i);
-#endif
 			set_bit(copp_idx,
 				&session_copp_map[fedai_id][session_type][i]);
 
@@ -1340,13 +1330,8 @@ void msm_pcm_routing_dereg_phy_stream(int fedai_id, int stream_type)
 			topology = adm_get_topology_for_port_copp_idx(
 					msm_bedais[i].port_id, idx);
 			adm_close(msm_bedais[i].port_id, fdai->perf_mode, idx);
-#ifdef CONFIG_HTC_DEBUG_DSP
-			pr_debug("%s:copp:%ld,idx bit fe:%d,type:%d,be:%d, idx:%d\n",
-				 __func__, copp, fedai_id, session_type, i, idx);
-#else
 			pr_debug("%s:copp:%ld,idx bit fe:%d,type:%d,be:%d\n",
 				 __func__, copp, fedai_id, session_type, i);
-#endif
 			clear_bit(idx,
 				  &session_copp_map[fedai_id][session_type][i]);
 			if ((DOLBY_ADM_COPP_TOPOLOGY_ID == topology ||
@@ -1466,13 +1451,8 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 				mutex_unlock(&routing_lock);
 				return;
 			}
-#ifdef CONFIG_HTC_DEBUG_DSP
-			pr_err("%s: setting idx bit of fe:%d, type: %d, be:%d, idex %d\n",
-				 __func__, val, session_type, reg, copp_idx);
-#else
 			pr_debug("%s: setting idx bit of fe:%d, type: %d, be:%d\n",
 				 __func__, val, session_type, reg);
-#endif
 			set_bit(copp_idx,
 				&session_copp_map[val][session_type][reg]);
 
@@ -1521,15 +1501,9 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 								      idx);
 			adm_close(msm_bedais[reg].port_id, fdai->perf_mode,
 				  idx);
-#ifdef CONFIG_HTC_DEBUG_DSP
-			pr_err("%s: copp: %ld, reset idx bit fe:%d, type: %d, be:%d topology=0x%x, idx:%d\n",
-				 __func__, copp, val, session_type, reg,
-				 topology, idx);
-#else
 			pr_debug("%s: copp: %ld, reset idx bit fe:%d, type: %d, be:%d topology=0x%x\n",
 				 __func__, copp, val, session_type, reg,
 				 topology);
-#endif
 			clear_bit(idx,
 				  &session_copp_map[val][session_type][reg]);
 			if ((DOLBY_ADM_COPP_TOPOLOGY_ID == topology ||
@@ -9549,15 +9523,9 @@ static int msm_pcm_routing_close(struct snd_pcm_substream *substream)
 			topology = adm_get_topology_for_port_copp_idx(port_id,
 								     idx);
 			adm_close(bedai->port_id, fdai->perf_mode, idx);
-#ifdef CONFIG_HTC_DEBUG_DSP
-			pr_err("%s: copp:%ld,idx bit fe:%d, type:%d,be:%d topology=0x%x, idx:%d\n",
-				 __func__, copp, i, session_type, be_id,
-				 topology, idx);
-#else
 			pr_debug("%s: copp:%ld,idx bit fe:%d, type:%d,be:%d topology=0x%x\n",
 				 __func__, copp, i, session_type, be_id,
 				 topology);
-#endif
 			clear_bit(idx,
 				  &session_copp_map[i][session_type][be_id]);
 			if ((fdai->perf_mode == LEGACY_PCM_MODE) &&
@@ -9666,13 +9634,8 @@ static int msm_pcm_routing_prepare(struct snd_pcm_substream *substream)
 				mutex_unlock(&routing_lock);
 				return -EINVAL;
 			}
-#ifdef CONFIG_HTC_DEBUG_DSP
-			pr_err("%s: setting idx bit of fe:%d, type: %d, be:%d, idx %d\n",
-				 __func__, i, session_type, be_id, copp_idx);
-#else
 			pr_debug("%s: setting idx bit of fe:%d, type: %d, be:%d\n",
 				 __func__, i, session_type, be_id);
-#endif
 			set_bit(copp_idx,
 				&session_copp_map[i][session_type][be_id]);
 

@@ -933,9 +933,6 @@ static int msm_pcm_hw_params(struct snd_pcm_substream *substream,
 	if (ret < 0) {
 		pr_err("Audio Start: Buffer Allocation failed rc = %d\n",
 							ret);
-#ifdef CONFIG_HTC_DEBUG_DSP
-		BUG();
-#endif
 		return -ENOMEM;
 	}
 	buf = prtd->audio_client->port[dir].buf;

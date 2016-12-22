@@ -873,9 +873,6 @@ static int afe_spk_ramp_dn_cfg(int port)
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
 		ret = -EINVAL;
-#ifdef CONFIG_HTC_DEBUG_DSP
-		BUG();
-#endif
 		goto fail_cmd;
 	}
 	if (atomic_read(&this_afe.status) > 0) {
@@ -983,9 +980,6 @@ static int afe_spk_prot_prepare(int src_port, int dst_port, int param_id,
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
 		ret = -EINVAL;
-#ifdef CONFIG_HTC_DEBUG_DSP
-		BUG();
-#endif
 		goto fail_cmd;
 	}
 	if (atomic_read(&this_afe.status) > 0) {
@@ -2068,9 +2062,6 @@ int afe_send_spdif_clk_cfg(struct afe_param_id_spdif_clk_cfg *cfg,
 		pr_err("%s: wait_event timeout\n",
 				__func__);
 		ret = -EINVAL;
-#ifdef CONFIG_HTC_DEBUG_DSP
-		BUG();
-#endif
 		goto fail_cmd;
 	}
 	if (atomic_read(&this_afe.status) > 0) {
@@ -2150,9 +2141,6 @@ int afe_send_spdif_ch_status_cfg(struct afe_param_id_spdif_ch_status_cfg
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n",
 				__func__);
-#ifdef CONFIG_HTC_DEBUG_DSP
-		BUG();
-#endif
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -3817,9 +3805,6 @@ int afe_cmd_memory_map(phys_addr_t dma_addr_p, u32 dma_buf_sz)
 				 msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
 		pr_err("%s: wait_event timeout\n", __func__);
-#ifdef CONFIG_HTC_DEBUG_DSP
-		BUG();
-#endif
 		ret = -EINVAL;
 		goto fail_cmd;
 	}

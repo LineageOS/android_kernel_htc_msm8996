@@ -193,9 +193,6 @@ snd-soc-tas2552-objs := tas2552.o
 #HTC_AUD_START
 snd-soc-rt5503-objs := rt5503.o rt5503-regmap.o
 obj-$(CONFIG_SND_SOC_RT5503)	+= snd-soc-rt5503.o
-ifdef CONFIG_HTC_DEBUG_DSP
-CFLAGS_wcd-mbhc-v2.o :=-DDEBUG
-endif
 #HTC_AUD_END
 
 
