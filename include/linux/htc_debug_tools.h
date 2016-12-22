@@ -20,13 +20,4 @@
  */
 unsigned long htc_debug_get_sched_clock_ms(void);
 
-#if defined(CONFIG_HTC_DEBUG_BOOTLOADER_LOG)
-ssize_t bldr_log_read_once(char __user *userbuf, ssize_t klog_size);
-ssize_t bldr_last_log_read_once(char __user *userbuf, ssize_t klog_size);
-ssize_t bldr_log_read(const void *lastk_buf, ssize_t lastk_size, char __user *userbuf,
-		size_t count, loff_t *ppos);
-int bldr_log_init(void);
-void bldr_log_release(void);
-#endif
-
 #endif /* __HTC_DEBUG_TOOLS_H__ */
