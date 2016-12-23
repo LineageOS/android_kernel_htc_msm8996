@@ -236,7 +236,12 @@ extern int mmc_simple_transfer(struct mmc_card *card,
 
 int mmc_ffu_invoke(struct mmc_card *card, const char *name);
 
-
+/**
+ *	mmc_claim_host - exclusively claim a host
+ *	@host: mmc host to claim
+ *
+ *	Claim a host for a set of operations.
+ */
 static inline void mmc_claim_host(struct mmc_host *host)
 {
 	__mmc_claim_host(host, NULL);

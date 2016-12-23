@@ -365,62 +365,62 @@ struct mmc_host {
 	u32			max_current_300;
 	u32			max_current_180;
 
-#define MMC_VDD_165_195		0x00000080	
-#define MMC_VDD_20_21		0x00000100	
-#define MMC_VDD_21_22		0x00000200	
-#define MMC_VDD_22_23		0x00000400	
-#define MMC_VDD_23_24		0x00000800	
-#define MMC_VDD_24_25		0x00001000	
-#define MMC_VDD_25_26		0x00002000	
-#define MMC_VDD_26_27		0x00004000	
-#define MMC_VDD_27_28		0x00008000	
-#define MMC_VDD_28_29		0x00010000	
-#define MMC_VDD_29_30		0x00020000	
-#define MMC_VDD_30_31		0x00040000	
-#define MMC_VDD_31_32		0x00080000	
-#define MMC_VDD_32_33		0x00100000	
-#define MMC_VDD_33_34		0x00200000	
-#define MMC_VDD_34_35		0x00400000	
-#define MMC_VDD_35_36		0x00800000	
+#define MMC_VDD_165_195		0x00000080	/* VDD voltage 1.65 - 1.95 */
+#define MMC_VDD_20_21		0x00000100	/* VDD voltage 2.0 ~ 2.1 */
+#define MMC_VDD_21_22		0x00000200	/* VDD voltage 2.1 ~ 2.2 */
+#define MMC_VDD_22_23		0x00000400	/* VDD voltage 2.2 ~ 2.3 */
+#define MMC_VDD_23_24		0x00000800	/* VDD voltage 2.3 ~ 2.4 */
+#define MMC_VDD_24_25		0x00001000	/* VDD voltage 2.4 ~ 2.5 */
+#define MMC_VDD_25_26		0x00002000	/* VDD voltage 2.5 ~ 2.6 */
+#define MMC_VDD_26_27		0x00004000	/* VDD voltage 2.6 ~ 2.7 */
+#define MMC_VDD_27_28		0x00008000	/* VDD voltage 2.7 ~ 2.8 */
+#define MMC_VDD_28_29		0x00010000	/* VDD voltage 2.8 ~ 2.9 */
+#define MMC_VDD_29_30		0x00020000	/* VDD voltage 2.9 ~ 3.0 */
+#define MMC_VDD_30_31		0x00040000	/* VDD voltage 3.0 ~ 3.1 */
+#define MMC_VDD_31_32		0x00080000	/* VDD voltage 3.1 ~ 3.2 */
+#define MMC_VDD_32_33		0x00100000	/* VDD voltage 3.2 ~ 3.3 */
+#define MMC_VDD_33_34		0x00200000	/* VDD voltage 3.3 ~ 3.4 */
+#define MMC_VDD_34_35		0x00400000	/* VDD voltage 3.4 ~ 3.5 */
+#define MMC_VDD_35_36		0x00800000	/* VDD voltage 3.5 ~ 3.6 */
 
-	u32			caps;		
+	u32			caps;		/* Host capabilities */
 	u32                     caps_uhs;       
 
-#define MMC_CAP_4_BIT_DATA	(1 << 0)	
-#define MMC_CAP_MMC_HIGHSPEED	(1 << 1)	
-#define MMC_CAP_SD_HIGHSPEED	(1 << 2)	
-#define MMC_CAP_SDIO_IRQ	(1 << 3)	
-#define MMC_CAP_SPI		(1 << 4)	
-#define MMC_CAP_NEEDS_POLL	(1 << 5)	
-#define MMC_CAP_8_BIT_DATA	(1 << 6)	
-#define MMC_CAP_AGGRESSIVE_PM	(1 << 7)	
-#define MMC_CAP_NONREMOVABLE	(1 << 8)	
-#define MMC_CAP_WAIT_WHILE_BUSY	(1 << 9)	
-#define MMC_CAP_ERASE		(1 << 10)	
-#define MMC_CAP_1_8V_DDR	(1 << 11)	
-						
-#define MMC_CAP_1_2V_DDR	(1 << 12)	
-						
-#define MMC_CAP_POWER_OFF_CARD	(1 << 13)	
-#define MMC_CAP_BUS_WIDTH_TEST	(1 << 14)	
-#define MMC_CAP_UHS_SDR12	(1 << 15)	
-#define MMC_CAP_UHS_SDR25	(1 << 16)	
-#define MMC_CAP_UHS_SDR50	(1 << 17)	
-#define MMC_CAP_UHS_SDR104	(1 << 18)	
-#define MMC_CAP_UHS_DDR50	(1 << 19)	
-#define MMC_CAP_RUNTIME_RESUME	(1 << 20)	
-#define MMC_CAP_DRIVER_TYPE_A	(1 << 23)	
-#define MMC_CAP_DRIVER_TYPE_C	(1 << 24)	
-#define MMC_CAP_DRIVER_TYPE_D	(1 << 25)	
-#define MMC_CAP_CMD23		(1 << 30)	
-#define MMC_CAP_HW_RESET	(1 << 31)	
+#define MMC_CAP_4_BIT_DATA	(1 << 0)	/* Can the host do 4 bit transfers */
+#define MMC_CAP_MMC_HIGHSPEED	(1 << 1)	/* Can do MMC high-speed timing */
+#define MMC_CAP_SD_HIGHSPEED	(1 << 2)	/* Can do SD high-speed timing */
+#define MMC_CAP_SDIO_IRQ	(1 << 3)	/* Can signal pending SDIO IRQs */
+#define MMC_CAP_SPI		(1 << 4)	/* Talks only SPI protocols */
+#define MMC_CAP_NEEDS_POLL	(1 << 5)	/* Needs polling for card-detection */
+#define MMC_CAP_8_BIT_DATA	(1 << 6)	/* Can the host do 8 bit transfers */
+#define MMC_CAP_AGGRESSIVE_PM	(1 << 7)	/* Suspend (e)MMC/SD at idle  */
+#define MMC_CAP_NONREMOVABLE	(1 << 8)	/* Nonremovable e.g. eMMC */
+#define MMC_CAP_WAIT_WHILE_BUSY	(1 << 9)	/* Waits while card is busy */
+#define MMC_CAP_ERASE		(1 << 10)	/* Allow erase/trim commands */
+#define MMC_CAP_1_8V_DDR	(1 << 11)	/* can support */
+						/* DDR mode at 1.8V */
+#define MMC_CAP_1_2V_DDR	(1 << 12)	/* can support */
+						/* DDR mode at 1.2V */
+#define MMC_CAP_POWER_OFF_CARD	(1 << 13)	/* Can power off after boot */
+#define MMC_CAP_BUS_WIDTH_TEST	(1 << 14)	/* CMD14/CMD19 bus width ok */
+#define MMC_CAP_UHS_SDR12	(1 << 15)	/* Host supports UHS SDR12 mode */
+#define MMC_CAP_UHS_SDR25	(1 << 16)	/* Host supports UHS SDR25 mode */
+#define MMC_CAP_UHS_SDR50	(1 << 17)	/* Host supports UHS SDR50 mode */
+#define MMC_CAP_UHS_SDR104	(1 << 18)	/* Host supports UHS SDR104 mode */
+#define MMC_CAP_UHS_DDR50	(1 << 19)	/* Host supports UHS DDR50 mode */
+#define MMC_CAP_RUNTIME_RESUME	(1 << 20)	/* Resume at runtime_resume. */
+#define MMC_CAP_DRIVER_TYPE_A	(1 << 23)	/* Host supports Driver Type A */
+#define MMC_CAP_DRIVER_TYPE_C	(1 << 24)	/* Host supports Driver Type C */
+#define MMC_CAP_DRIVER_TYPE_D	(1 << 25)	/* Host supports Driver Type D */
+#define MMC_CAP_CMD23		(1 << 30)	/* CMD23 supported. */
+#define MMC_CAP_HW_RESET	(1 << 31)	/* Hardware reset */
 
-	u32			caps2;		
+	u32			caps2;		/* More host capabilities */
 
-#define MMC_CAP2_BOOTPART_NOACC	(1 << 0)	
-#define MMC_CAP2_FULL_PWR_CYCLE	(1 << 2)	
-#define MMC_CAP2_HS200_1_8V_SDR	(1 << 5)        
-#define MMC_CAP2_HS200_1_2V_SDR	(1 << 6)        
+#define MMC_CAP2_BOOTPART_NOACC	(1 << 0)	/* Boot partition no access */
+#define MMC_CAP2_FULL_PWR_CYCLE	(1 << 2)	/* Can do full power cycle */
+#define MMC_CAP2_HS200_1_8V_SDR	(1 << 5)        /* can support */
+#define MMC_CAP2_HS200_1_2V_SDR	(1 << 6)        /* can support */
 #define MMC_CAP2_HS200		(MMC_CAP2_HS200_1_8V_SDR | \
 				 MMC_CAP2_HS200_1_2V_SDR)
 #define MMC_CAP2_HC_ERASE_SZ	(1 << 9)	/* High-capacity erase size */
@@ -486,8 +486,8 @@ struct mmc_host {
 	unsigned int		removed:1;	/* host is being removed */
 #endif
 
-	int			rescan_disable;	
-	int			rescan_entered;	
+	int			rescan_disable;	/* disable card detection */
+	int			rescan_entered;	/* used with nonremovable devices */
 	int			retry_disable;	
 
 	bool			trigger_card_event; /* card_event necessary */
@@ -502,7 +502,7 @@ struct mmc_host {
 	struct delayed_work	detect;
 	struct delayed_work	enable_detect;
 	struct delayed_work	stats_work;
-	int			detect_change;	
+	int			detect_change;	/* card detect flag */
 	struct mmc_slot		slot;
 
 	const struct mmc_bus_ops *bus_ops;	/* current bus driver */
@@ -561,10 +561,10 @@ struct mmc_host {
 
 	struct {
 
-		unsigned long rbytes_drv;  
-		unsigned long wbytes_drv;  
-		ktime_t rtime_drv;	   
-		ktime_t wtime_drv;	   
+		unsigned long rbytes_drv;  /* Rd bytes MMC Host  */
+		unsigned long wbytes_drv;  /* Wr bytes MMC Host  */
+		ktime_t rtime_drv;	   /* Rd time  MMC Host  */
+		ktime_t wtime_drv;	   /* Wr time  MMC Host  */
 
 		unsigned long rcount;		
 		unsigned long wcount;		
