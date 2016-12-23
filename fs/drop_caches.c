@@ -36,6 +36,7 @@ void drop_pagecache_sb(struct super_block *sb, void *unused)
 	spin_unlock(&inode_sb_list_lock);
 	iput(toput_inode);
 }
+EXPORT_SYMBOL(drop_pagecache_sb);
 
 static void drop_slab(void)
 {
