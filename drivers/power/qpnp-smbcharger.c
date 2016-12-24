@@ -10774,14 +10774,6 @@ static int smbchg_probe(struct spmi_device *spmi)
 		power_supply_set_present(chip->usb_psy, chip->usb_present);
 	}
 
-#ifdef CONFIG_HTC_BATT_PCN0006
-	if (get_kernel_flag() & KERNEL_FLAG_ENABLE_BMS_CHARGER_LOG)
-		smbchg_debug_mask = 0xFF;
-	else
-		smbchg_debug_mask = 0x06;
-	printk("smbchg_debug_mask=0x%X\n",smbchg_debug_mask);
-#endif 
-
 	rerun_hvdcp_det_if_necessary(chip);
 
 	dump_regs(chip);
