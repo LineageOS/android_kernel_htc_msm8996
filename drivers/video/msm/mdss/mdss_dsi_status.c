@@ -71,7 +71,7 @@ static void check_dsi_ctrl_status(struct work_struct *work)
 	}
 
 	te = &(pstatus_data->te);
-	pr_info("%s: count=%d, irq_en=%d\n", __func__, te->count, te->irq_enabled);
+	pr_debug("%s: count=%d, irq_en=%d\n", __func__, te->count, te->irq_enabled);
 
 	spin_lock_irqsave(&pstatus_data->te.spinlock, flag);
 	if (!te->irq_enabled) {
@@ -122,7 +122,7 @@ irqreturn_t hw_vsync_handler(int irq, void *data)
 			} else {
 				pr_info("%s: TE IRQ was already disabled\n", __func__);
 			}
-			pr_info("%s: count=%d\n", __func__, te->count);
+			pr_debug("%s: count=%d\n", __func__, te->count);
 			spin_unlock_irqrestore(&pstatus_data->te.spinlock, flag);
 		}
 	} else
