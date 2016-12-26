@@ -226,10 +226,25 @@ static void do_input_boost(struct work_struct *work)
 					msecs_to_jiffies(input_boost_ms));
 }
 
+static bool input_event_needs_boost(unsigned int type, unsigned int code, int value)
+{
+	if (type == EV_ABS && code == ABS_MT_TRACKING_ID && value != -1)
+		return true;
+
+	if (type == EV_KEY && value == 1 &&
+		(code == KEY_POWER || code == KEY_VOLUMEUP || code == KEY_VOLUMEDOWN))
+		return true;
+
+	return false;
+}
+
 static void cpuboost_input_event(struct input_handle *handle,
 		unsigned int type, unsigned int code, int value)
 {
 	u64 now;
+
+	if (!input_event_needs_boost(type, code, value))
+		return;
 
 	if (!input_boost_enabled)
 		return;
