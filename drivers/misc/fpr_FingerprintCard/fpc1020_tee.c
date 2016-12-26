@@ -371,6 +371,10 @@ static const struct attribute_group attribute_group = {
 	.attrs = attributes,
 };
 
+#ifdef CONFIG_CPU_BOOST
+extern void cpuboost_trigger_input_boost(void);
+#endif
+
 static irqreturn_t fpc1020_irq_handler(int irq, void *handle)
 {
 	struct fpc1020_data *fpc1020 = handle;
@@ -383,6 +387,10 @@ static irqreturn_t fpc1020_irq_handler(int irq, void *handle)
 		wake_lock_timeout(&fpc1020->ttw_wl,
 					msecs_to_jiffies(FPC_TTW_HOLD_TIME));
 	}
+
+#ifdef CONFIG_CPU_BOOST
+	cpuboost_trigger_input_boost();
+#endif
 
 	sysfs_notify(&fpc1020->dev->kobj, NULL, dev_attr_irq.attr.name);
 
