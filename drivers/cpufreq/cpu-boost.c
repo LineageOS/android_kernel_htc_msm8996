@@ -245,6 +245,25 @@ static int input_boost_task_main(void *data_unused)
 	return 0;
 }
 
+void cpuboost_trigger_input_boost(void)
+{
+	u64 now;
+
+	if (!input_boost_enabled)
+		return;
+
+	now = ktime_to_us(ktime_get());
+	if (now - last_input_time < MIN_INPUT_INTERVAL)
+		return;
+
+	cancel_delayed_work(&input_boost_rem);
+	wake_up_process(input_boost_task);
+	queue_delayed_work(cpu_boost_wq, &input_boost_rem, msecs_to_jiffies(input_boost_ms));
+
+	last_input_time = ktime_to_us(ktime_get());
+}
+EXPORT_SYMBOL(cpuboost_trigger_input_boost);
+
 static bool input_event_needs_boost(unsigned int type, unsigned int code, int value)
 {
 	if (type == EV_ABS && code == ABS_MT_TRACKING_ID && value != -1)
@@ -260,23 +279,10 @@ static bool input_event_needs_boost(unsigned int type, unsigned int code, int va
 static void cpuboost_input_event(struct input_handle *handle,
 		unsigned int type, unsigned int code, int value)
 {
-	u64 now;
-
 	if (!input_event_needs_boost(type, code, value))
 		return;
 
-	if (!input_boost_enabled)
-		return;
-
-	now = ktime_to_us(ktime_get());
-	if (now - last_input_time < MIN_INPUT_INTERVAL)
-		return;
-
-	cancel_delayed_work(&input_boost_rem);
-	wake_up_process(input_boost_task);
-	queue_delayed_work(cpu_boost_wq, &input_boost_rem, msecs_to_jiffies(input_boost_ms));
-
-	last_input_time = ktime_to_us(ktime_get());
+	cpuboost_trigger_input_boost();
 }
 
 static int cpuboost_input_connect(struct input_handler *handler,
