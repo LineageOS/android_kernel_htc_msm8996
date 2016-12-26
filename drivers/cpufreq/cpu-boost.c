@@ -18,6 +18,9 @@
 #include <linux/cpufreq.h>
 #include <linux/cpu.h>
 #include <linux/sched.h>
+#include <linux/sched/rt.h>
+#include <linux/jiffies.h>
+#include <linux/kthread.h>
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/input.h>
@@ -30,9 +33,10 @@ struct cpu_sync {
 };
 
 static DEFINE_PER_CPU(struct cpu_sync, sync_info);
+
 static struct workqueue_struct *cpu_boost_wq;
 
-static struct work_struct input_boost_work;
+static struct task_struct *input_boost_task;
 static bool input_boost_enabled;
 
 static unsigned int input_boost_ms = 40;
@@ -192,12 +196,11 @@ static void do_input_boost_rem(struct work_struct *work)
 	}
 }
 
-static void do_input_boost(struct work_struct *work)
+static void do_input_boost(void)
 {
 	unsigned int i, ret;
 	struct cpu_sync *i_sync_info;
 
-	cancel_delayed_work_sync(&input_boost_rem);
 	if (sched_boost_active) {
 		sched_set_boost(0);
 		sched_boost_active = false;
@@ -221,9 +224,25 @@ static void do_input_boost(struct work_struct *work)
 		else
 			sched_boost_active = true;
 	}
+}
 
-	queue_delayed_work(cpu_boost_wq, &input_boost_rem,
-					msecs_to_jiffies(input_boost_ms));
+static int input_boost_task_main(void *data_unused)
+{
+	while (1) {
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule();
+
+		if (kthread_should_stop())
+			break;
+
+		set_current_state(TASK_RUNNING);
+
+		get_online_cpus();
+		do_input_boost();
+		put_online_cpus();
+	}
+
+	return 0;
 }
 
 static void cpuboost_input_event(struct input_handle *handle,
@@ -238,10 +257,10 @@ static void cpuboost_input_event(struct input_handle *handle,
 	if (now - last_input_time < MIN_INPUT_INTERVAL)
 		return;
 
-	if (work_pending(&input_boost_work))
-		return;
+	cancel_delayed_work(&input_boost_rem);
+	wake_up_process(input_boost_task);
+	queue_delayed_work(cpu_boost_wq, &input_boost_rem, msecs_to_jiffies(input_boost_ms));
 
-	queue_work(cpu_boost_wq, &input_boost_work);
 	last_input_time = ktime_to_us(ktime_get());
 }
 
@@ -320,18 +339,25 @@ static int cpu_boost_init(void)
 {
 	int cpu, ret;
 	struct cpu_sync *s;
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
 
 	cpu_boost_wq = alloc_workqueue("cpuboost_wq", WQ_HIGHPRI, 0);
 	if (!cpu_boost_wq)
 		return -EFAULT;
 
-	INIT_WORK(&input_boost_work, do_input_boost);
 	INIT_DELAYED_WORK(&input_boost_rem, do_input_boost_rem);
 
 	for_each_possible_cpu(cpu) {
 		s = &per_cpu(sync_info, cpu);
 		s->cpu = cpu;
 	}
+
+	input_boost_task = kthread_create(input_boost_task_main, NULL, "input_boost_task");
+	if (likely(!IS_ERR(input_boost_task))) {
+		sched_setscheduler_nocheck(input_boost_task, SCHED_FIFO, &param);
+		get_task_struct(input_boost_task);
+	}
+
 	cpufreq_register_notifier(&boost_adjust_nb, CPUFREQ_POLICY_NOTIFIER);
 	ret = input_register_handler(&cpuboost_input_handler);
 
