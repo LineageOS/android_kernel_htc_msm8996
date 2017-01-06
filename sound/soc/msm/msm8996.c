@@ -140,7 +140,7 @@ static const char *const proxy_rx_ch_text[] = {"One", "Two", "Three", "Four",
 static char const *hdmi_rx_sample_rate_text[] = {"KHZ_48", "KHZ_96",
 					"KHZ_192"};
 
-static const char *const auxpcm_rate_text[] = {"8000", "16000"};
+static const char *const auxpcm_rate_text[] = {"KHZ_8", "KHZ_16"};
 static const struct soc_enum msm8996_auxpcm_enum[] = {
 		SOC_ENUM_SINGLE_EXT(2, auxpcm_rate_text),
 };
@@ -1604,7 +1604,20 @@ static int hdmi_rx_sample_rate_put(struct snd_kcontrol *kcontrol,
 static int msm8996_auxpcm_rate_get(struct snd_kcontrol *kcontrol,
 				      struct snd_ctl_elem_value *ucontrol)
 {
-	ucontrol->value.integer.value[0] = msm8996_auxpcm_rate;
+	int sample_rate_val;
+
+	switch (msm8996_auxpcm_rate) {
+	case SAMPLING_RATE_16KHZ:
+		sample_rate_val = 1;
+		break;
+
+	case SAMPLING_RATE_8KHZ:
+	default:
+		sample_rate_val = 0;
+		break;
+	}
+
+	ucontrol->value.integer.value[0] = sample_rate_val;
 	return 0;
 }
 
