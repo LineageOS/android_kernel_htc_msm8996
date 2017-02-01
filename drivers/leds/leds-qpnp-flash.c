@@ -1665,11 +1665,11 @@ unlock_mutex:
 
 turn_off:
 	if (flash_node->type == TORCH) {
-		/*
-		 * Checking LED fault status detects hardware open fault.
-		 * If fault occurs, all subsequent LED enablement requests
-		 * will be rejected to protect hardware.
-		 */
+	/*
+	 * Checking LED fault status detects hardware open fault.
+	 * If fault occurs, all subsequent LED enablement requests
+	 * will be rejected to protect hardware.
+	 */
 		rc = spmi_ext_register_readl(led->spmi_dev->ctrl,
 			led->spmi_dev->sid,
 			FLASH_LED_FAULT_STATUS(led->base), &val, 1);

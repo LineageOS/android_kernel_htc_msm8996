@@ -468,14 +468,14 @@
 #define WPA_AUTH_UNSPECIFIED	0x0002	/* over 802.1x */
 #define WPA_AUTH_PSK		0x0004	/* Pre-shared key */
 #if defined(BCMCCX) || defined(BCMEXTCCX)
-#define WPA_AUTH_CCKM		0x0008	
-#define WPA2_AUTH_CCKM		0x0010	
-#endif	
-	
-#define WPA2_AUTH_UNSPECIFIED	0x0040	
-#define WPA2_AUTH_PSK		0x0080	
-#define BRCM_AUTH_PSK           0x0100  
-#define BRCM_AUTH_DPT		0x0200	
+#define WPA_AUTH_CCKM		0x0008	/* CCKM */
+#define WPA2_AUTH_CCKM		0x0010	/* CCKM2 */
+#endif	/* BCMCCX || BCMEXTCCX */
+/* #define WPA_AUTH_8021X 0x0020 */	/* 802.1x, reserved */
+#define WPA2_AUTH_UNSPECIFIED	0x0040	/* over 802.1x */
+#define WPA2_AUTH_PSK		0x0080	/* Pre-shared key */
+#define BRCM_AUTH_PSK           0x0100  /* BRCM specific PSK */
+#define BRCM_AUTH_DPT		0x0200	/* DPT PSK without group keys */
 #if defined(BCMWAPI_WAI) || defined(BCMWAPI_WPI)
 #define WPA_AUTH_WAPI           0x0400
 #define WAPI_AUTH_NONE		WPA_AUTH_NONE	/* none (IBSS) */
@@ -518,14 +518,14 @@
 #define WLC_SET_MSGLEVEL			8
 #define WLC_GET_PROMISC				9
 #define WLC_SET_PROMISC				10
- 
+/* #define WLC_OVERLAY_IOCTL			11 */ /* not supported */
 #define WLC_GET_RATE				12
 #define WLC_GET_MAX_RATE			13
 #define WLC_GET_INSTANCE			14
- 
- 
- 
- 
+/* #define WLC_GET_FRAG				15 */ /* no longer supported */
+/* #define WLC_SET_FRAG				16 */ /* no longer supported */
+/* #define WLC_GET_RTS				17 */ /* no longer supported */
+/* #define WLC_SET_RTS				18 */ /* no longer supported */
 #define WLC_GET_INFRA				19
 #define WLC_SET_INFRA				20
 #define WLC_GET_AUTH				21
@@ -536,7 +536,7 @@
 #define WLC_SET_SSID				26
 #define WLC_RESTART				27
 #define WLC_TERMINATED				28
- 
+/* #define WLC_DUMP_SCB				28 */ /* no longer supported */
 #define WLC_GET_CHANNEL				29
 #define WLC_SET_CHANNEL				30
 #define WLC_GET_SRL				31
@@ -552,8 +552,8 @@
 #define WLC_SET_RATE_PARAMS			41
 #define WLC_GET_FIXRATE				42
 #define WLC_SET_FIXRATE				43
- 
- 
+/* #define WLC_GET_WEP				42 */ /* no longer supported */
+/* #define WLC_SET_WEP				43 */ /* no longer supported */
 #define WLC_GET_KEY				44
 #define WLC_SET_KEY				45
 #define WLC_GET_REGULATORY			46
@@ -575,15 +575,15 @@
 #define WLC_SET_TXANT				62
 #define WLC_GET_ANTDIV				63
 #define WLC_SET_ANTDIV				64
- 
- 
+/* #define WLC_GET_TXPWR			65 */ /* no longer supported */
+/* #define WLC_SET_TXPWR			66 */ /* no longer supported */
 #define WLC_GET_CLOSED				67
 #define WLC_SET_CLOSED				68
 #define WLC_GET_MACLIST				69
 #define WLC_SET_MACLIST				70
 #define WLC_GET_RATESET				71
 #define WLC_SET_RATESET				72
- 
+/* #define WLC_GET_LOCALE			73 */ /* no longer supported */
 #define WLC_LONGTRAIN				74
 #define WLC_GET_BCNPRD				75
 #define WLC_SET_BCNPRD				76
@@ -599,11 +599,11 @@
 #define WLC_SET_PM				86
 #define WLC_GET_WAKE				87
 #define WLC_SET_WAKE				88
- 
-#define WLC_GET_FORCELINK			90	
-#define WLC_SET_FORCELINK			91	
-#define WLC_FREQ_ACCURACY			92	
-#define WLC_CARRIER_SUPPRESS			93	
+/* #define WLC_GET_D11CNTS			89 */ /* -> "counters" iovar */
+#define WLC_GET_FORCELINK			90	/* ndis only */
+#define WLC_SET_FORCELINK			91	/* ndis only */
+#define WLC_FREQ_ACCURACY			92	/* diag */
+#define WLC_CARRIER_SUPPRESS			93	/* diag */
 #define WLC_GET_PHYREG				94
 #define WLC_SET_PHYREG				95
 #define WLC_GET_RADIOREG			96
@@ -613,7 +613,8 @@
 #define WLC_SET_UCANTDIV			100
 #define WLC_R_REG				101
 #define WLC_W_REG				102
- 
+/* #define WLC_DIAG_LOOPBACK			103	old tray diag */
+/* #define WLC_RESET_D11CNTS			104 */ /* -> "reset_d11cnts" iovar */
 #define WLC_GET_MACMODE				105
 #define WLC_SET_MACMODE				106
 #define WLC_GET_MONITOR				107
@@ -664,8 +665,8 @@
 #define WLC_GET_GMODE_PROTECTION_OVERRIDE	150
 #define WLC_SET_GMODE_PROTECTION_OVERRIDE	151
 #define WLC_UPGRADE				152
- 
- 
+/* #define WLC_GET_MRATE			153 */ /* no longer supported */
+/* #define WLC_SET_MRATE			154 */ /* no longer supported */
 #define WLC_GET_IGNORE_BCNS			155
 #define WLC_SET_IGNORE_BCNS			156
 #define WLC_GET_SCB_TIMEOUT			157
@@ -684,11 +685,11 @@
 #define WLC_GET_TSSI				170
 #define WLC_GET_SUP_RATESET_OVERRIDE		171
 #define WLC_SET_SUP_RATESET_OVERRIDE		172
- 
- 
- 
- 
- 
+/* #define WLC_SET_FAST_TIMER			173 */ /* no longer supported */
+/* #define WLC_GET_FAST_TIMER			174 */ /* no longer supported */
+/* #define WLC_SET_SLOW_TIMER			175 */ /* no longer supported */
+/* #define WLC_GET_SLOW_TIMER			176 */ /* no longer supported */
+/* #define WLC_DUMP_PHYREGS			177 */ /* no longer supported */
 #define WLC_GET_PROTECTION_CONTROL		178
 #define WLC_SET_PROTECTION_CONTROL		179
 #endif /* LINUX_POSTMOGRIFY_REMOVAL  */
@@ -709,10 +710,10 @@
 #define WLC_SET_PRB_RESP_TIMEOUT		193
 #define WLC_GET_ATTEN				194
 #define WLC_SET_ATTEN				195
-#define WLC_GET_SHMEM				196	
-#define WLC_SET_SHMEM				197	
- 
- 
+#define WLC_GET_SHMEM				196	/* diag */
+#define WLC_SET_SHMEM				197	/* diag */
+/* #define WLC_GET_GMODE_PROTECTION_CTS		198 */ /* no longer supported */
+/* #define WLC_SET_GMODE_PROTECTION_CTS		199 */ /* no longer supported */
 #define WLC_SET_WSEC_TEST			200
 #endif /* LINUX_POSTMOGRIFY_REMOVAL */
 #define WLC_SCB_DEAUTHENTICATE_FOR_REASON	201
@@ -749,14 +750,14 @@
 #define WLC_GET_WET				230
 #define WLC_SET_WET				231
 #define WLC_GET_PUB				232
- 
- 
+/* #define WLC_SET_GLACIAL_TIMER		233 */ /* no longer supported */
+/* #define WLC_GET_GLACIAL_TIMER		234 */ /* no longer supported */
 #define WLC_GET_KEY_PRIMARY			235
 #define WLC_SET_KEY_PRIMARY			236
 
 #ifndef LINUX_POSTMOGRIFY_REMOVAL
 
- 
+/* #define WLC_DUMP_RADIOREGS			237 */ /* no longer supported */
 #define WLC_GET_ACI_ARGS			238
 #define WLC_SET_ACI_ARGS			239
 #define WLC_UNSET_CALLBACK			240
@@ -807,39 +808,39 @@
 #define WLC_GET_DESIRED_BSSID			281
 #define WLC_SET_DESIRED_BSSID			282
 #define	WLC_DISASSOC_MYAP			283
-#define WLC_GET_NBANDS				284	
-#define WLC_GET_BANDSTATES			285	
-#define WLC_GET_WLC_BSS_INFO			286	
-#define WLC_GET_ASSOC_INFO			287	
-#define WLC_GET_OID_PHY				288	
-#define WLC_SET_OID_PHY				289	
-#define WLC_SET_ASSOC_TIME			290	
-#define WLC_GET_DESIRED_SSID			291	
-#define WLC_GET_CHANSPEC			292	
-#define WLC_GET_ASSOC_STATE			293	
-#define WLC_SET_PHY_STATE			294	
-#define WLC_GET_SCAN_PENDING			295	
-#define WLC_GET_SCANREQ_PENDING			296	
-#define WLC_GET_PREV_ROAM_REASON		297	
-#define WLC_SET_PREV_ROAM_REASON		298	
-#define WLC_GET_BANDSTATES_PI			299	
-#define WLC_GET_PHY_STATE			300	
-#define WLC_GET_BSS_WPA_RSN			301	
-#define WLC_GET_BSS_WPA2_RSN			302	
-#define WLC_GET_BSS_BCN_TS			303	
-#define WLC_GET_INT_DISASSOC			304	
-#define WLC_SET_NUM_PEERS			305     
-#define WLC_GET_NUM_BSS				306	
-#define WLC_PHY_SAMPLE_COLLECT			307	
-	
+#define WLC_GET_NBANDS				284	/* for Dongle EXT_STA support */
+#define WLC_GET_BANDSTATES			285	/* for Dongle EXT_STA support */
+#define WLC_GET_WLC_BSS_INFO			286	/* for Dongle EXT_STA support */
+#define WLC_GET_ASSOC_INFO			287	/* for Dongle EXT_STA support */
+#define WLC_GET_OID_PHY				288	/* for Dongle EXT_STA support */
+#define WLC_SET_OID_PHY				289	/* for Dongle EXT_STA support */
+#define WLC_SET_ASSOC_TIME			290	/* for Dongle EXT_STA support */
+#define WLC_GET_DESIRED_SSID			291	/* for Dongle EXT_STA support */
+#define WLC_GET_CHANSPEC			292	/* for Dongle EXT_STA support */
+#define WLC_GET_ASSOC_STATE			293	/* for Dongle EXT_STA support */
+#define WLC_SET_PHY_STATE			294	/* for Dongle EXT_STA support */
+#define WLC_GET_SCAN_PENDING			295	/* for Dongle EXT_STA support */
+#define WLC_GET_SCANREQ_PENDING			296	/* for Dongle EXT_STA support */
+#define WLC_GET_PREV_ROAM_REASON		297	/* for Dongle EXT_STA support */
+#define WLC_SET_PREV_ROAM_REASON		298	/* for Dongle EXT_STA support */
+#define WLC_GET_BANDSTATES_PI			299	/* for Dongle EXT_STA support */
+#define WLC_GET_PHY_STATE			300	/* for Dongle EXT_STA support */
+#define WLC_GET_BSS_WPA_RSN			301	/* for Dongle EXT_STA support */
+#define WLC_GET_BSS_WPA2_RSN			302	/* for Dongle EXT_STA support */
+#define WLC_GET_BSS_BCN_TS			303	/* for Dongle EXT_STA support */
+#define WLC_GET_INT_DISASSOC			304	/* for Dongle EXT_STA support */
+#define WLC_SET_NUM_PEERS			305     /* for Dongle EXT_STA support */
+#define WLC_GET_NUM_BSS				306	/* for Dongle EXT_STA support */
+#define WLC_PHY_SAMPLE_COLLECT			307	/* phy sample collect mode */
+/* #define WLC_UM_PRIV				308 */	/* Deprecated: usermode driver */
 #define WLC_GET_CMD				309
-	
-#define WLC_SET_INTERFERENCE_OVERRIDE_MODE	311	
-#define WLC_GET_INTERFERENCE_OVERRIDE_MODE	312	
-	
-	
-	
-#define WLC_SET_NAT_CONFIG			316	
+/* #define WLC_LAST				310 */	/* Never used - can be reused */
+#define WLC_SET_INTERFERENCE_OVERRIDE_MODE	311	/* set inter mode override */
+#define WLC_GET_INTERFERENCE_OVERRIDE_MODE	312	/* get inter mode override */
+/* #define WLC_GET_WAI_RESTRICT			313 */	/* for WAPI, deprecated use iovar instead */
+/* #define WLC_SET_WAI_RESTRICT			314 */	/* for WAPI, deprecated use iovar instead */
+/* #define WLC_SET_WAI_REKEY			315 */	/* for WAPI, deprecated use iovar instead */
+#define WLC_SET_NAT_CONFIG			316	/* for configuring NAT filter driver */
 #define WLC_GET_NAT_STATE			317
 #define WLC_GET_TXBF_RATESET			318
 #define WLC_SET_TXBF_RATESET			319

@@ -4715,6 +4715,30 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 	dhd_msgbuf_rxbuf_post_ioctlresp_bufs(dhd);
 
 	timeleft = dhd_os_ioctl_resp_wait(dhd, &prot->ioctl_received);
+
+	if (prot->ioctl_received == 0) {
+		uint32 intstatus = 0;
+		uint32 intmask = 0;
+		intstatus = si_corereg(dhd->bus->sih,
+				dhd->bus->sih->buscoreidx, PCIMailBoxInt, 0, 0);
+		intmask = si_corereg(dhd->bus->sih,
+				dhd->bus->sih->buscoreidx, PCIMailBoxMask, 0, 0);
+
+		DHD_ERROR(("%s: intstatus=%x intmask=%x timeleft=%d dongle_reset=%d dongle_trap_occured=%d iovar_timeout_occured=%d\n",
+				__func__, intstatus, intmask, timeleft, dhd->dongle_reset, dhd->dongle_trap_occured, dhd->iovar_timeout_occured));
+
+		if ((intstatus) && (!intmask) && (timeleft == 0) && !dhd->dongle_reset && !dhd->dongle_trap_occured && !dhd->iovar_timeout_occured)  {
+			DHD_ERROR(("%s: iovar timeout trying again intstatus=%x intmask=%x\n",
+					__FUNCTION__, intstatus, intmask));
+
+			dhd_prot_process_ctrlbuf(dhd);
+
+			timeleft = dhd_os_ioctl_resp_wait(dhd, (uint *)&prot->ioctl_received);
+			/* Enable Back Interrupts using IntMask */
+			dhdpcie_bus_intr_enable(dhd->bus);
+		}
+	}
+
 	if (timeleft == 0) {
 		dhd->rxcnt_timeout++;
 		dhd->rx_ctlerrs++;

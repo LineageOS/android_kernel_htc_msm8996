@@ -9,7 +9,7 @@
  * @revision	svn:$Revision: 115 $
  * @attention
  **/
-#include	"FromCodeM.h"	
-#include	"FromCodeF.h"	
+#include	"FromCodeM.h"	// 5BSC02P1	Main
+#include	"FromCodeF.h"	// 5BS501P1	Front
 
 #define		CALID	CALID_M

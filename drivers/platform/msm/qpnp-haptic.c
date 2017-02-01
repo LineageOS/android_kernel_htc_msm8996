@@ -271,7 +271,7 @@ struct qpnp_pwm_info {
  *  @ auto_res_err_work - correct auto resonance error
  *  @ sc_work - worker to handle short circuit condition
  *  @ pwm_info - pwm info
- *  @ lock - mutex lock
+ *  @ lock - spin lock
  *  @ wf_lock - mutex lock for waveform
  *  @ init_drive_period_code - the initial lra drive period code
  *  @ drive_period_code_max_limit_percent_variation - maximum limit of

@@ -1977,7 +1977,7 @@ struct serial_function_config {
 	struct usb_function_instance *f_serial_inst[MAX_SERIAL_INSTANCES];
 };
 
-static char serial_transports[128];	 
+static char serial_transports[128];	/*enabled FSERIAL ports - "tty[,sdio]"*/ /*++ 2015/06/23 USB Team, PCN00004 ++*/
 static ssize_t serial_transports_store(
 		struct device *device, struct device_attribute *attr,
 		const char *buff, size_t size)

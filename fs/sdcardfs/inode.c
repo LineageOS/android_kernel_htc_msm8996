@@ -694,6 +694,8 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 	if (lower_ia.ia_valid & (ATTR_KILL_SUID | ATTR_KILL_SGID))
 		lower_ia.ia_valid &= ~ATTR_MODE;
 
+	if (current->mm)
+		up_write(&current->mm->mmap_sem);
 	/* notify the (possibly copied-up) lower inode */
 	/*
 	 * Note: we use lower_dentry->d_inode, because lower_inode may be
@@ -701,11 +703,13 @@ static int sdcardfs_setattr(struct dentry *dentry, struct iattr *ia)
 	 * tries to open(), unlink(), then ftruncate() a file.
 	 */
 	mutex_lock(&lower_dentry->d_inode->i_mutex);
+	if (current->mm)
+		down_write(&current->mm->mmap_sem);
 	err = notify_change(lower_dentry, &lower_ia, /* note: lower_ia */
 			NULL);
-	mutex_unlock(&lower_dentry->d_inode->i_mutex);
 	if (current->mm)
 		up_write(&current->mm->mmap_sem);
+	mutex_unlock(&lower_dentry->d_inode->i_mutex);
 	if (err)
 		goto out;
 

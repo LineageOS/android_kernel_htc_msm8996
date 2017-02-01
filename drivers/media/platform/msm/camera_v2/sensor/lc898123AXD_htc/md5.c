@@ -17,6 +17,12 @@
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * @file		md5.c
+ * @date		svn:$Date:: 2015-10-28 19:39:09 +0900#$
+ * @revision	svn:$Revision: 106 $
+ * @attention
+ **/
 #ifdef CONFIG_OIS_CALIBRATION
 
 #include <linux/string.h>

@@ -38,33 +38,54 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "inc/vl53l0_i2c.h"
 #include "inc/vl53l0_api.h"
 
+/*#define LOG_FUNCTION_START(fmt, ... )           _LOG_FUNCTION_START(TRACE_MODULE_PLATFORM, fmt, ##__VA_ARGS__)
+#define LOG_FUNCTION_END(status, ... )          _LOG_FUNCTION_END(TRACE_MODULE_PLATFORM, status, ##__VA_ARGS__)
+#define LOG_FUNCTION_END_FMT(status, fmt, ... ) _LOG_FUNCTION_END_FMT(TRACE_MODULE_PLATFORM, status, fmt, ##__VA_ARGS__)*/
 
+/**
+ * @def I2C_BUFFER_CONFIG
+ *
+ * @brief Configure Device register I2C access
+ *
+ * @li 0 : one GLOBAL buffer \n
+ *   Use one global buffer of MAX_I2C_XFER_SIZE byte in data space \n
+ *   This solution is not multi-Device compliant nor multi-thread cpu safe \n
+ *   It can be the best option for small 8/16 bit MCU without stack and limited ram  (STM8s, 80C51 ...)
+ *
+ * @li 1 : ON_STACK/local \n
+ *   Use local variable (on stack) buffer \n
+ *   This solution is multi-thread with use of i2c resource lock or mutex see VL6180x_GetI2CAccess() \n
+ *
+ * @li 2 : User defined \n
+ *    Per Device potentially dynamic allocated. Requires VL6180x_GetI2cBuffer() to be implemented.
+ * @ingroup Configuration
+ */
 #define I2C_BUFFER_CONFIG 1
 /** Maximum buffer size to be used in i2c */
 #define VL53L0_MAX_I2C_XFER_SIZE   64 /* Maximum buffer size to be used in i2c */
 
 #if I2C_BUFFER_CONFIG == 0
-    
+    /* GLOBAL config buffer */
     uint8_t i2c_global_buffer[VL53L0_MAX_I2C_XFER_SIZE];
 
     #define DECL_I2C_BUFFER
     #define VL53L0_GetLocalBuffer(Dev, n_byte)  i2c_global_buffer
 
 #elif I2C_BUFFER_CONFIG == 1
-    
+    /* ON STACK */
     #define DECL_I2C_BUFFER  uint8_t LocBuffer[VL53L0_MAX_I2C_XFER_SIZE];
     #define VL53L0_GetLocalBuffer(Dev, n_byte)  LocBuffer
 #elif I2C_BUFFER_CONFIG == 2
-    
+    /* user define buffer type declare DECL_I2C_BUFFER  as access  via VL53L0_GetLocalBuffer */
     #define DECL_I2C_BUFFER
 #else
 #error "invalid I2C_BUFFER_CONFIG "
 #endif
 
 
-#define VL53L0_I2C_USER_VAR         
-#define VL53L0_GetI2CAccess(Dev)    
-#define VL53L0_DoneI2CAcces(Dev)    
+#define VL53L0_I2C_USER_VAR         /* none but could be for a flag var to get/pass to mutex interruptible  return flags and try again */
+#define VL53L0_GetI2CAccess(Dev)    /* todo mutex acquire */
+#define VL53L0_DoneI2CAcces(Dev)    /* todo mutex release */
 
 
 VL53L0_Error VL53L0_LockSequenceAccess(VL53L0_DEV Dev){
@@ -79,7 +100,28 @@ VL53L0_Error VL53L0_UnlockSequenceAccess(VL53L0_DEV Dev){
     return Status;
 }
 
+// the ranging_sensor_comms.dll will take care of the page selection
+/*VL53L0_Error VL53L0_WriteMulti(VL53L0_DEV Dev, uint8_t index, uint8_t *pdata, uint32_t count){
 
+    VL53L0_Error Status = VL53L0_ERROR_NONE;
+    int32_t status_int = 0;
+	uint8_t deviceAddress;
+
+    if (count>=VL53L0_MAX_I2C_XFER_SIZE){
+        Status = VL53L0_ERROR_INVALID_PARAMS;
+    }
+
+	deviceAddress = Dev->I2cDevAddr;
+			
+	status_int = VL53L0_write_multi(deviceAddress, index, pdata, count);
+	
+	if (status_int != 0)
+		Status = VL53L0_ERROR_CONTROL_INTERFACE;
+
+    return Status;
+}*/
+
+// the ranging_sensor_comms.dll will take care of the page selection
 VL53L0_Error VL53L0_ReadMulti(VL53L0_DEV Dev, uint8_t index, uint8_t *pdata, uint32_t count){
     VL53L0_I2C_USER_VAR
     VL53L0_Error Status = VL53L0_ERROR_NONE;
@@ -219,11 +261,13 @@ VL53L0_Error  VL53L0_RdDWord(VL53L0_DEV Dev, uint8_t index, uint32_t *data){
 VL53L0_Error VL53L0_PollingDelay(VL53L0_DEV Dev){
     VL53L0_Error status = VL53L0_ERROR_NONE;
     volatile uint32_t i;
+//    LOG_FUNCTION_START("");
 
     for(i=0;i<VL53L0_POLLINGDELAY_LOOPNB;i++){
-        
+        //Do nothing
         asm("nop");
     }
 
+//    LOG_FUNCTION_END(status);
     return status;
 }
