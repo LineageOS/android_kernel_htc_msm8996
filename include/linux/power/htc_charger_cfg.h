@@ -9,6 +9,7 @@
  Confidential and Proprietary - HTC Coporation
  ******************************************************************************/
 
+//				Name
 HTCCHG_CONFIG(run_mode)
 HTCCHG_CONFIG(auth_chk_ms)
 HTCCHG_CONFIG(opti_chk_ms)

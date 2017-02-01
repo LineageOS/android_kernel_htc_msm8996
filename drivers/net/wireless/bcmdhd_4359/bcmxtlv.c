@@ -36,8 +36,8 @@
 
 #ifdef BCMDRIVER
 #include <osl.h>
-#else 
-	#include <stdlib.h> 
+#else /* !BCMDRIVER */
+	#include <stdlib.h> /* AS!!! */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -46,7 +46,7 @@
 #endif
 INLINE void* MALLOCZ(void *o, size_t s) { BCM_REFERENCE(o); return calloc(1, s); }
 INLINE void MFREE(void *o, void *p, size_t s) { BCM_REFERENCE(o); BCM_REFERENCE(s); free(p); }
-#endif 
+#endif /* !BCMDRIVER */
 
 #include <bcmendian.h>
 #include <bcmutils.h>
@@ -61,12 +61,12 @@ bcm_xtlv_t *
 bcm_next_xtlv(bcm_xtlv_t *elt, int *buflen, bcm_xtlv_opts_t opts)
 {
 	int sz;
-	
+	/* advance to next elt */
 	sz = BCM_XTLV_SIZE(elt, opts);
 	elt = (bcm_xtlv_t*)((uint8 *)elt + sz);
 	*buflen -= sz;
 
-	
+	/* validate next elt */
 	if (!bcm_valid_xtlv(elt, *buflen, opts))
 		return NULL;
 
@@ -184,6 +184,12 @@ bcm_xtlv_put_32(bcm_xtlvbuf_t *tbuf, uint16 type, const int32 data)
 	return BCME_OK;
 }
 
+/*
+ *  upacks xtlv record from buf checks the type
+ *  copies data to callers buffer
+ *  advances tlv pointer to next record
+ *  caller's resposible for dst space check
+ */
 int
 bcm_unpack_xtlv_entry(uint8 **tlv_buf, uint16 xpct_type, uint16 xpct_len, void *dst,
 	bcm_xtlv_opts_t opts)
@@ -193,11 +199,11 @@ bcm_unpack_xtlv_entry(uint8 **tlv_buf, uint16 xpct_type, uint16 xpct_len, void *
 	uint16 type;
 
 	ASSERT(ptlv);
-	
+	/* tlv headr is always packed in LE order */
 	len = ltoh16(ptlv->len);
 	type = ltoh16(ptlv->id);
 	if	(len == 0) {
-		
+		/* z-len tlv headers: allow, but don't process */
 		printf("z-len, skip unpack\n");
 	} else  {
 		if ((type != xpct_type) ||
@@ -206,13 +212,18 @@ bcm_unpack_xtlv_entry(uint8 **tlv_buf, uint16 xpct_type, uint16 xpct_len, void *
 				type, len, xpct_type, xpct_len);
 			return BCME_BADARG;
 		}
-		
+		/* copy tlv record to caller's buffer */
 		memcpy(dst, ptlv->data, ptlv->len);
 	}
 	*tlv_buf += BCM_XTLV_SIZE(ptlv, opts);
 	return BCME_OK;
 }
 
+/*
+ *  packs user data into tlv record
+ *  advances tlv pointer to next xtlv slot
+ *  buflen is used for tlv_buf space check
+ */
 int
 bcm_pack_xtlv_entry(uint8 **tlv_buf, uint16 *buflen, uint16 type, uint16 len, void *src,
 	bcm_xtlv_opts_t opts)
@@ -225,7 +236,7 @@ bcm_pack_xtlv_entry(uint8 **tlv_buf, uint16 *buflen, uint16 type, uint16 len, vo
 
 	size = bcm_xtlv_size_for_data(len, opts);
 
-	
+	/* copy data from tlv buffer to dst provided by user */
 	if (size > *buflen) {
 		printf("bcm_pack_xtlv_entry: no space tlv_buf: requested:%d, available:%d\n",
 			size, *buflen);
@@ -234,16 +245,20 @@ bcm_pack_xtlv_entry(uint8 **tlv_buf, uint16 *buflen, uint16 type, uint16 len, vo
 	ptlv->id = htol16(type);
 	ptlv->len = htol16(len);
 
-	
+	/* copy callers data */
 	memcpy(ptlv->data, src, len);
 
-	
+	/* advance callers pointer to tlv buff */
 	*tlv_buf += size;
-	
+	/* decrement the len */
 	*buflen -= (uint16)size;
 	return BCME_OK;
 }
 
+/*
+ *  unpack all xtlv records from the issue a callback
+ *  to set function one call per found tlv record
+ */
 int
 bcm_unpack_xtlv_buf(void *ctx, uint8 *tlv_buf, uint16 buflen, bcm_xtlv_opts_t opts,
 	bcm_xtlv_unpack_cbfn_t *cbfn)
@@ -261,14 +276,14 @@ bcm_unpack_xtlv_buf(void *ctx, uint8 *tlv_buf, uint16 buflen, bcm_xtlv_opts_t op
 	while (sbuflen >= (int)BCM_XTLV_HDR_SIZE) {
 		ptlv = (bcm_xtlv_t *)tlv_buf;
 
-		
+		/* tlv header is always packed in LE order */
 		len = ltoh16(ptlv->len);
 		type = ltoh16(ptlv->id);
 
 		size = bcm_xtlv_size_for_data(len, opts);
 
 		sbuflen -= size;
-		
+		/* check for possible buffer overrun */
 		if (sbuflen < 0)
 			break;
 
@@ -323,6 +338,9 @@ done:
 	return res;
 }
 
+/*
+ *  pack xtlv buffer from memory according to xtlv_desc_t
+ */
 int
 bcm_pack_xtlv_buf_from_mem(void **tlv_buf, uint16 *buflen, xtlv_desc_t *items,
 	bcm_xtlv_opts_t opts)
@@ -338,10 +356,14 @@ bcm_pack_xtlv_buf_from_mem(void **tlv_buf, uint16 *buflen, xtlv_desc_t *items,
 		}
 		items++;
 	}
-	*tlv_buf = ptlv; 
+	*tlv_buf = ptlv; /* update the external pointer */
 	return res;
 }
 
+/*
+ *  unpack xtlv buffer to memory according to xtlv_desc_t
+ *
+ */
 int
 bcm_unpack_xtlv_buf_to_mem(void *tlv_buf, int *buflen, xtlv_desc_t *items, bcm_xtlv_opts_t opts)
 {
@@ -355,7 +377,7 @@ bcm_unpack_xtlv_buf_to_mem(void *tlv_buf, int *buflen, xtlv_desc_t *items, bcm_x
 	}
 
 	for (; elt != NULL && res == BCME_OK; elt = bcm_next_xtlv(elt, buflen, opts)) {
-		
+		/*  find matches in desc_t items  */
 		xtlv_desc_t *dst_desc = items;
 		uint16 len = ltoh16(elt->len);
 
@@ -378,6 +400,11 @@ bcm_unpack_xtlv_buf_to_mem(void *tlv_buf, int *buflen, xtlv_desc_t *items, bcm_x
 	return res;
 }
 
+/*
+ * return data pointer of a given ID from xtlv buffer.
+ * If the specified xTLV ID is found, on return *data_len_out will contain
+ * the the data length of the xTLV ID.
+ */
 void *
 bcm_get_data_from_xtlv_buf(uint8 *tlv_buf, uint16 buflen, uint16 id,
 	uint16 *datalen_out, bcm_xtlv_opts_t opts)
@@ -391,13 +418,13 @@ bcm_get_data_from_xtlv_buf(uint8 *tlv_buf, uint16 buflen, uint16 id,
 	while (sbuflen >= (int)BCM_XTLV_HDR_SIZE) {
 		ptlv = (bcm_xtlv_t *)tlv_buf;
 
-		
+		/* tlv header is always packed in LE order */
 		type = ltoh16(ptlv->id);
 		len = ltoh16(ptlv->len);
 		size = bcm_xtlv_size_for_data(len, opts);
 
 		sbuflen -= size;
-		
+		/* check for possible buffer overrun */
 		if (sbuflen < 0) {
 			printf("%s %d: Invalid sbuflen %d\n",
 				__FUNCTION__, __LINE__, sbuflen);
@@ -419,8 +446,8 @@ bcm_get_data_from_xtlv_buf(uint8 *tlv_buf, uint16 buflen, uint16 id,
 
 int bcm_xtlv_size(const bcm_xtlv_t *elt, bcm_xtlv_opts_t opts)
 {
-	int size; 
-	int len; 
+	int size; /* entire size of the XTLV including header, data, and optional padding */
+	int len; /* XTLV's value real length wthout padding */
 
 	len = BCM_XTLV_LEN(elt);
 

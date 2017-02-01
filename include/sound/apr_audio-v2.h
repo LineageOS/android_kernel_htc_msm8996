@@ -1312,6 +1312,9 @@ struct afe_sidetone_iir_filter_config_params {
  */
 
 	u16                  pregain;
+/* Pregain for the compensating filter response.
+ * Supported values: Any number in Q13 format
+ */
 	uint8_t   iir_config[MAX_SIDETONE_IIR_DATA_SIZE];
 } __packed;
 
@@ -1466,17 +1469,38 @@ struct afe_loopback_cfg_v1 {
 
 struct afe_loopback_sidetone_gain {
 	uint16_t                  rx_port_id;
+/* Rx port of the loopback.
+*/
 	uint16_t                  gain;
+/* Loopback gain per path of the port.
+ */
 } __packed;
 
 struct loopback_cfg_data {
 	u32		loopback_cfg_minor_version;
+/* Minor version used for tracking the version of the RMC module
+ * configuration interface.
+ * Supported values: #AFE_API_VERSION_LOOPBACK_CONFIG
+ */
 	u16                  dst_port_id;
-	
+	/* Destination Port Id. */
 	u16                  routing_mode;
+/* Specifies data path type from src to dest port.
+ * Supported values:
+ * #LB_MODE_DEFAULT
+ * #LB_MODE_SIDETONE
+ * #LB_MODE_EC_REF_VOICE_AUDIO
+ * #LB_MODE_EC_REF_VOICE_A
+ * #LB_MODE_EC_REF_VOICE
+ */
 
 	u16                  enable;
+/* Specifies whether to enable (1) or
+ * disable (0) an AFE loopback.
+ */
 	u16                  reserved;
+/* Reserved for 32-bit alignment. This field must be set to 0.
+ */
 } __packed;
 
 
@@ -9064,6 +9088,7 @@ struct afe_svc_cmd_set_clip_bank_selection {
 #define AFE_PARAM_ID_GROUP_DEVICE_ENABLE 0x00010256
 #define AFE_GROUP_DEVICE_ID_SECONDARY_MI2S_RX	0x1102
 
+//HTC_AUD_START
 #define AFE_MODULE_ADAPTIVE_AUDIO_M1     0x10000030
 #define AFE_MODULE_ADAPTIVE_AUDIO_M2     0x1000002A
 #define AFE_MODULE_ONEDOTONE_AUDIO       0x10000035
@@ -9089,7 +9114,13 @@ struct asm_params {
 	struct asm_stream_cmd_set_pp_params_v2 param;
 	struct asm_stream_param_data_v2 data;
 } __packed;
+//HTC_AUD_END
 
+/*  Payload of the #AFE_PARAM_ID_GROUP_DEVICE_CFG
+ * parameter, which configures max of 8 AFE ports
+ * into a group.
+ * The fixed size of this structure is sixteen bytes.
+ */
 struct afe_group_device_group_cfg {
 	u32 minor_version;
 	u16 group_id;

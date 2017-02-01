@@ -51,4 +51,4 @@ s32 dhd_config_dongle(struct bcm_cfg80211 *cfg);
 int dhd_cfgvendor_priv_string_handler(struct bcm_cfg80211 *cfg,
 	struct wireless_dev *wdev, const struct bcm_nlmsg_hdr *nlioc, void  *data);
 
-#endif 
+#endif /* __DHD_CFG80211__ */

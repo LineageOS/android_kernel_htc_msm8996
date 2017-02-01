@@ -359,7 +359,7 @@ struct msm_fb_data_type {
 	struct mutex switch_lock;
 	struct input_handler *input_handler;
 
-	
+	// compass notifier for workaround
 	struct notifier_block compass_notifier_block;
 };
 

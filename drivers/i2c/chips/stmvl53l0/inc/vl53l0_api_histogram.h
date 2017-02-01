@@ -67,4 +67,4 @@ VL53L0_Error VL53L0_perform_xtalk_measurement(VL53L0_DEV dev,
 }
 #endif
 
-#endif 
+#endif /* _VL53L0_API_HISTOGRAM_H_ */

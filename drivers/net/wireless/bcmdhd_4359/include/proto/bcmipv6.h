@@ -34,8 +34,10 @@
 #include <typedefs.h>
 #endif
 
+/* This marks the start of a packed structure section. */
 #include <packed_section_start.h>
 
+/* Extension headers */
 #define IPV6_EXT_HOP	0
 #define IPV6_EXT_ROUTE	43
 #define IPV6_EXT_FRAG	44
@@ -43,16 +45,20 @@
 #define IPV6_EXT_ESEC	50
 #define IPV6_EXT_AUTH	51
 
+/* Minimum size (extension header "word" length) */
 #define IPV6_EXT_WORD	8
 
+/* Offsets for most extension headers */
 #define IPV6_EXT_NEXTHDR	0
 #define IPV6_EXT_HDRLEN		1
 
+/* Constants specific to fragmentation header */
 #define IPV6_FRAG_MORE_MASK	0x0001
 #define IPV6_FRAG_MORE_SHIFT	0
 #define IPV6_FRAG_OFFS_MASK	0xfff8
 #define IPV6_FRAG_OFFS_SHIFT	3
 
+/* For icmpv6 */
 #define ICMPV6_HEADER_TYPE	0x3A
 #define ICMPV6_PKT_TYPE_RA	134
 #define ICMPV6_PKT_TYPE_NS	135
@@ -75,11 +81,13 @@
 
 #define IPV6_ADDR_LOCAL(a)	(((a[0] == 0xfe) && (a[1] & 0x80))? TRUE: FALSE)
 
+/* IPV6 address */
 BWL_PRE_PACKED_STRUCT struct ipv6_addr {
 		uint8		addr[16];
 } BWL_POST_PACKED_STRUCT;
 
 
+/* ICMPV6 Header */
 BWL_PRE_PACKED_STRUCT struct icmp6_hdr {
 	uint8	icmp6_type;
 	uint8	icmp6_code;
@@ -96,6 +104,7 @@ BWL_PRE_PACKED_STRUCT struct icmp6_hdr {
 	} BWL_POST_PACKED_STRUCT opt;
 } BWL_POST_PACKED_STRUCT;
 
+/* Ipv6 Header Format */
 BWL_PRE_PACKED_STRUCT struct ipv6_hdr {
 	uint8	priority:4,
 		version:4;
@@ -107,18 +116,21 @@ BWL_PRE_PACKED_STRUCT struct ipv6_hdr {
 	struct	ipv6_addr	daddr;
 } BWL_POST_PACKED_STRUCT;
 
+/* Neighbor Advertisement/Solicitation Packet Structure */
 BWL_PRE_PACKED_STRUCT struct bcm_nd_msg {
 	struct	icmp6_hdr	icmph;
 	struct	ipv6_addr	target;
 } BWL_POST_PACKED_STRUCT;
 
 
+/* Neighibor Solicitation/Advertisement Optional Structure */
 BWL_PRE_PACKED_STRUCT struct nd_msg_opt {
 	uint8 type;
 	uint8 len;
 	uint8 mac_addr[ETHER_ADDR_LEN];
 } BWL_POST_PACKED_STRUCT;
 
+/* Ipv6 Fragmentation Header */
 BWL_PRE_PACKED_STRUCT struct ipv6_frag {
 	uint8	nexthdr;
 	uint8	reserved;
@@ -126,6 +138,7 @@ BWL_PRE_PACKED_STRUCT struct ipv6_frag {
 	uint32	ident;
 } BWL_POST_PACKED_STRUCT;
 
+/* This marks the end of a packed structure section. */
 #include <packed_section_end.h>
 
 static const struct ipv6_addr all_node_ipv6_maddr = {
@@ -147,4 +160,4 @@ static const struct ipv6_addr all_node_ipv6_maddr = {
 	ether[5] = ipv6[15]; \
 }
 
-#endif	
+#endif	/* !defined(_bcmipv6_h_) */

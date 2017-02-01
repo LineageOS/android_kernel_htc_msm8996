@@ -57,7 +57,7 @@ typedef enum {
 	CW_STEP_COUNTER                = 22,
 	HTC_GESTURE_MOTION             = 24,
 	HTC_ANY_MOTION                 = 28,
-	CW_SENSORS_ID_FW ,
+	CW_SENSORS_ID_FW /* Be careful, do not exceed 31, Firmware ID limit */,
 	CW_ACCELERATION_W                = 32,
 	CW_MAGNETIC_W                    = 33,
 	CW_GYRO_W                        = 34,
@@ -72,7 +72,7 @@ typedef enum {
 	CW_GEOMAGNETIC_ROTATION_VECTOR_W = 51,
 	CW_STEP_DETECTOR_W               = 53,
 	CW_STEP_COUNTER_W                = 54,
-	CW_SENSORS_ID_TOTAL              = 55, 
+	CW_SENSORS_ID_TOTAL              = 55, /* Includes Wake up version */
 	TIME_DIFF_EXHAUSTED            = 97,
 	CW_TIME_BASE                   = 98,
 	CW_META_DATA                   = 99,
@@ -123,7 +123,7 @@ typedef enum {
 	CWSTM32_READ_Any_Motion                          = 0x3F,
 
 	CWSTM32_BATCH_MODE_COMMAND                       = 0x40,
-	
+	/* Bit 2: Timeout flag (R/WC), Bit 4: Buffer full flag (R/WC) */
 	CW_BATCH_ENABLE_REG                              = 0x41,
 	CWSTM32_BATCH_MODE_DATA_QUEUE                    = 0x45,
 	CWSTM32_BATCH_MODE_TIMEOUT                       = 0x46,
@@ -145,7 +145,7 @@ typedef enum {
 	ACCE_WAKE_UPDATE_RATE                            = 0x67,
 	CW_I2C_REG_SENSORS_CALIBRATOR_GET_DATA_ACC       = 0x68,
 	CW_I2C_REG_SENSORS_CALIBRATOR_SET_DATA_ACC       = 0x68,
-	
+	//TODO: remove below two if we don't need g-sensor L/R calibration
 	CW_I2C_REG_SENSORS_CALIBRATOR_TARGET_ACC         = 0x69,
 	CW_I2C_REG_SENSORS_CALIBRATOR_RESULT_RL_ACC      = 0x6A,
 
@@ -369,43 +369,52 @@ struct cwmcu_ramdump_param {
 typedef struct {
     uint32_t boot_sec;
     uint32_t boot_nsec;
-    uint16_t year;              
-    uint8_t  month;             
-    uint8_t  day;               
-    uint8_t  hour;              
-    uint8_t  minute;            
-    uint8_t  second;            
-    uint8_t  hour_format_24;    
+    uint16_t year;              /* range: 1900~2xxx */
+    uint8_t  month;             /* range: 1~12 */
+    uint8_t  day;               /* range: 1~31 */
+    uint8_t  hour;              /* range: 0~23 */
+    uint8_t  minute;            /* range: 0~59 */
+    uint8_t  second;            /* range: 0~59 */
+    uint8_t  hour_format_24;    /* 0/1 */
 } MCU_TIME_SYNC_T;
 
 #define MAX_EVENT_COUNT                         5000
 
+/* If queue is empty */
 #define CWMCU_NODATA	0xFF
 
 
+/* INT_ST1 */
 #define CW_MCU_INT_BIT_LIGHT                    (1 << 3)
 #define CW_MCU_INT_BIT_PROXIMITY                (1 << 4)
 
+/* INT_ST2 */
 #define CW_MCU_INT_BIT_SHUB_BOOTUP              (1 << 5)
 #define CW_MCU_INT_BIT_LOG_AVAILABLE            (1 << 6)
 
+/* INT_ST3 */
 #define CW_MCU_INT_BIT_SIGNIFICANT_MOTION       (1 << 4)
 #define CW_MCU_INT_BIT_STEP_DETECTOR            (1 << 5)
 #define CW_MCU_INT_BIT_STEP_COUNTER             (1 << 6)
 
+/* INT_ST4 */
 #define CW_MCU_INT_BIT_HTC_GESTURE_MOTION       (1 << 0)
 #define CW_MCU_INT_BIT_ANY_MOTION               (1 << 4)
 
+/* ERR_ST */
 #define CW_MCU_INT_BIT_ERROR_WARN_MSG           (1 << 5)
 #define CW_MCU_INT_BIT_ERROR_MCU_EXCEPTION      (1 << 6)
 #define CW_MCU_INT_BIT_ERROR_WATCHDOG_RESET     (1 << 7)
 
+/* batch_st */
 #define CW_MCU_INT_BIT_BATCH_TIMEOUT      (1 << 2)
 #define CW_MCU_INT_BIT_BATCH_BUFFER_FULL  (1 << 4)
 #define CW_MCU_INT_BIT_BATCH_TRIGGER_READ (CW_MCU_INT_BIT_BATCH_TIMEOUT |\
 					   CW_MCU_INT_BIT_BATCH_BUFFER_FULL)
 #define CW_MCU_INT_BIT_BATCH_INT_MASK     CW_MCU_INT_BIT_BATCH_TRIGGER_READ
 
+/*#define IIO_SENSORS_MASK (((u64)(~0ULL)) & ~(1ULL << HTC_MAGIC_COVER) & \
+					   ~(1ULL << (HTC_MAGIC_COVER+32)))*/
 #define IIO_SENSORS_MASK ((u64)(~0ULL))
 
 #define CW_MCU_BIT_LIGHT_POLLING		(1 << 5)
@@ -427,6 +436,7 @@ typedef struct {
 #define DOTVIEW_NO_COVER 0
 #define DOTVIEW_COVER    1
 
+/* Backlight 2.0 Conversion */
 #define ADC_TO_LUX(x) 		(x*(2))
 
 #ifdef __KERNEL__
@@ -441,6 +451,6 @@ struct cwmcu_platform_data {
 	int gs_chip_layout;
 
 };
-#endif 
+#endif /* __KERNEL */
 
-#endif 
+#endif /* __CWMCUSENSOR_H__ */

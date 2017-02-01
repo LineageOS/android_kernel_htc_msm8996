@@ -321,7 +321,7 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 
 	if (mdp5_data->splash_mem_addr &&
 		!mfd->splash_info.iommu_dynamic_attached) {
-		
+		/* Give back the reserved memory to the system */
 		pr_info("Release cont_splash buffer [%x, %x, %p]\n",
 			mdp5_data->splash_mem_addr, mdp5_data->splash_mem_size, mdp5_data->splash_mem_vaddr);
 		if (!mdp5_data->splash_mem_vaddr) {

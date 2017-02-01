@@ -14,12 +14,28 @@
 
 #define MAX_NAME_SIZE					 32
 
+/*
+* enum qbt1000_commands -
+*      enumeration of command options
+* @QBT1000_LOAD_APP - cmd loads TZ app
+* @QBT1000_UNLOAD_APP - cmd unloads TZ app
+* @QBT1000_SEND_TZCMD - sends cmd TZ app
+*/
 enum htc_smi_commands {
 	HTC_SMI_LOAD_APP = 100,
 	HTC_SMI_UNLOAD_APP = 101,
 	HTC_SMI_SEND_TZCMD = 102
 };
 
+/*
+* struct htc_smi_app -
+*      used to load and unload apps in TZ
+* @app_handle - qseecom handle for clients
+* @name - Name of secure app to load
+* @size - Size of requested buffer of secure app
+* @high_band_width - 1 - for high bandwidth usage
+*                    0 - for normal bandwidth usage
+*/
 struct htc_smi_app {
 	struct qseecom_handle **app_handle;
 	char name[MAX_NAME_SIZE];
@@ -27,6 +43,15 @@ struct htc_smi_app {
 	uint8_t high_band_width;
 };
 
+/*
+* struct qbt1000_send_tz_cmd -
+*      used to cmds to TZ Appsad
+* @app_handle - qseecom handle for clients
+* @req_buf - Buffer containing request for secure app
+* @req_buf_len - Length of request buffer
+* @rsp_buf - Buffer containing response from secure app
+* @rsp_buf_len - Length of response buffer
+*/
 struct htc_smi_send_tz_cmd {
 	struct qseecom_handle *app_handle;
 	uint8_t *req_buf;
@@ -35,4 +60,4 @@ struct htc_smi_send_tz_cmd {
 	uint32_t rsp_buf_len;
 };
 
-#endif 
+#endif /* _UAPI_HTC_SMI_H_ */

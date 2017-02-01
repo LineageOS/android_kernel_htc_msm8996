@@ -51,7 +51,7 @@ static inline struct nanohub_data *dev_get_nanohub_data(struct device *dev)
 }
 
 struct nanohub_data {
-	
+	/* indices for io[] array */
 	#define ID_NANOHUB_SENSOR 0
 	#define ID_NANOHUB_COMMS 1
 	#define ID_NANOHUB_MAX 2
@@ -74,7 +74,7 @@ struct nanohub_data {
 	struct nanohub_io free_pool;
 
 	atomic_t lock_mode;
-	
+	/* these 3 vars should be accessed only with wakeup_wait.lock held */
 	atomic_t wakeup_cnt;
 	atomic_t wakeup_lock_cnt;
 	atomic_t wakeup_acquired;

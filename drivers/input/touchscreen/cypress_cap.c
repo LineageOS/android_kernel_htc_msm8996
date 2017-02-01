@@ -122,7 +122,7 @@ struct cypress_cap_data {
 	int disable_key;
 	struct workqueue_struct *wq_raw;
 	struct delayed_work work_raw;
-	int reset_cnt;          
+	int reset_cnt;          /* Reset counter */
 	int update_feature;
 	struct wake_lock update_wake_lock;
 	bool stay_awake;
@@ -291,7 +291,7 @@ static int check_fw_version(const struct firmware *fw, int *tagLen, int version)
 		scnprintf(fw_ver, 5,"%X", version);
 		if (strstr(tag, fw_ver) != NULL) {
 			pr_info("Update Bypass\n");
-			return 0; 
+			return 0; /* bypass */
 		}
 	}
 
@@ -371,7 +371,7 @@ static unsigned short cypress_ComputeChecksum(unsigned char* buf, unsigned long 
 		crc = (crc << 8) | (tmp >> 8 & 0xFF);
 		return crc;
 	}
-	else { 
+	else { /* SUM_CHECKSUM */
 		while (size-- > 0)
 			sum += *buf++;
 
@@ -427,13 +427,13 @@ static int cypress_receive_report(struct cypress_fw_update_data *fw_update_data,
 			pr_err("%s: Packet error\n", __func__);
 			mdelay(1);
 			continue;
-			
+			//return -1;
 		}
 		if (reportBuf[1] != CYRET_SUCCESS) {
 			pr_err("%s: status error = %d\n", __func__, reportBuf[1]);
 			mdelay(1);
 			continue;
-			
+			//return -reportBuf[1];
 		}
 		break;
 	}
@@ -452,12 +452,12 @@ static int cypress_parse_fw_line(char *buf, int len)
 {
 	int i, line = 1;
 
-	
+	//pr_debug("%s\n", __func__);
 	for (i = 0; i < len -1 ; i++) {
 		if (buf[i] == ':')
 			line++;
 	}
-	
+	//pr_debug("i = %d, line = %d\n", i, line);
 
 	return line;
 }
@@ -466,12 +466,12 @@ static int cypress_parse_fw_line_len(char *buf, int len)
 {
 	int i;
 
-	
+	//pr_debug("%s\n", __func__);
 	for (i = 0; i < len -1 ; i++) {
 		if (buf[i] == '\n')
 			break;
 	}
-	
+	//pr_debug("i = %d\n", i);
 
 	return i+1;
 }
@@ -673,7 +673,7 @@ static int cypress_flash_row(struct cypress_fw_update_data *fw_update_data,
 	unsigned char *row_data;
 
 	pr_debug("%s\n", __func__);
-	
+	//pr_debug("header_len = %d, used_len = %d\n", header_len, used_len);
 	for (i = 1; i < line; i++) {
 		row_len = cypress_parse_fw_line_len(buffer, total_len);
 		buf_len = cypress_parse_firmware(buffer, p_fw, row_len);
@@ -909,6 +909,8 @@ int register_cypress_cs_fw_update(struct cypress_fw_update_data *fw_update_data)
 	fw_update_data->cypress_cs_notifier.dev_id = fw_update_data->id;
 	scnprintf(fw_update_data->cypress_cs_notifier.fw_vendor,
 			sizeof(fw_update_data->cypress_cs_notifier.fw_vendor), "%s", CAP_VENDOR);
+/*	scnprintf(fw_update_data->cypress_cs_notifier.fw_ver, sizeof(fw_update_data->cypress_cs_notifier.fw_ver),
+			"%s", fw_update_data->cs->info.version);*/
 	return register_cap_fw_update(&fw_update_data->cypress_cs_notifier);
 }
 #endif
@@ -1777,7 +1779,7 @@ static int cypress_cap_pinctrl_init(struct device *dev)
 	struct cypress_cap_platform_data *pdata = dev_get_platdata(dev);
 
 	pr_info("%s\n", __func__);
-	
+	/* Get pinctrl if target uses pinctrl */
 	pdata->cap_pinctrl = devm_pinctrl_get(dev);
 	if (IS_ERR_OR_NULL(pdata->cap_pinctrl)) {
 		pr_info("Target does not use pinctrl\n");
@@ -1812,7 +1814,7 @@ static void cypress_cap_pinctrl_deinit(struct device *dev)
 	struct cypress_cap_platform_data *pdata = dev_get_platdata(dev);
 
 	pr_info("%s\n", __func__);
-	
+	/* Free pinctrl if target uses pinctrl */
 	if (pdata->cap_pinctrl != NULL) {
 		pdata->gpio_state_active = NULL;
 		pdata->gpio_state_suspend = NULL;
@@ -1847,7 +1849,7 @@ static int cypress_cap_regulator_set(struct cypress_cap_platform_data *pdata)
 {
 	int enable = 0, ret = 0;
 
-	
+	/* ID_GPIO */
 	if (gpio_is_valid(pdata->gpio_id)) {
 		ret = gpio_request(pdata->gpio_id, "cap_id_pin");
 		if (ret) {
@@ -1882,7 +1884,7 @@ static int cypress_cap_set_gpio(struct cypress_cap_platform_data *pdata)
 {
 	int ret;
 
-	
+	/* IRQ_GPIO */
 	ret = gpio_request(pdata->gpio_irq, "cap_irq");
 	if (ret) {
 		pr_err("%s : request gpio%d fail\n",
@@ -1890,7 +1892,7 @@ static int cypress_cap_set_gpio(struct cypress_cap_platform_data *pdata)
 		return -ENODEV;
 	}
 
-	
+	/* RST_GPIO */
 	ret = gpio_request(pdata->gpio_rst, "cap_rst");
 	if (ret) {
 		pr_err(" %s : request gpio%d fail\n",
@@ -1898,7 +1900,7 @@ static int cypress_cap_set_gpio(struct cypress_cap_platform_data *pdata)
 		return -ENODEV;
 	}
 
-	
+	/* IND_GPIO */
 	ret = gpio_request(pdata->gpio_ind, "cap_i2c");
 	if (ret) {
 		pr_err(" %s : request gpio%d fail\n",
@@ -1953,7 +1955,7 @@ static int cypress_parse_dt(struct device *dev, struct cypress_cap_platform_data
 	id = of_alias_get_id(dt, "cap");
 	if (id < 0)
 		id = 0;
-	
+	/* irq gpio info */
 	pdata->gpio_irq = of_get_named_gpio_flags(dt, "cap-sensor-irq",
 				0, NULL);
 
@@ -2236,6 +2238,7 @@ err_off_mode:
 err_init_sensor_failed:
 	if (cs->fw_update_data != NULL) {
 		cypress_fw_update_free_data(cs->fw_update_data);
+//		cypress_fw_update_deinit(cs->fw_update_data);
 	}
 	if (pdata->cap_pinctrl)
 		cypress_cap_pinctrl_select(&client->dev, 0);
@@ -2399,6 +2402,7 @@ static int cypress_cap_suspend(struct device *dev)
 
 static int cypress_cap_resume(struct device *dev)
 {
+//	struct cypress_cap_data *cs = dev_get_drvdata(dev);
 
 	pr_info("%s\n", __func__);
 	return 0;

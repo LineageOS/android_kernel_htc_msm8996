@@ -117,7 +117,7 @@ static int adm_get_parameters[MAX_COPPS_PER_PORT * ADM_GET_PARAMETER_LENGTH];
 static int adm_module_topo_list[
 	MAX_COPPS_PER_PORT * ADM_GET_TOPO_MODULE_LIST_LENGTH];
 
-extern void msm_dolby_ssr_reset(void); 
+extern void msm_dolby_ssr_reset(void); //HTC_AUD
 
 int adm_validate_and_get_port_index(int port_id)
 {
@@ -468,13 +468,14 @@ fail_cmd:
 	return ret;
 }
 
+//HTC_AUD_START
 int q6adm_enable_effect(u16 port_id, int copp_idx, uint32_t payload_size, void *payload)
 {
 	u8 *q6_cmd = NULL;
 	struct adm_cmd_set_pp_params_v5 *param;
 	int sz, rc = 0, index;
 
-	
+	//TODO: get copp_idx from parameter
 	pr_debug("%s: port id %i, copp idx %i, payload_size = %d\n",
 				__func__, port_id, copp_idx, payload_size);
 
@@ -524,7 +525,7 @@ int q6adm_enable_effect(u16 port_id, int copp_idx, uint32_t payload_size, void *
 		rc = -EINVAL;
 		goto fail_cmd;
 	}
-	
+	/* Wait for the callback */
 
 	rc = wait_event_timeout(this_adm.copp.wait[index][copp_idx],
 			atomic_read(&this_adm.copp.stat[index][copp_idx])>=0,
@@ -541,6 +542,7 @@ fail_cmd:
 
 	return rc;
 }
+//HTC_AUD_END
 
 int srs_trumedia_open(int port_id, int copp_idx, __s32 srs_tech_id,
 		      void *srs_params)
@@ -1053,10 +1055,12 @@ int adm_get_params_v2(int port_id, int copp_idx, uint32_t module_id,
 		return -EINVAL;
 	}
 
+//HTC_AUD_START
 	if (atomic_read(&this_adm.copp.id[port_idx][copp_idx]) == RESET_COPP_ID) {
 		pr_err("%s: copp_id fail due to equal reset_copp_id\n", __func__);
 		return -EINVAL;
 	}
+//HTC_AUD_END
 
 	sz = sizeof(struct adm_cmd_get_pp_params_v5) + params_length;
 	adm_params = kzalloc(sz, GFP_KERNEL);
@@ -1176,10 +1180,12 @@ int adm_get_pp_topo_module_list(int port_id, int copp_idx, int32_t param_length,
 		return -EINVAL;
 	}
 
+//HTC_AUD_START
 	if (atomic_read(&this_adm.copp.id[port_idx][copp_idx]) == RESET_COPP_ID) {
 		pr_err("%s: copp_id fail due to equal reset_copp_id\n", __func__);
 		return -EINVAL;
 	}
+//HTC_AUD_END
 
 	sz = sizeof(struct adm_cmd_get_pp_topo_module_list_t) + param_length;
 	adm_pp_module_list = kzalloc(sz, GFP_KERNEL);
@@ -1332,7 +1338,7 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 			data->reset_event, data->reset_proc, this_adm.apr);
 		if (this_adm.apr) {
 			apr_reset(this_adm.apr);
-			msm_dolby_ssr_reset(); 
+			msm_dolby_ssr_reset(); //HTC_AUD
 			for (i = 0; i < AFE_MAX_PORTS; i++) {
 				for (j = 0; j < MAX_COPPS_PER_PORT; j++) {
 					atomic_set(&this_adm.copp.id[i][j],
@@ -2437,8 +2443,10 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 	} else if (perf_mode == LOW_LATENCY_PCM_MODE) {
 		flags = ADM_LOW_LATENCY_DEVICE_SESSION;
 		if ((topology == DOLBY_ADM_COPP_TOPOLOGY_ID) ||
+//HTC_AUD_START
 		    (topology == HTC_ONEDOTONE_DOLBY_ADM_COPP_TOPOLOGY_ID) ||
 		    (topology == HTC_ADAPTIVE_DOLBY_ADM_COPP_TOPOLOGY_ID) ||
+//HTC_AUD_END
 		    (topology == DS2_ADM_COPP_TOPOLOGY_ID) ||
 		    (topology == SRS_TRUMEDIA_TOPOLOGY_ID) ||
 		    (topology == ADM_CMD_COPP_OPEN_TOPOLOGY_ID_DTS_HPX))

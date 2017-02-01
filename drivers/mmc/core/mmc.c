@@ -104,11 +104,13 @@ static int mmc_decode_cid(struct mmc_card *card)
 		card->cid.month		= UNSTUFF_BITS(resp, 12, 4);
 		card->cid.year		= UNSTUFF_BITS(resp, 8, 4) + 1997;
 
-		
+		/* Read eMMC firmware version */
 		if (card->cid.manfid == CID_MANFID_TOSHIBA ||
 		    card->cid.manfid == CID_MANFID_MICRON  ||
 		    card->cid.manfid == CID_MANFID_SAMSUNG ||
 		    card->cid.manfid == CID_MANFID_HYNIX)
+		/* For CID_MANFID_SANDISK case, fwrev will be retrieved
+		   from EXT_CSD. */
 			card->cid.fwrev = UNSTUFF_BITS(resp, 48, 8);
 
 		break;
@@ -411,6 +413,9 @@ static void mmc_manage_gp_partitions(struct mmc_card *card, u8 *ext_csd)
 	}
 }
 
+/*
+ * Show CID/EXT_CSD in kernel log
+ */
 static void htc_mmc_show_cid_ext_csd(struct mmc_card *card, u8 *ext_csd)
 {
 	char *buf;
@@ -442,17 +447,17 @@ static void htc_mmc_show_cid_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		if (buf)
 			kfree(buf);
 
-		
+		/* Read eMMC firmware version */
 		if (card->cid.manfid == CID_MANFID_SANDISK ||
 		    card->cid.manfid == CID_MANFID_SANDISK_2) {
 			if (card->ext_csd.rev == 6)
 				card->cid.fwrev =
 				ext_csd[EXT_CSD_VENDOR_SPECIFIC_FIELDS_73] & 0x3F;
-			else if (card->ext_csd.rev > 6) { 
+			else if (card->ext_csd.rev > 6) { /* For eMMC 5.0 */
 				card->cid.fwrev =
 				ext_csd[EXT_CSD_VENDOR_SPECIFIC_FIELDS_258] - 0x30 ;
 
-				
+				/* [FIXME] Workaround for SanDisk firmware bug */
 				check_fw = kmalloc(16, GFP_KERNEL);
 				if(check_fw) {
 					sprintf(check_fw, "%d%d%d%d%d%d",
@@ -479,6 +484,9 @@ static void htc_mmc_show_cid_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	}
 }
 
+/*
+ * Decode extended CSD.
+ */
 #define MAX_CMDQ_DEPTH	16
 static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 {
@@ -751,6 +759,11 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 			mmc_hostname(card->host),
 			card->ext_csd.fw_version);
 		if (card->ext_csd.cmdq_support) {
+			/*
+			 * Queue Depth = N + 1,
+			 * see JEDEC JESD84-B51 section 7.4.19
+			 * HTC: limit max depth of CMDQ is 16
+			 */
 			q_depth = ext_csd[EXT_CSD_CMDQ_DEPTH] + 1;
 			if (q_depth > MAX_CMDQ_DEPTH) {
 				pr_info("%s: CMDQ limit depth: %u -> %u\n",
@@ -895,6 +908,9 @@ MMC_DEV_ATTR(enhanced_rpmb_supported, "%#x\n",
 		card->ext_csd.enhanced_rpmb_supported);
 MMC_DEV_ATTR(rel_sectors, "%#x\n", card->ext_csd.rel_sectors);
 
+/*
+ * Show manf name in file node
+ */
 static ssize_t htc_mmc_show_manf_name (struct device *dev,
 					struct device_attribute *attr,
 					char *buf)

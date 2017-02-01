@@ -1714,7 +1714,7 @@ static void bak_htc_target_quot(struct cpr3_controller *ctrl)
 	struct cpr3_regulator *vreg;
 	int i, size;
 
-	
+	/* The number of target_quot array should be same with cpr thread counter */
 	size = sizeof(htc_target_quot)/sizeof(u64);
 	if (size != ctrl->thread_count) {
 		WARN_ON(1);

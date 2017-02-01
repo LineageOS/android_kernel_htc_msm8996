@@ -26,8 +26,8 @@
 #define READ_ACK_TIMEOUT_MS	10
 #define READ_MSG_TIMEOUT_MS	70
 
-#define RESEND_SHORT_DELAY_US   500     
-#define RESEND_LONG_DELAY_US    100000  
+#define RESEND_SHORT_DELAY_US   500     /* 500us - 1ms */
+#define RESEND_LONG_DELAY_US    100000  /* 100ms - 200ms */
 
 static const uint32_t crc_table[] = {
 	0x00000000, 0x04C11DB7, 0x09823B6E, 0x0D4326D9,
@@ -53,11 +53,11 @@ uint32_t crc32(const uint8_t *buffer, int length, uint32_t crc)
 	uint32_t word;
 	int i;
 
-	
+	/* word by word crc32 */
 	for (i = 0; i < (length >> 2); i++)
 		crc = crc32_word(crc, data[i], 8);
 
-	
+	/* zero pad last word if required */
 	if (length & 0x3) {
 		for (i *= 4, word = 0; i < length; i++)
 			word |= buffer[i] << ((i & 0x3) * 8);
@@ -74,7 +74,7 @@ static inline size_t pad(size_t length)
 
 static inline size_t tot_len(size_t length)
 {
-	
+	/* [TYPE:1] [LENGTH:3] [DATA] [PAD:0-3] [CRC:4] */
 	return sizeof(uint32_t) + pad(length) + sizeof(uint32_t);
 }
 

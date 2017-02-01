@@ -24,7 +24,9 @@
 
 #define SENSOR_MAX_MOUNTANGLE (360)
 
+//HTC_START
 static struct kobject *android_imx377_htc;
+//static const char *imx377_htcVendor = "Sony";
 static const char *imx377_htcNAME = "PMEif_htc";
 static const char *imx377_htcSize = "12M";
 
@@ -34,14 +36,19 @@ static const char *s5k4e6_htcVendor = "Samsung";
 static const char *s5k4e6_htcNAME = "s5k4e6_htc";
 static const char *s5k4e6_htcSize = "5M";
 
+/* HTC_START, ov12890 */
 static struct kobject *android_ov12890_htc;
+//static const char *ov12890_htcVendor = "OmniVision";
 static const char *ov12890_htcNAME = "PMEos_htc";
 static const char *ov12890_htcSize = "12M";
 
 static struct kobject *android_ov12890eco_htc;
+//static const char *ov12890eco_htcVendor = "OmniVision";
 static const char *ov12890eco_htcNAME = "PMEose_htc";
 static const char *ov12890eco_htcSize = "12M";
+/* HTC_END */
 
+/*HTC_START*/
 uint32_t msm_sensor_driver_get_boardinfo(struct device_node *of_node)
 {
     uint32_t boardinfo = 0;
@@ -52,6 +59,7 @@ uint32_t msm_sensor_driver_get_boardinfo(struct device_node *of_node)
     pr_info("%s: msm_sensor_get_boardinfo, read boardinfo:%d \n",__func__, boardinfo);
     return boardinfo;
 }
+/*HTC_END*/
 
 static ssize_t sensor_vendor_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -71,6 +79,7 @@ static ssize_t sensor_vendor_show_front(struct device *dev,
 	return ret;
 }
 
+/* HTC_START, ov12890 */
 static ssize_t sensor_vendor_show_ov12890(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -88,6 +97,7 @@ static ssize_t sensor_vendor_show_ov12890eco(struct device *dev,
 	ret = strlen(buf) + 1;
 	return ret;
 }
+/* HTC_END */
 
 static int imx377_htc_sysfs_init(void)
 {
@@ -136,6 +146,7 @@ static int s5k4e6_htc_sysfs_init(void)
 	return 0 ;
 }
 
+/* HTC_START, ov12890 */
 static int ov12890_htc_sysfs_init(void)
 {
 	int ret ;
@@ -183,7 +194,9 @@ static int ov12890eco_htc_sysfs_init(void)
 
 	return 0 ;
 }
+/* HTC_END */
 
+//HTC_END
 static struct v4l2_file_operations msm_sensor_v4l2_subdev_fops;
 static int32_t msm_sensor_driver_platform_probe(struct platform_device *pdev);
 
@@ -619,11 +632,13 @@ static int32_t msm_sensor_get_power_down_settings(void *setting,
 	uint16_t size_down = 0;
 	uint16_t i = 0;
 	struct msm_sensor_power_setting *pd = NULL;
+//HTC_START
 	int hw_version = 0;
 	struct device_node *of_node = g_sctrl[slave_info->camera_id]->of_node;
 	struct msm_sensor_power_setting *pu_temp = NULL;
 	int index = 0;
         hw_version = msm_sensor_driver_get_boardinfo(of_node);
+//HTC_END
 
 	/* DOWN */
 	size_down = slave_info->power_setting_array.size_down;
@@ -669,6 +684,7 @@ static int32_t msm_sensor_get_power_down_settings(void *setting,
 		}
 	}
 
+//HTC_START
 	if(hw_version > 0)
 	{
 		pu_temp = kzalloc(sizeof(*pu_temp) * size_down, GFP_KERNEL);
@@ -679,9 +695,9 @@ static int32_t msm_sensor_get_power_down_settings(void *setting,
 		}
 		index = 0;
 
-		if(hw_version == 1) 
+		if(hw_version == 1) //Old HW layout, A2v8 use LDO instead of GPIO
 		{
-		    
+		    /* Print power setting */
 		    for (i = 0; i < size_down; i++) {
 		        pr_info("(%d)[CAM]DOWN seq_type %d seq_val %d config_val %ld delay %d \n", i,
 			pd[i].seq_type, pd[i].seq_val,
@@ -697,9 +713,9 @@ static int32_t msm_sensor_get_power_down_settings(void *setting,
 			}
 		    }
 		}
-		else if(hw_version == 2) 
+		else if(hw_version == 2) //New HW layout, A2v8 use GPIO instead of LDO
 		{
-		    
+		    /* Print power setting */
 		    for (i = 0; i < size_down; i++) {
 			pr_info("[CAM](%d)DOWN seq_type %d seq_val %d config_val %ld delay %d", i,
 			pd[i].seq_type, pd[i].seq_val,
@@ -727,7 +743,8 @@ static int32_t msm_sensor_get_power_down_settings(void *setting,
 	}
 	else
 	{
-	
+//HTC_END
+	/* Fill power down setting and power down setting size */
 	power_info->power_down_setting = pd;
 	power_info->power_down_setting_size = size_down;
 
@@ -737,7 +754,9 @@ static int32_t msm_sensor_get_power_down_settings(void *setting,
 			pd[i].seq_type, pd[i].seq_val,
 			pd[i].config_val, pd[i].delay);
 	}
+//HTC_START
 	}
+//HTC_END
 	return rc;
 }
 
@@ -749,11 +768,13 @@ static int32_t msm_sensor_get_power_up_settings(void *setting,
 	uint16_t size = 0;
 	uint16_t i = 0;
 	struct msm_sensor_power_setting *pu = NULL;
+//HTC_START
 	int hw_version = 0;
 	struct device_node *of_node = g_sctrl[slave_info->camera_id]->of_node;
 	struct msm_sensor_power_setting *pu_temp = NULL;
 	int index = 0;
         hw_version = msm_sensor_driver_get_boardinfo(of_node);
+//HTC_END
 	size = slave_info->power_setting_array.size;
 
 	/* Validate size */
@@ -788,6 +809,7 @@ static int32_t msm_sensor_get_power_up_settings(void *setting,
 			return -EFAULT;
 		}
 	}
+//HTC_START
 	if(hw_version > 0)
 	{
 		pu_temp = kzalloc(sizeof(*pu_temp) * size, GFP_KERNEL);
@@ -798,9 +820,9 @@ static int32_t msm_sensor_get_power_up_settings(void *setting,
 		}
 		index = 0;
 
-		if(hw_version == 1) 
+		if(hw_version == 1) //Old HW layout, A2v8 use LDO instead of GPIO
 		{
-		    
+		    /* Print power setting */
 		    for (i = 0; i < size; i++) {
 		        pr_info("(%d)[CAM]UP seq_type %d seq_val %d config_val %ld delay %d \n", i,
 			pu[i].seq_type, pu[i].seq_val,
@@ -816,9 +838,9 @@ static int32_t msm_sensor_get_power_up_settings(void *setting,
 			}
 		    }
 		}
-		else if(hw_version == 2) 
+		else if(hw_version == 2) //New HW layout, A2v8 use GPIO instead of LDO
 		{
-		    
+		    /* Print power setting */
 		    for (i = 0; i < size; i++) {
 			pr_info("[CAM](%d)UP seq_type %d seq_val %d config_val %ld delay %d", i,
 			pu[i].seq_type, pu[i].seq_val,
@@ -846,7 +868,8 @@ static int32_t msm_sensor_get_power_up_settings(void *setting,
 	}
 	else
 	{
-	
+//HTC_END
+	/* Print power setting */
 	for (i = 0; i < size; i++) {
 		CDBG("UP seq_type %d seq_val %d config_val %ld delay %d",
 			pu[i].seq_type, pu[i].seq_val,
@@ -857,7 +880,9 @@ static int32_t msm_sensor_get_power_up_settings(void *setting,
 	/* Fill power up setting and power up setting size */
 	power_info->power_setting = pu;
 	power_info->power_setting_size = size;
+//HTC_START
 	}
+//HTC_END
 	return rc;
 }
 
@@ -917,6 +942,7 @@ static void msm_sensor_fill_sensor_info(struct msm_sensor_ctrl_t *s_ctrl,
 
 	strlcpy(entity_name, s_ctrl->msm_sd.sd.entity.name, MAX_SENSOR_NAME);
 }
+//HTC_START
 #define EEPROM_COMPONENT_I2C_ADDR_WRITE 0xA0
 void msm_sensor_read_OTP(struct msm_camera_sensor_slave_info *sensor_slave_info, struct msm_sensor_ctrl_t *s_ctrl)
 {
@@ -924,7 +950,7 @@ void msm_sensor_read_OTP(struct msm_camera_sensor_slave_info *sensor_slave_info,
 	struct msm_camera_i2c_client *sensor_i2c_client;
 	struct msm_camera_slave_info *slave_info;
 	pr_err("[CAM]%s: +, slave_info->slave_addr:%d", __func__, sensor_slave_info->slave_addr);
-	
+	//cci_client_sid_backup = sensor_slave_info->slave_addr;
 	sensor_i2c_client = s_ctrl->sensor_i2c_client;
 	slave_info = s_ctrl->sensordata->slave_info;
 	if (!sensor_i2c_client || !slave_info )
@@ -967,7 +993,7 @@ void msm_sensor_read_OTP(struct msm_camera_sensor_slave_info *sensor_slave_info,
 		s5k4e6_htc_sysfs_init();
 		pr_err("[CAM]%s: s5k4e6_htc_sysfs_init done", __func__);
 	}
-	
+	/* HTC_START, ov12890 */
 	else if(strncmp("ov12890_htc", sensor_slave_info->sensor_name, sizeof("ov12890_htc")) == 0)
 	{
 	    pr_err("[CAM]%s: PMEos_htc, match sensor name, use byte address", __func__);
@@ -992,7 +1018,7 @@ void msm_sensor_read_OTP(struct msm_camera_sensor_slave_info *sensor_slave_info,
 	    ov12890eco_htc_sysfs_init();
 	    pr_err("[CAM]%s: PMEose_htc_sysfs_init done", __func__);
 	}
-	
+	/* HTC_END */
 	else
 	{
 		pr_err("[CAM]%s: %s, NOT match sensor name", __func__, sensor_slave_info->sensor_name);
@@ -1000,6 +1026,8 @@ void msm_sensor_read_OTP(struct msm_camera_sensor_slave_info *sensor_slave_info,
 	pr_err("[CAM]%s: -", __func__);
 
 }
+//HTC_END
+/* static function definition */
 int32_t msm_sensor_driver_probe(void *setting,
 	struct msm_sensor_info_t *probed_info, char *entity_name)
 {
@@ -1252,6 +1280,7 @@ CSID_TG:
 		pr_err("%s failed %d\n", __func__, __LINE__);
 		goto free_camera_info;
 	}
+//HTC_START
 	if(strncmp("ov12890_htc", slave_info->sensor_name, sizeof("ov12890_htc")) == 0)
 	{
 	    struct msm_camera_power_ctrl_t *power_info;
@@ -1274,11 +1303,12 @@ CSID_TG:
 	    cam_vreg->max_voltage = 1250000;
 	    pr_info("msm_sensor_driver_probe, new sensor_name:PMEose_htc min=%d, max=%d", cam_vreg->min_voltage, cam_vreg->max_voltage);
 	}
+//HTC_END
 
 	/* Power up and probe sensor */
 	rc = s_ctrl->func_tbl->sensor_power_up(s_ctrl);
 	if (rc < 0) {
-		
+		/* HTC_START */
 		if(strncmp("imx377_htc", slave_info->sensor_name, sizeof("imx377_htc")) == 0)
 		{
 			pr_err("PMEif_htc power up failed");
@@ -1292,12 +1322,12 @@ CSID_TG:
 			pr_err("PMEose_htc power up failed");
 		}
 		else
-		
+		/* HTC_END */
 		pr_err("%s power up failed", slave_info->sensor_name);
 		goto free_camera_info;
 	}
 
-	
+	/* HTC_START */
 	if(strncmp("imx377_htc", slave_info->sensor_name, sizeof("imx377_htc")) == 0)
 	{
 		pr_err("PMEif_htc probe succeeded");
@@ -1311,9 +1341,11 @@ CSID_TG:
 		pr_err("PMEose_htc probe succeeded");
 	}
 	else
-	
+	/* HTC_END */
 	pr_err("%s probe succeeded", slave_info->sensor_name);
+//HTC_START
         msm_sensor_read_OTP(slave_info, s_ctrl);
+//HTC_END
 	/*
 	  Set probe succeeded flag to 1 so that no other camera shall
 	 * probed on this slot

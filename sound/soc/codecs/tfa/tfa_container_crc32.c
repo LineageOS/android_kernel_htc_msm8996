@@ -1,3 +1,9 @@
+/*
+ * tfaContainer_crc32.c
+ *
+ * Implement crc32 function
+ *
+ */
 
 #include "config.h"
 

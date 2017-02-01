@@ -257,6 +257,13 @@ static int mdss_fb_notify_update(struct msm_fb_data_type *mfd,
 	return ret;
 }
 
+/**
+ * Backlight 1.0.
+ * mdss_backlight_trans() -  Transfer BL level and Brightness level.
+ * Ref htc,brt-bl-table to map BL level and Brightness level.
+ * brightness_to_bl = true, The val was brigthness and return bl level.
+ * brightness_to_bl = false, The val was bl and return brightness level.
+ */
 int mdss_backlight_trans(int val, struct mdss_panel_info *panel_info, bool brightness_to_bl)
 {
 	unsigned int result;
@@ -266,7 +273,7 @@ int mdss_backlight_trans(int val, struct mdss_panel_info *panel_info, bool brigh
 	struct htc_backlight1_table *brt_bl_table = &panel_info->brt_bl_table;
 	int size = brt_bl_table->size;
 
-	
+	/* Not define brt table */
 	if(!size || !brt_bl_table->brt_data || !brt_bl_table->bl_data)
 		return -ENOENT;
 
@@ -281,13 +288,13 @@ int mdss_backlight_trans(int val, struct mdss_panel_info *panel_info, bool brigh
 	if (val <= 0){
 		result = 0;
 	} else if (val < val_table[0]) {
-		
+		/* Min value */
 		result = ret_table[0];
 	} else if (val >= val_table[size - 1]) {
-		
+		/* Max value */
 		result = ret_table[size - 1];
 	} else {
-		
+		/* Interpolation method */
 		result = val;
 		for(index = 0; index < size - 1; index++){
 			if (val >= val_table[index] && val <= val_table[index + 1]) {
@@ -328,6 +335,8 @@ static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 
 	bl_lvl = mdss_backlight_trans(value, mfd->panel_info, true);
 	if (bl_lvl < 0) {
+		/* This maps android backlight level 0 to 255 into
+		   driver backlight level 0 to bl_max with rounding */
 		MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
 					mfd->panel_info->brightness_max);
 	}
@@ -1250,7 +1259,7 @@ static int mdss_fb_probe(struct platform_device *pdev)
 		else
 			lcd_backlight_registered = 1;
 
-		
+		/*HTC: extend attrs*/
 		htc_register_attrs(&backlight_led.dev->kobj, mfd);
 	}
 
@@ -1634,7 +1643,7 @@ void mdss_fb_set_backlight(struct msm_fb_data_type *mfd, u32 bkl_lvl)
 			mfd->bl_level = bkl_lvl;
 			mfd->bl_level_scaled = temp;
 		}
-		
+		/* HTC: set burst mode */
 		htc_set_burst(mfd);
 		if (ad_bl_notify_needed)
 			mdss_fb_bl_update_notify(mfd,
@@ -1658,6 +1667,9 @@ void mdss_fb_update_backlight(struct msm_fb_data_type *mfd)
 		pdata = dev_get_platdata(&mfd->pdev->dev);
 		if ((pdata) && (pdata->set_backlight)) {
 			pr_info("bl_level %d => %d\n", mfd->bl_level, mfd->unset_bl_level);
+			/* HTC TODO: turn on backlight right after kickoff may not guarantee
+			       internal gram was initialized. Defer 1 frame time before enable.
+			 */
 			udelay(16666);
 			mfd->bl_level = mfd->unset_bl_level;
 			temp = mfd->bl_level;
@@ -1910,6 +1922,11 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 
 	cur_power_state = mfd->panel_power_state;
 
+	/*
+	 * Low power (lp) and ultra low pwoer (ulp) modes are currently only
+	 * supported for command mode panels. For all other panel, treat lp
+	 * mode as full unblank and ulp mode as full blank.
+	 */
 	if (mfd->panel_info->type != MIPI_CMD_PANEL || mfd->panel_info->sim_panel_mode) {
 		if (BLANK_FLAG_LP == blank_mode) {
 			pr_debug("lp mode only valid for cmd mode panels\n");
@@ -2567,9 +2584,9 @@ static int mdss_fb_register(struct msm_fb_data_type *mfd)
 
 	var->xres_virtual = var->xres;
 	var->yres_virtual = panel_info->yres * mfd->fb_page;
-	var->bits_per_pixel = bpp * 8;	
+	var->bits_per_pixel = bpp * 8;	/* FrameBuffer color depth */
 
-	
+	/* HTC: register camera brightness */
 	if (panel_info->camera_blk) {
 		htc_register_camera_bkl(panel_info->camera_blk);
 	}
@@ -3582,7 +3599,7 @@ static int __mdss_fb_perform_commit(struct msm_fb_data_type *mfd)
 skip_commit:
 	if (!ret) {
 		if (mfd->panel_info->pdest == DISPLAY_1) {
-			htc_set_cabc(mfd, 0);	
+			htc_set_cabc(mfd, 0);	/* HTC: set cabc mode start */
 			htc_set_color_temp(mfd, 0);
 			htc_set_color_profile(mfd, 0);
 		}
@@ -4735,6 +4752,8 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = mdss_fb_async_position_update_ioctl(info, argp);
 		break;
 
+	/* HTC: We wish to implement dedicated usb fb device in future.
+	 *      However, keep things simple now. */
 	case MSMFB_USBFB_INIT:
 		ret = minifb_ioctl_handler(MINIFB_INIT, argp);
 		break;

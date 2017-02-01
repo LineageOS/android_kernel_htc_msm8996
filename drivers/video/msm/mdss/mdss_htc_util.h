@@ -57,4 +57,4 @@ void htc_set_vddio_switch(struct msm_fb_data_type *mfd);
 int compass_notifier_fn(struct notifier_block *nb,
                         unsigned long action, void *data);
 void htc_set_burst(struct msm_fb_data_type *mfd);
-#endif 
+#endif /* MDSS_FB_H */

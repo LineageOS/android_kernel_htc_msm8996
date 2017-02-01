@@ -68,19 +68,19 @@
 #define GSCAN_ATTR_SET12			120
 
 typedef enum {
-	
+	/* don't use 0 as a valid subcommand */
 	VENDOR_NL80211_SUBCMD_UNSPECIFIED,
 
-	
+	/* define all vendor startup commands between 0x0 and 0x0FFF */
 	VENDOR_NL80211_SUBCMD_RANGE_START = 0x0001,
 	VENDOR_NL80211_SUBCMD_RANGE_END   = 0x0FFF,
 
-	
+	/* define all GScan related commands between 0x1000 and 0x10FF */
 	ANDROID_NL80211_SUBCMD_GSCAN_RANGE_START = 0x1000,
 	ANDROID_NL80211_SUBCMD_GSCAN_RANGE_END   = 0x10FF,
 
 
-	
+	/* define all RTT related commands between 0x1100 and 0x11FF */
 	ANDROID_NL80211_SUBCMD_RTT_RANGE_START = 0x1100,
 	ANDROID_NL80211_SUBCMD_RTT_RANGE_END   = 0x11FF,
 
@@ -93,15 +93,15 @@ typedef enum {
 	ANDROID_NL80211_SUBCMD_DEBUG_RANGE_START = 0x1400,
 	ANDROID_NL80211_SUBCMD_DEBUG_RANGE_END  = 0x14FF,
 
-	
+	/* define all NearbyDiscovery related commands between 0x1500 and 0x15FF */
 	ANDROID_NL80211_SUBCMD_NBD_RANGE_START = 0x1500,
 	ANDROID_NL80211_SUBCMD_NBD_RANGE_END   = 0x15FF,
 
-	
+	/* define all wifi calling related commands between 0x1600 and 0x16FF */
 	ANDROID_NL80211_SUBCMD_WIFI_OFFLOAD_RANGE_START = 0x1600,
 	ANDROID_NL80211_SUBCMD_WIFI_OFFLOAD_RANGE_END   = 0x16FF,
 
-	
+	/* This is reserved for future usage */
 
 } ANDROID_VENDOR_SUB_COMMAND;
 
@@ -143,7 +143,7 @@ enum andr_vendor_subcmd {
 	DEBUG_RESET_LOGGING,
 	WIFI_OFFLOAD_SUBCMD_START_MKEEP_ALIVE = ANDROID_NL80211_SUBCMD_WIFI_OFFLOAD_RANGE_START,
 	WIFI_OFFLOAD_SUBCMD_STOP_MKEEP_ALIVE,
-	
+	/* Add more sub commands here */
 	VENDOR_SUBCMD_MAX
 };
 
@@ -165,17 +165,17 @@ enum gscan_attributes {
     GSCAN_ATTRIBUTE_FLUSH_FEATURE,
     GSCAN_ATTRIBUTE_ENABLE_FULL_SCAN_RESULTS,
     GSCAN_ATTRIBUTE_REPORT_EVENTS,
-    
+    /* remaining reserved for additional attributes */
     GSCAN_ATTRIBUTE_NUM_OF_RESULTS = GSCAN_ATTR_SET3,
     GSCAN_ATTRIBUTE_FLUSH_RESULTS,
-    GSCAN_ATTRIBUTE_SCAN_RESULTS,                       
-    GSCAN_ATTRIBUTE_SCAN_ID,                            
-    GSCAN_ATTRIBUTE_SCAN_FLAGS,                         
-    GSCAN_ATTRIBUTE_AP_FLAGS,                           
+    GSCAN_ATTRIBUTE_SCAN_RESULTS,                       /* flat array of wifi_scan_result */
+    GSCAN_ATTRIBUTE_SCAN_ID,                            /* indicates scan number */
+    GSCAN_ATTRIBUTE_SCAN_FLAGS,                         /* indicates if scan was aborted */
+    GSCAN_ATTRIBUTE_AP_FLAGS,                           /* flags on significant change event */
     GSCAN_ATTRIBUTE_NUM_CHANNELS,
     GSCAN_ATTRIBUTE_CHANNEL_LIST,
 
-	
+	/* remaining reserved for additional attributes */
 
     GSCAN_ATTRIBUTE_SSID = GSCAN_ATTR_SET4,
     GSCAN_ATTRIBUTE_BSSID,
@@ -185,7 +185,7 @@ enum gscan_attributes {
     GSCAN_ATTRIBUTE_RTT,
     GSCAN_ATTRIBUTE_RTTSD,
 
-    
+    /* remaining reserved for additional attributes */
 
     GSCAN_ATTRIBUTE_HOTLIST_BSSIDS = GSCAN_ATTR_SET5,
     GSCAN_ATTRIBUTE_RSSI_LOW,
@@ -193,14 +193,14 @@ enum gscan_attributes {
     GSCAN_ATTRIBUTE_HOSTLIST_BSSID_ELEM,
     GSCAN_ATTRIBUTE_HOTLIST_FLUSH,
 
-    
+    /* remaining reserved for additional attributes */
     GSCAN_ATTRIBUTE_RSSI_SAMPLE_SIZE = GSCAN_ATTR_SET6,
     GSCAN_ATTRIBUTE_LOST_AP_SAMPLE_SIZE,
     GSCAN_ATTRIBUTE_MIN_BREACHING,
     GSCAN_ATTRIBUTE_SIGNIFICANT_CHANGE_BSSIDS,
     GSCAN_ATTRIBUTE_SIGNIFICANT_CHANGE_FLUSH,
 
-    
+    /* EPNO */
     GSCAN_ATTRIBUTE_EPNO_SSID_LIST = GSCAN_ATTR_SET7,
     GSCAN_ATTRIBUTE_EPNO_SSID,
     GSCAN_ATTRIBUTE_EPNO_SSID_LEN,
@@ -210,7 +210,7 @@ enum gscan_attributes {
     GSCAN_ATTRIBUTE_EPNO_SSID_NUM,
     GSCAN_ATTRIBUTE_EPNO_FLUSH,
 
-    
+    /* Roam SSID Whitelist and BSSID pref */
     GSCAN_ATTRIBUTE_WHITELIST_SSID = GSCAN_ATTR_SET8,
     GSCAN_ATTRIBUTE_NUM_WL_SSID,
     GSCAN_ATTRIBUTE_WL_SSID_LEN,
@@ -223,7 +223,7 @@ enum gscan_attributes {
     GSCAN_ATTRIBUTE_RSSI_MODIFIER,
 
 
-    
+    /* Roam cfg */
     GSCAN_ATTRIBUTE_A_BAND_BOOST_THRESHOLD = GSCAN_ATTR_SET9,
     GSCAN_ATTRIBUTE_A_BAND_PENALTY_THRESHOLD,
     GSCAN_ATTRIBUTE_A_BAND_BOOST_FACTOR,
@@ -233,7 +233,7 @@ enum gscan_attributes {
     GSCAN_ATTRIBUTE_ALERT_ROAM_RSSI_TRIGGER,
     GSCAN_ATTRIBUTE_LAZY_ROAM_ENABLE,
 
-    
+    /* BSSID blacklist */
     GSCAN_ATTRIBUTE_BSSID_BLACKLIST_FLUSH = GSCAN_ATTR_SET10,
     GSCAN_ATTRIBUTE_BLACKLIST_BSSID,
 
@@ -244,7 +244,7 @@ enum gscan_attributes {
     GSCAN_ATTRIBUTE_ANQPO_HS_ROAM_CONSORTIUM_ID,
     GSCAN_ATTRIBUTE_ANQPO_HS_PLMN,
 
-    
+    /* Adaptive scan attributes */
     GSCAN_ATTRIBUTE_BUCKET_STEP_COUNT = GSCAN_ATTR_SET12,
     GSCAN_ATTRIBUTE_BUCKET_MAX_PERIOD,
 
@@ -349,12 +349,12 @@ enum andr_wifi_attr {
 typedef enum wl_vendor_gscan_attribute {
 	ATTR_START_GSCAN,
 	ATTR_STOP_GSCAN,
-	ATTR_SET_SCAN_BATCH_CFG_ID, 
-	ATTR_SET_SCAN_GEOFENCE_CFG_ID, 
-	ATTR_SET_SCAN_SIGNIFICANT_CFG_ID, 
-	ATTR_SET_SCAN_CFG_ID, 
+	ATTR_SET_SCAN_BATCH_CFG_ID, /* set batch scan params */
+	ATTR_SET_SCAN_GEOFENCE_CFG_ID, /* set list of bssids to track */
+	ATTR_SET_SCAN_SIGNIFICANT_CFG_ID, /* set list of bssids, rssi threshold etc.. */
+	ATTR_SET_SCAN_CFG_ID, /* set common scan config params here */
 	ATTR_GET_GSCAN_CAPABILITIES_ID,
-    
+    /* Add more sub commands here */
 	ATTR_GSCAN_MAX
 } wl_vendor_gscan_attribute_t;
 
@@ -374,6 +374,7 @@ typedef enum gscan_complete_event {
 	WIFI_SCAN_COMPLETE
 } gscan_complete_event_t;
 
+/* Capture the BRCM_VENDOR_SUBCMD_PRIV_STRINGS* here */
 #define BRCM_VENDOR_SCMD_CAPA	"cap"
 
 #if defined(WL_VENDOR_EXT_SUPPORT) || defined(CONFIG_BCMDHD_VENDOR_EXT)
@@ -386,6 +387,6 @@ extern int wl_cfgvendor_send_hotlist_event(struct wiphy *wiphy,
 #else
 static INLINE int cfgvendor_attach(struct wiphy *wiphy) { return 0; }
 static INLINE int cfgvendor_detach(struct wiphy *wiphy) { return 0; }
-#endif 
+#endif /* defined(WL_VENDOR_EXT_SUPPORT) */
 
-#endif 
+#endif /* _wl_cfgvendor_h_ */

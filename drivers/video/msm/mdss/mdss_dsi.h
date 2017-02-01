@@ -554,7 +554,7 @@ struct mdss_dsi_ctrl_pdata {
 
 	bool phy_power_off;
 
-	
+	/*HTC: ADD*/
 	struct dsi_panel_cmds cabc_off_cmds;
 	struct dsi_panel_cmds cabc_ui_cmds;
 	struct dsi_panel_cmds cabc_video_cmds;

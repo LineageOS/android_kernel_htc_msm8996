@@ -96,7 +96,7 @@ static irqreturn_t modem_err_fatal_intr_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-#if 1 
+#if 1 //Modem_BSP++
 #include <linux/reboot.h>
 static irqreturn_t modem_reboot_intr_handler(int irq, void *dev_id)
 {
@@ -105,7 +105,7 @@ static irqreturn_t modem_reboot_intr_handler(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
-#endif 
+#endif //Modem_BSP--
 
 static irqreturn_t modem_stop_ack_intr_handler(int irq, void *dev_id)
 {
@@ -161,7 +161,7 @@ static int modem_powerup(const struct subsys_desc *subsys)
 	drv->ignore_errors = false;
 	drv->q6->desc.fw_name = subsys->fw_name;
 
-#if defined(CONFIG_HTC_FEATURES_SSR) 
+#if defined(CONFIG_HTC_FEATURES_SSR) /*+SSD_RIL: Set dump mode when modem send specific words in SSR reason*/
         if (htc_skip_ramdump==true)
         {
           htc_skip_ramdump=false;
@@ -169,7 +169,7 @@ static int modem_powerup(const struct subsys_desc *subsys)
           subsys_config_modem_enable_ramdump(drv->subsys);
           pr_info("%s: [pil] restore htc ramdump mode!!\n",__func__);
         }
-#endif 
+#endif /*-SSD_RIL: Set dump mode when modem send specific words in SSR reason*/
 
 	return pil_boot(&drv->q6->desc);
 }
@@ -242,9 +242,9 @@ static int pil_subsys_init(struct modem_data *drv,
 	drv->subsys_desc.ramdump = modem_ramdump;
 	drv->subsys_desc.crash_shutdown = modem_crash_shutdown;
 	drv->subsys_desc.err_fatal_handler = modem_err_fatal_intr_handler;
-#if 1 
+#if 1 //Modem_BSP++
 	drv->subsys_desc.reboot_req_handler = modem_reboot_intr_handler;
-#endif 
+#endif //Modem_BSP--
 	drv->subsys_desc.stop_ack_handler = modem_stop_ack_intr_handler;
 	drv->subsys_desc.wdog_bite_handler = modem_wdog_bite_intr_handler;
 

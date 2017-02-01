@@ -156,6 +156,10 @@ static int parse_config(struct device *dev, struct synaptics_dsx_board_data *bda
 
 		cfg_table[i].length = len;
 		memcpy(cfg_table[i].config, prop->value, cfg_table[i].length);
+		/*pr_info(rmi4_data->pdev->dev.parent, " DT#%d-id:%05x, pr:%d, len:%d\n", i,
+			cfg_table[i].sensor_id, cfg_table[i].pr_number, cfg_table[i].length);
+		pr_info(rmi4_data->pdev->dev.parent, " cfg=[%02x,%02x,%02x,%02x]\n", cfg_table[i].config[0],
+			cfg_table[i].config[1],	cfg_table[i].config[2], cfg_table[i].config[3]);*/
 		i++;
 	}
 
@@ -356,10 +360,10 @@ static int parse_dt(struct device *dev, struct synaptics_dsx_board_data *bdata)
 		}
 		bdata->display_width  = coords[1];
 		bdata->display_height = coords[3];
-		
+		/*pr_info("DT-%s:display-coords = (%d, %d)", __func__, bdata->display_width,bdata->display_height);*/
 	}
 
-	
+	/* Parse eng_id */
 	if (of_property_read_u32(np, "htc,eng_id", &bdata->eng_id) == 0) {
 		pr_info("(INIT) eng_id = %d", bdata->eng_id);
 	} else if (of_property_read_u32(np, "htc,eng_id_mask", &bdata->eng_id_mask) == 0) {

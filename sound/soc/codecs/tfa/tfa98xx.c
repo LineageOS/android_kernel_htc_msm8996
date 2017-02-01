@@ -31,7 +31,8 @@
 #include "config.h"
 
 #define I2C_RETRIES 50
-#define I2C_RETRY_DELAY 5 
+#define I2C_RETRY_DELAY 5 /* ms */
+/* TODO: remove genregs usage? */
 #ifdef N1A
 #include "tfa98xx_genregs_N1A12.h"
 #else
@@ -45,18 +46,29 @@
 #include "tfa_service.h"
 #include "tfa_container.h"
 #include "tfa98xx_parameters.h"
+//HTC_AUD_START
 #include <linux/time.h>
+//HTC_AUD_END
 
 #define TFA98XX_VERSION		"2.10.1-a"
 
+/* Change volume selection behavior:
+ * Uncomment following line to generate a profile change when updating
+ * a volume control (also changes to the profile of the modified  volume
+ * control)
+ */
+/*#define TFA98XX_ALSA_CTRL_PROF_CHG_ON_VOL	1
+*/
 
 #define TFA98XX_STATUSREG_UP_MASK	(TFA98XX_STATUSREG_PLLS | \
 				 TFA98XX_STATUSREG_CLKS | \
 				 TFA98XX_STATUSREG_VDDS | \
 				 TFA98XX_STATUSREG_AREFS)
 
+/* Supported rates and data formats */
 #define TFA98XX_RATES SNDRV_PCM_RATE_8000_48000
 
+/*#define TFA98XX_FORMATS	(SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S32_LE) */
 #define TFA98XX_FORMATS	SNDRV_PCM_FMTBIT_S16_LE
 
 #define TF98XX_MAX_DSP_START_TRY_COUNT	10
@@ -64,7 +76,7 @@
 #define XMEM_TAP_ACK  0x0122
 #define XMEM_TAP_READ 0x010f
 
-static LIST_HEAD(profile_list); 
+static LIST_HEAD(profile_list); /* list of user selectable profiles */
 
 static int tfa98xx_kmsg_regs = 0;
 static int tfa98xx_ftrace_regs = 0;
@@ -77,9 +89,11 @@ static int tfa98xx_prof_vsteps[10] = {0};
 static int tfa98xx_mixer_profiles = 0; 
 static int tfa98xx_mixer_profile = 7;  
 
-static int previews_profile = 7; 
+//HTC_AUD_START
+static int previews_profile = 7; /* previews profile */
 static int default_vsteps[4]={0,0,0,0};
 static bool n1b_chip = false;
+//HTC_AUD_END
 
 static char *dflt_prof_name = "";
 module_param(dflt_prof_name, charp, S_IRUGO);
@@ -112,15 +126,19 @@ static struct tfa98xx_rate rate_to_fssel[] = {
 	{ 48000, 8 },
 };
 
+/* Wrapper for tfa start */
 static enum tfa_error tfa98xx_tfa_start(struct tfa98xx *tfa98xx, int next_profile, int *vstep)
 {
 	enum tfa_error err;
 
 	err = tfa_start(next_profile, vstep);
 
-	
+	/* Check and update tap-detection state (in case of profile change) */
 	tfa98xx_tapdet_check_update(tfa98xx);
 
+	/* A cold start erases the configuration, including interrupts setting.
+	 * Restore it if required
+	 */
 	tfa98xx_interrupt_restore(tfa98xx);
 
 	return err;
@@ -131,13 +149,16 @@ static int tfa98xx_input_open(struct input_dev *dev)
 	struct tfa98xx *tfa98xx = input_get_drvdata(dev);
 	dev_dbg(tfa98xx->codec->dev, "opening device file\n");
 
+	/* note: open function is called only once by the framework.
+	 * No need to count number of open file instances.
+	 */
 	if (tfa98xx->dsp_fw_state != TFA98XX_DSP_FW_OK) {
 		dev_dbg(&tfa98xx->i2c->dev,
 			"DSP not loaded, cannot start tap-detection\n");
 		return -EIO;
 	}
 
-	
+	/* enable tap-detection service */
 	tfa98xx->tapdet_open = true;
 	tfa98xx_tapdet_check_update(tfa98xx);
 
@@ -150,9 +171,9 @@ static void tfa98xx_input_close(struct input_dev *dev)
 
 	dev_dbg(tfa98xx->codec->dev, "closing device file\n");
 
-	
+	/* Note: close function is called if the device is unregistered */
 
-	
+	/* disable tap-detection service */
 	tfa98xx->tapdet_open = false;
 	tfa98xx_tapdet_check_update(tfa98xx);
 }
@@ -204,6 +225,12 @@ err_free_dev:
 	return err;
 }
 
+/*
+ * Check if an input device for tap-detection can and shall be registered.
+ * Register it if appropriate.
+ * If already registered, check if still relevant and remove it if necessary.
+ * unregister: true to request inputdev unregistration.
+ */
 static void __tfa98xx_inputdev_check_register(struct tfa98xx *tfa98xx, bool unregister)
 {
 	bool tap_profile = false;
@@ -218,10 +245,14 @@ static void __tfa98xx_inputdev_check_register(struct tfa98xx *tfa98xx, bool unre
 		}
 	}
 
+	/* Check for device support:
+	 *  - at device level
+	 *  - at container (profile) level
+	 */
 	if (!(tfa98xx->flags & TFA98XX_FLAG_TAPDET_AVAILABLE) ||
 		!tap_profile ||
 		unregister) {
-		
+		/* No input device supported or required */
 		if (tfa98xx->input) {
 			input_unregister_device(tfa98xx->input);
 			tfa98xx->input = NULL;
@@ -229,7 +260,7 @@ static void __tfa98xx_inputdev_check_register(struct tfa98xx *tfa98xx, bool unre
 		return;
 	}
 
-	
+	/* input device required */
 	if (tfa98xx->input)
 		dev_info(tfa98xx->codec->dev, "Input device already registered, skipping\n");
 	else
@@ -247,6 +278,9 @@ static void tfa98xx_inputdev_unregister(struct tfa98xx *tfa98xx)
 }
 
 #ifdef CONFIG_DEBUG_FS
+/* OTC reporting
+ * Returns the MTP0 OTC bit value
+ */
 static int tfa98xx_dbgfs_otc_get(void *data, u64 *val)
 {
 	struct i2c_client *i2c = (struct i2c_client *)data;
@@ -272,7 +306,7 @@ static int tfa98xx_dbgfs_otc_get(void *data, u64 *val)
 			return -EIO;
 		} else if (err == Tfa98xx_Error_NoClock) {
 			if (otc->rd_valid) {
-				
+				/* read cached value */
 				*val = otc->rd_value;
 				pr_debug("Returning cached value of OTC: %llu\n", *val);
 			} else {
@@ -324,7 +358,7 @@ static int tfa98xx_dbgfs_otc_set(void *data, u64 val)
 			pr_err("Unable to check DSP access: %d\n", err);
 			return -EIO;
 		} else if (err == Tfa98xx_Error_NoClock) {
-			
+			/* defer OTC */
 			otc->wr_value = val;
 			otc->triggered = true;
 			pr_debug("Deferring write to OTC (%d)\n", otc->wr_value);
@@ -332,7 +366,7 @@ static int tfa98xx_dbgfs_otc_set(void *data, u64 val)
 		}
 	}
 
-	
+	/* deferrable: cache the value for subsequent offline read */
 	if (otc->deferrable) {
 		otc->rd_value = val;
 		otc->rd_valid = true;
@@ -400,7 +434,7 @@ static int tfa98xx_dbgfs_mtpex_set(void *data, u64 val)
 			pr_err("Unable to check DSP access: %d\n", err);
 			return -EIO;
 		} else if (err == Tfa98xx_Error_NoClock) {
-			
+			/* defer OTC */
 			mtpex->wr_value = 0;
 			mtpex->triggered = true;
 			pr_debug("Deferring write to MTPEX (%d)\n", mtpex->wr_value);
@@ -451,18 +485,27 @@ static int tfa98xx_dbgfs_temp_set(void *data, u64 val)
 	return 0;
 }
 
+/*
+ * calibration:
+ * write key phrase to the 'calibration' file to trigger a new calibration
+ * read the calibration file once to get the calibration result
+ */
+/* tfa98xx_deferred_calibration_status - called from tfaRunWaitCalibration */
 void tfa98xx_deferred_calibration_status(Tfa98xx_handle_t handle, int calibrateDone)
 {
 	struct tfa98xx *tfa98xx = tfa98xx_devices[handle];
 	struct tfa98xx_control *calib = &(handles_local[handle].dev_ops.controls.calib);
 
 	if (calib->wr_value) {
+		/* a calibration was programmed from the calibration file
+		 * interface
+		 */
 		switch (calibrateDone) {
 		case 1:
-			
-			calib->wr_value = false; 
-			calib->rd_valid = true;  
-			calib->rd_value = true;  
+			/* calibration complete ! */
+			calib->wr_value = false; /* calibration over */
+			calib->rd_valid = true;  /* result available */
+			calib->rd_value = true;  /* result valid */
 			tfa_dsp_get_calibration_impedance(tfa98xx->handle);
 			wake_up_interruptible(&tfa98xx->wq);
 			break;
@@ -471,9 +514,9 @@ void tfa98xx_deferred_calibration_status(Tfa98xx_handle_t handle, int calibrateD
 			break;
 		case -1:
 			pr_info("Calibration failed\n");
-			calib->wr_value = false; 
-			calib->rd_valid = true;  
-			calib->rd_value = false; 
+			calib->wr_value = false; /* calibration over */
+			calib->rd_valid = true;  /* result available */
+			calib->rd_value = false; /* result not valid */
 			wake_up_interruptible(&tfa98xx->wq);
 			break;
 		default:
@@ -496,16 +539,16 @@ static ssize_t tfa98xx_dbgfs_start_get(struct file *file,
 	ret = wait_event_interruptible(tfa98xx->wq, calib->wr_value == false);
 
 	if (ret == -ERESTARTSYS) {
-		
+		/* interrupted by signal */
 		return ret;
 	}
 
 	if (!calib->rd_valid)
-		
+		/* no calibration result available - skip */
 		return 0;
 
 	if (calib->rd_value) {
-		
+		/* Calibration already complete, return result */
 		str = kmalloc(PAGE_SIZE, GFP_KERNEL);
 		if (!str)
 			return -ENOMEM;
@@ -520,7 +563,7 @@ static ssize_t tfa98xx_dbgfs_start_get(struct file *file,
 		kfree(str);
 		calib->rd_value = false;
 	} else {
-		
+		/* Calibration failed, return the error code */
 		const char estr[] = "-1\n";
 		ret = copy_to_user(user_buf, estr, sizeof(estr));
 		if (ret)
@@ -543,7 +586,7 @@ static ssize_t tfa98xx_dbgfs_start_set(struct file *file,
 	const char ref[] = "please calibrate now";
 	int buf_size;
 
-	
+	/* check string length, and account for eol */
 	if (count > sizeof(ref) + 1 || count < (sizeof(ref) - 1))
 		return -EINVAL;
 
@@ -552,11 +595,11 @@ static ssize_t tfa98xx_dbgfs_start_set(struct file *file,
 		return -EFAULT;
 	buf[buf_size] = 0;
 
-	
+	/* Compare string, excluding the trailing \0 and the potentials eol */
 	if (strncmp(buf, ref, sizeof(ref) - 1))
 		return -EINVAL;
 
-	
+	/* Do not open/close tfa98xx: not required by tfa_clibrate */
 	mutex_lock(&tfa98xx->dsp_lock);
 	ret = tfa_calibrate(tfa98xx->handle);
 	mutex_unlock(&tfa98xx->dsp_lock);
@@ -567,9 +610,9 @@ static ssize_t tfa98xx_dbgfs_start_set(struct file *file,
 	} else {
 		pr_info("Calibration started\n");
 	}
-	calib->wr_value = true;  
-	calib->rd_valid = false; 
-	calib->rd_value = false; 
+	calib->wr_value = true;  /* request was triggered from here */
+	calib->rd_valid = false; /* result not available */
+	calib->rd_value = false; /* result not valid (dafault) */
 
 	return count;
 }
@@ -591,6 +634,9 @@ static ssize_t tfa98xx_dbgfs_r_read(struct file *file,
 		return -EBUSY;
 	}
 
+	/* Need to ensure DSP is access-able, use mtp read access for this
+	 * purpose
+	 */
 	ret = tfa98xx_get_mtp(tfa98xx->handle, &status);
 	if (ret) {
 		ret = -EIO;
@@ -611,7 +657,7 @@ static ssize_t tfa98xx_dbgfs_r_read(struct file *file,
 
 	switch (calibrate_done) {
 	case 1:
-		
+		/* calibration complete ! */
 		tfa_dsp_get_calibration_impedance(tfa98xx->handle);
 		ret = print_calibration(tfa98xx->handle, str, PAGE_SIZE);
 		break;
@@ -701,7 +747,7 @@ static ssize_t tfa98xx_dbgfs_dsp_state_set(struct file *file,
 		return -EFAULT;
 	buf[buf_size] = 0;
 
-	
+	/* Compare strings, excluding the trailing \0 */
 	if (!strncmp(buf, start_cmd, sizeof(start_cmd) - 1)) {
 		pr_info("Manual triggering of dsp start...\n");
 		mutex_lock(&tfa98xx->dsp_lock);
@@ -741,7 +787,7 @@ static ssize_t tfa98xx_dbgfs_accounting_get(struct file *file,
 	n += snprintf(&str[n], sizeof(str)-1-n, "Wait4Src\t= %d\n",  tfa98xx->count_wait_for_source_state);
 	n += snprintf(&str[n], sizeof(str)-1-n, "NOCLK\t\t= %d\n",  tfa98xx->count_noclk);
 
-	str[n+1] = '\0'; 
+	str[n+1] = '\0'; /* in case str is not large enough */
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, str, n+1);
 
@@ -755,6 +801,7 @@ static int tfa98xx_dbgfs_pga_gain_get(void *data, u64 *val)
 	int err;
 	unsigned int value;
 
+/*	*val = TFA_GET_BF(tfa98xx->handle, SAAMGAIN);*/
 	err = regmap_read(tfa98xx->regmap, TFA98XX_CTRL_SAAM_PGA, &value);
 	*val = (value & TFA98XX_CTRL_SAAM_PGA_SAAMGAIN_MSK) >>
 				TFA98XX_CTRL_SAAM_PGA_SAAMGAIN_POS;
@@ -771,12 +818,14 @@ static int tfa98xx_dbgfs_pga_gain_set(void *data, u64 val)
 	value = val & 0xffff;
 	if (value > 7)
 		return -EINVAL;
+/*	TFA_SET_BF(tfa98xx->handle, SAAMGAIN, value);*/
 	err = regmap_update_bits(tfa98xx->regmap, TFA98XX_CTRL_SAAM_PGA,
 				TFA98XX_CTRL_SAAM_PGA_SAAMGAIN_MSK,
 				value << TFA98XX_CTRL_SAAM_PGA_SAAMGAIN_POS);
 	return err;
 }
 
+/* Direct registers access - provide register address in hex */
 #define TFA98XX_DEBUGFS_REG_SET(__reg)					\
 static int tfa98xx_dbgfs_reg_##__reg##_set(void *data, u64 val)		\
 {									\
@@ -803,6 +852,7 @@ DEFINE_SIMPLE_ATTRIBUTE(tfa98xx_dbgfs_reg_##__reg##_fops, tfa98xx_dbgfs_reg_##__
 
 #define VAL(str) #str
 #define TOSTRING(str) VAL(str)
+//HTC_AUD_START
 #if 0
 #define TFA98XX_DEBUGFS_REG_CREATE_FILE(__reg, __name)				\
 	debugfs_create_file(TOSTRING(__reg) "-" TOSTRING(__name), S_IRUGO|S_IWUGO, dbg_reg_dir,\
@@ -812,6 +862,7 @@ DEFINE_SIMPLE_ATTRIBUTE(tfa98xx_dbgfs_reg_##__reg##_fops, tfa98xx_dbgfs_reg_##__
 	debugfs_create_file(TOSTRING(__reg) "-" TOSTRING(__name), S_IRUSR|S_IRGRP|S_IWUSR|S_IWGRP, dbg_reg_dir,\
 					i2c, &tfa98xx_dbgfs_reg_##__reg##_fops);
 #endif
+//HTC_AUD_END
 
 
 TFA98XX_DEBUGFS_REG_SET(00);
@@ -884,6 +935,7 @@ static void tfa98xx_debug_init(struct tfa98xx *tfa98xx, struct i2c_client *i2c)
 
 	scnprintf(name, MAX_CONTROL_NAME, "%s-%x", i2c->name, i2c->addr);
 	tfa98xx->dbg_dir = debugfs_create_dir(name, NULL);
+//HTC_AUD_START
 #if 0
 	debugfs_create_file("OTC", S_IRUGO|S_IWUGO, tfa98xx->dbg_dir,
 						i2c, &tfa98xx_dbgfs_calib_otc_fops);
@@ -919,8 +971,9 @@ static void tfa98xx_debug_init(struct tfa98xx *tfa98xx, struct i2c_client *i2c)
 	debugfs_create_file("accounting", S_IRUSR|S_IRGRP, tfa98xx->dbg_dir,
 						i2c, &tfa98xx_dbgfs_accounting_fops);
 #endif
+//HTC_AUD_END
 
-	
+	/* Direct registers access */
 	if (tfa98xx->flags & TFA98XX_FLAG_TFA9890_FAM_DEV) {
 		dbg_reg_dir = debugfs_create_dir("regs", tfa98xx->dbg_dir);
 		TFA98XX_DEBUGFS_REG_CREATE_FILE(00, STATUS);
@@ -959,6 +1012,7 @@ static void tfa98xx_debug_remove(struct tfa98xx *tfa98xx)
 }
 #endif
 
+//HTC_AUD_START
 static int tfa98xx_get_manstate(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
 {
@@ -989,6 +1043,7 @@ static int tfa98xx_info_manstate(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+//HTC_AUD_END
 
 static int tfa98xx_get_vstep(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
@@ -1023,6 +1078,10 @@ static int tfa98xx_set_vstep(struct snd_kcontrol *kcontrol,
 	int vstep = tfa98xx_prof_vsteps[profile];
 	int vsteps = tfacont_get_max_vstep(0, profile);
 	int new_vstep, err = 0;
+//HTC_AUD_START: Not using internal clk for profile switching
+//	int ready = 0;
+//	unsigned int base_addr_inten = TFA_FAM(tfa98xx->handle,INTENVDDS) >> 8;
+//HTC_AUD_END
 
 	if (no_start != 0)
 		return 0;
@@ -1040,25 +1099,27 @@ static int tfa98xx_set_vstep(struct snd_kcontrol *kcontrol,
 #ifndef TFA98XX_ALSA_CTRL_PROF_CHG_ON_VOL
 	if (profile == tfa98xx_profile) {
 #endif
-		
+		/* this is the active profile, program the new vstep */
 		tfa98xx_vsteps[0] = new_vstep;
 		tfa98xx_vsteps[1] = new_vstep;
+//HTC_AUD_START: use queue rather could tfa98xx_tfa_start directly
 		if(tfa98xx->dsp_init != TFA98XX_DSP_INIT_STOPPED) {
 			cancel_delayed_work_sync(&tfa98xx->init_work);
 			pr_info("switch to tfa vstep %d profile %d\n",tfa98xx_vsteps[0], profile);
 			queue_delayed_work(tfa98xx->tfa98xx_wq,	&tfa98xx->init_work, 0);
 		}
 #if 0
+//HTC_AUD_END
 		mutex_lock(&tfa98xx->dsp_lock);
 		tfa98xx_open(0);
 		tfa98xx_dsp_system_stable(0, &ready);
 		tfa98xx_close(0);
 
-		
+		/* Enable internal clk (osc1m) to switch profile */
 		if ((tfa98xx_dev_family(tfa98xx->handle) == 2) && (ready == 0)) {
-			
+			/* Disable interrupts (Enabled again in the wrapper function: tfa98xx_tfa_start) */
 			regmap_write(tfa98xx->regmap, base_addr_inten + 1, 0);
-			
+			/* Set polarity to high */
 			TFA_SET_BF(tfa98xx->handle, IPOMWSRC, 1);
 
 			TFA_SET_BF(tfa98xx->handle, RST, 1);
@@ -1079,13 +1140,15 @@ static int tfa98xx_set_vstep(struct snd_kcontrol *kcontrol,
 		}
 
 		if (tfa98xx_dev_family(tfa98xx->handle) == 2) {
-			
+			/* Set back to external clock */
 			TFA_SET_BF(tfa98xx->handle, REFCKSEL, 0);
 			TFA_SET_BF(tfa98xx->handle, SBSL, 1);
 		}
 
 		mutex_unlock(&tfa98xx->dsp_lock);
+//HTC_AUD_START
 #endif
+//HTC_AUD_END
 #ifndef TFA98XX_ALSA_CTRL_PROF_CHG_ON_VOL
 	}
 #endif
@@ -1108,7 +1171,7 @@ static int tfa98xx_info_vstep(struct snd_kcontrol *kcontrol,
 	int profile = get_profile_id_for_sr(mixer_profile, tfa98xx->rate);
 
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 1;
+	uinfo->count = 1;// TODO handles_local[dev_idx].spkr_count
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = tfacont_get_max_vstep(0, profile) - 1;
 	pr_debug("vsteps count: %d [prof=%d]\n", tfacont_get_max_vstep(0, profile),
@@ -1133,6 +1196,11 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 #endif
 	struct tfa98xx *tfa98xx = snd_soc_codec_get_drvdata(codec);
 	
+//HTC_AUD_START: Not using internal clk for profile switching
+//	unsigned int base_addr_inten = TFA_FAM(tfa98xx->handle,INTENVDDS) >> 8;
+//	int ready = 0;
+//	int err;
+//HTC_AUD_END
 	int profile_count = tfa98xx_mixer_profiles;
 	int profile = tfa98xx_mixer_profile;
 	int new_profile = ucontrol->value.integer.value[0];
@@ -1148,7 +1216,7 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 	if (new_profile >= profile_count)
 		return 0;
     
-	
+	/* get the container profile for the requested sample rate */
 	prof_idx = get_profile_id_for_sr(new_profile, tfa98xx->rate);
 	if (prof_idx < 0) {
 		pr_err("tfa98xx: sample rate [%d] not supported for this mixer profile [%d].\n", tfa98xx->rate, new_profile);
@@ -1156,33 +1224,38 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 	}
 	pr_debug("selected container profile [%d]\n", prof_idx);
     
-	
+	/* update mixer profile */
 	tfa98xx_mixer_profile = new_profile;
     
-	
-	previews_profile = tfa98xx_profile; 
+	/* update 'real' profile (container profile) */
+	previews_profile = tfa98xx_profile; //HTC_AUDIO: update previews_profile
 	tfa98xx_profile = prof_idx;
 	tfa98xx_vsteps[0] = tfa98xx_prof_vsteps[prof_idx];
 	tfa98xx_vsteps[1] = tfa98xx_prof_vsteps[prof_idx];
 
 
+//HTC_AUD_START: use queue rather could tfa98xx_tfa_start directly
 	if(tfa98xx->dsp_init != TFA98XX_DSP_INIT_STOPPED) {
 		cancel_delayed_work_sync(&tfa98xx->init_work);
 		pr_info("switch tfa profile [%d]\n", prof_idx);
 		queue_delayed_work(tfa98xx->tfa98xx_wq,	&tfa98xx->init_work, 0);
 	}
 #if 0
+	/*
+	 * Don't call tfa_start() on TFA1 if there is no clock.
+	 * For TFA2 is able to load the profile without clock.
+	 */
 	
 	mutex_lock(&tfa98xx->dsp_lock);
 	tfa98xx_open(tfa98xx->handle);
 	tfa98xx_dsp_system_stable(tfa98xx->handle, &ready);
 	tfa98xx_close(tfa98xx->handle);
 	
-	
+	/* Enable internal clk (osc1m) to switch profile */
 	if (tfa98xx_dev_family(tfa98xx->handle) == 2 && ready == 0) {
-		
+		/* Disable interrupts (Enabled again in the wrapper function: tfa98xx_tfa_start) */
 		regmap_write(tfa98xx->regmap, base_addr_inten + 1, 0);
-		
+		/* Set polarity to high */
 		TFA_SET_BF(tfa98xx->handle, IPOMWSRC, 1);
 
 		TFA_SET_BF(tfa98xx->handle, RST, 1);
@@ -1194,7 +1267,7 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 	}
 
 	if (ready) {
-		
+		/* Also re-enables the interrupts */
 		err = tfa98xx_tfa_start(tfa98xx, prof_idx, tfa98xx_vsteps);
 		if (err) {
 			pr_info("Write profile error: %d\n", err);
@@ -1205,14 +1278,19 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 	}
 
 	if (tfa98xx_dev_family(tfa98xx->handle) == 2) {
-		
+		/* Set back to external clock */
 		TFA_SET_BF(tfa98xx->handle, REFCKSEL, 0);
 		TFA_SET_BF_VOLATILE(tfa98xx->handle, SBSL, 1);
 	}
 	
 	mutex_unlock(&tfa98xx->dsp_lock);
 #endif
+//HTC_AUD_END
 
+	/* Flag DSP as invalidated as the profile change may invalidate the
+	 * current DSP configuration. That way, further stream start can
+	 * trigger a tfa_start.
+	 */
 	tfa98xx->dsp_init = TFA98XX_DSP_INIT_INVALIDATED;
 
 	return 1;
@@ -1220,6 +1298,7 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 
 static struct snd_kcontrol_new *tfa98xx_controls;
 
+/* copies the profile basename (i.e. part until .) into buf */
 static void get_profile_basename(char* buf, char* profile) 
 {
 	int cp_len = 0, idx = 0;
@@ -1232,6 +1311,7 @@ static void get_profile_basename(char* buf, char* profile)
 	buf[cp_len] = 0;
 }
 
+/* return the profile name accociated with id from the profile list */
 static int get_profile_from_list(char *buf, int id)
 {
 	struct tfa98xx_baseprofile *bprof;
@@ -1246,6 +1326,7 @@ static int get_profile_from_list(char *buf, int id)
 	return -1;
 }
 
+/* search for the profile in the profile list */
 static int is_profile_in_list(char *profile, int len) 
 {
 	struct tfa98xx_baseprofile *bprof;
@@ -1258,6 +1339,11 @@ static int is_profile_in_list(char *profile, int len)
     return 0;
 }
 
+/* 
+ * for the profile with id, look if the requested samplerate is 
+ * supported, if found return the (container)profile for this 
+ * samplerate, on error or if not found return -1 
+ */
 static int get_profile_id_for_sr(int id, unsigned int rate) 
 {
 	int idx = 0;
@@ -1267,7 +1353,7 @@ static int get_profile_id_for_sr(int id, unsigned int rate)
 		if (id == bprof->item_id) {
 			idx = tfa98xx_get_fssel(rate);
 			if (idx < 0) {
-				
+				/* samplerate not supported */
 				return -1;
 			}
 
@@ -1275,10 +1361,11 @@ static int get_profile_id_for_sr(int id, unsigned int rate)
 		}
 	}
 
-	
+	/* profile not found */
 	return -1;
 }
 
+/* check if this profile is a calibration profile */
 static int is_calibration_profile(char *profile)
 {
 	if (strstr(profile, ".cal") != NULL)
@@ -1286,6 +1373,10 @@ static int is_calibration_profile(char *profile)
 	return 0;
 }
 
+/* 
+ * adds the (container)profile index of the samplerate found in
+ * the (container)profile to a fixed samplerate table in the (mixer)profile
+ */
 static int add_sr_to_profile(struct tfa98xx *tfa98xx, char *basename, int len, int profile) 
 { 
 	struct tfa98xx_baseprofile *bprof;
@@ -1294,21 +1385,21 @@ static int add_sr_to_profile(struct tfa98xx *tfa98xx, char *basename, int len, i
 
 	list_for_each_entry(bprof, &profile_list, list) {
 		if (0 == strncmp(bprof->basename, basename, len)) {
-			
+			/* add supported samplerate for this profile */
 			sr = tfa98xx_get_profile_sr(tfa98xx->handle, profile);
 			if (!sr) {
 				pr_err("unable to identify supported sample rate for %s\n", bprof->basename);
 				return -1;
 			}
 
-			
+			/* get the index for this samplerate */
 			idx = tfa98xx_get_fssel(sr);
 			if (idx < 0 || idx >= TFA98XX_NUM_RATES) {
 				pr_err("invalid index for samplerate %d\n", idx);
 				return -1;
 			}
 
-			
+			/* enter the (container)profile for this samplerate at the corresponding index */
 			bprof->sr_rate_sup[idx] = profile;
             
 			pr_debug("added profile:samplerate = [%d:%d] for mixer profile: %s\n", profile, sr, bprof->basename);    
@@ -1347,8 +1438,12 @@ static int tfa98xx_create_controls(struct tfa98xx *tfa98xx)
 	char *name;
 	struct tfa98xx_baseprofile *bprofile;
 	
+	/* Create the following controls:
+	 *  - enum control to select the active profile
+	 *  - one volume control for each profile hosting a vstep
+	 */
 
-	
+	/* allocate the tfa98xx_controls base on the nr of profiles */
 	nprof = tfaContMaxProfile(0);
 
 	for (prof = 0; prof < nprof; prof++) {
@@ -1361,7 +1456,7 @@ static int tfa98xx_create_controls(struct tfa98xx *tfa98xx)
 	if(!tfa98xx_controls)
 		return -ENOMEM;
 
-	
+	/* Create a mixer timer for selecting the active profile */
 	name = devm_kzalloc(tfa98xx->codec->dev, MAX_CONTROL_NAME, GFP_KERNEL);
 	if (!name)
 		return -ENOMEM;
@@ -1371,12 +1466,12 @@ static int tfa98xx_create_controls(struct tfa98xx *tfa98xx)
 	tfa98xx_controls[mix_index].info = tfa98xx_info_profile;
 	tfa98xx_controls[mix_index].get = tfa98xx_get_profile;
 	tfa98xx_controls[mix_index].put = tfa98xx_set_profile;
-	
+	// tfa98xx_controls[mix_index].private_value = profs; /* save number of profiles */
 	mix_index++;
 
-	
+	/* create mixer items for each profile that has volume */
 	for (prof = 0; prof < nprof; prof++) {
-		
+		/* create an new empty profile */
 		bprofile = devm_kzalloc(tfa98xx->codec->dev, sizeof(*bprofile), GFP_KERNEL);
 		if (!bprofile)
 			return -ENOMEM;
@@ -1385,13 +1480,18 @@ static int tfa98xx_create_controls(struct tfa98xx *tfa98xx)
 		bprofile->item_id = -1;
 		INIT_LIST_HEAD(&bprofile->list);
         
-		
+		/* copy profile name into basename until the . */
 		get_profile_basename(bprofile->basename, tfaContProfileName(0, prof));
 		bprofile->len = strlen(bprofile->basename);
       
+		/*
+		 * search the profile list for a profile with basename, if it is not found then 
+		 * add it to the list and add a new mixer control (if it has vsteps)
+		 * also, if it is a calibration profile, do not add it to the list
+		 */
 		if (is_profile_in_list(bprofile->basename, bprofile->len) == 0 &&
 			 is_calibration_profile(tfaContProfileName(0, prof)) == 0) {
-			
+			/* the profile is not present, add it to the list */
 			list_add(&bprofile->list, &profile_list);
 			bprofile->item_id = id++;
  
@@ -1410,23 +1510,27 @@ static int tfa98xx_create_controls(struct tfa98xx *tfa98xx)
 				tfa98xx_controls[mix_index].info = tfa98xx_info_vstep;
 				tfa98xx_controls[mix_index].get = tfa98xx_get_vstep;
 				tfa98xx_controls[mix_index].put = tfa98xx_set_vstep;
-				tfa98xx_controls[mix_index].private_value = prof; 
+				tfa98xx_controls[mix_index].private_value = prof; /* save profile index */
 				mix_index++;
 			}
 		}
         
+		/* look for the basename profile in the list of mixer profiles and add the
+		   container profile index to the supported samplerates of this mixer profile */
 		add_sr_to_profile(tfa98xx, bprofile->basename, bprofile->len, prof);
 	}
 
-	
+	/* set the number of user selectable profiles in the mixer */
 	tfa98xx_mixer_profiles = id;
     
+//HTC_AUD_START
 	tfa98xx_controls[mix_index].name = "NXP MANSTATE";
 	tfa98xx_controls[mix_index].iface = SNDRV_CTL_ELEM_IFACE_MIXER;
 	tfa98xx_controls[mix_index].info = tfa98xx_info_manstate;
 	tfa98xx_controls[mix_index].get = tfa98xx_get_manstate;
 	tfa98xx_controls[mix_index].put = tfa98xx_set_manstate;
 	mix_index++;
+//HTC_AUD_EDN
 
 	return snd_soc_add_codec_controls(tfa98xx->codec,
 		tfa98xx_controls, mix_index);
@@ -1469,6 +1573,11 @@ static int tfa98xx_append_i2c_address(struct device *dev,
 			dai_drv[i].capture.stream_name = tfa98xx_devm_kstrdup(dev, buf);
 		}
 
+	/* the idea behind this is convert:
+	 * SND_SOC_DAPM_AIF_IN("AIF IN", "AIF Playback", 0, SND_SOC_NOPM, 0, 0),
+	 * into:
+	 * SND_SOC_DAPM_AIF_IN("AIF IN", "AIF Playback-2-36", 0, SND_SOC_NOPM, 0, 0),
+	 */
 	if (widgets && num_widgets > 0)
 		for(i = 0; i < num_widgets; i++) {
 			if(!widgets[i].sname)
@@ -1485,7 +1594,7 @@ static int tfa98xx_append_i2c_address(struct device *dev,
 }
 
 static struct snd_soc_dapm_widget tfa98xx_dapm_widgets_common[] = {
-	
+	/* Stream widgets */
 	SND_SOC_DAPM_AIF_IN("AIF IN", "AIF Playback", 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("AIF OUT", "AIF Capture", 0, SND_SOC_NOPM, 0, 0),
 
@@ -1579,6 +1688,10 @@ static void tfa98xx_add_widgets(struct tfa98xx *tfa98xx)
 }
 
 
+/* Match tfa98xx device structure with a valid DSP handle */
+/* TODO  can be removed once we pass the device struct in stead of handles
+	The check in tfa98xx_register_dsp() is implicitly done in tfa_probe() /tfa98xx_cnt_slave2idx(_)
+*/
 static int tfa98xx_register_dsp(struct tfa98xx *tfa98xx)
 {
 	int i, handle = -1;
@@ -1618,6 +1731,7 @@ static void tfa98xx_unregister_dsp(struct tfa98xx *tfa98xx)
 }
 
 
+/* I2C wrapper functions */
 enum Tfa98xx_Error tfa98xx_write_register16(Tfa98xx_handle_t handle,
 					unsigned char subaddress,
 					unsigned short value)
@@ -1795,30 +1909,35 @@ retry:
 	return error;
 }
 
+/* Read and return status_reg content, and intercept (interrupt related)
+ * events if any.
+ * mask can be used to ask to ignore some status bits.
+ */
 static unsigned int tfa98xx_read_status_reg(struct tfa98xx *tfa98xx,
 							unsigned int mask)
 {
 	unsigned int reg;
-	
+	/* interrupt bits to check */
 	unsigned int errs =	TFA98XX_STATUSREG_WDS |
 				TFA98XX_STATUSREG_SPKS;
 
 	regmap_read(tfa98xx->regmap, TFA98XX_STATUSREG, &reg);
 
 	if (reg & errs & ~mask) {
-		
+		/* interesting status bits to handle. Just trace for now. */
 		dev_info(tfa98xx->codec->dev, "status_reg events: 0x%x\n", reg);
 	}
 
 	return reg;
 }
 
+/* Interrupts management */
 
 static void tfa98xx_interrupt_restore_9888(struct tfa98xx *tfa98xx)
 {
 	unsigned int base_addr_inten = TFA_FAM(tfa98xx->handle,INTENVDDS) >> 8;
 
-	
+	/* Write interrupt enable registers */
 	regmap_write(tfa98xx->regmap, base_addr_inten + 0,
 			handles_local[tfa98xx->handle].interrupt_enable[0]);
 	regmap_write(tfa98xx->regmap, base_addr_inten + 1,
@@ -1840,13 +1959,22 @@ static void tfa98xx_interrupt_enable_9888(struct tfa98xx *tfa98xx, bool enable)
 	}
 }
 
+/* Check if tap-detection can and shall be enabled.
+ * Configure SPK interrupt accordingly or setup polling mode
+ * Tap-detection shall be active if:
+ *  - the service is enabled (tapdet_open), AND
+ *  - the current profile is a tap-detection profile
+ * On TFA1 familiy of devices, activating tap-detection means enabling the SPK
+ * interrupt if available.
+ * We also update the tapdet_enabled and tapdet_poll variables.
+ */
 static void tfa98xx_tapdet_check_update(struct tfa98xx *tfa98xx)
 {
 	unsigned int spkerr, enable = false;
 	unsigned int err;
 	int val, count = 0;
 
-	
+	/* Support tap-detection on TFA1 family of devices */
 	if (!(tfa98xx->flags & TFA98XX_FLAG_TAPDET_AVAILABLE) ||
 		(tfa98xx_dev_family(tfa98xx->handle)) != 1)
 		return;
@@ -1858,7 +1986,7 @@ static void tfa98xx_tapdet_check_update(struct tfa98xx *tfa98xx)
 	spkerr = enable ? 0 : 1;
 
 	if (!gpio_is_valid(tfa98xx->irq_gpio)) {
-		
+		/* interrupt not available, setup polling mode */
 		tfa98xx->tapdet_poll = true;
 		if (enable)
 			queue_delayed_work(tfa98xx->tfa98xx_wq,
@@ -1878,22 +2006,22 @@ static void tfa98xx_tapdet_check_update(struct tfa98xx *tfa98xx)
 				tfa98xx->tapdet_open, tfa98xx->tapdet_profiles,
 				tfa98xx_profile);
 
-		
+		/* update status_reg mask to match enabled interrupts */
 		handles_local[tfa98xx->handle].interrupt_status[0] &=
 					~TFA98XX_STATUSREG_SPKS;
 		handles_local[tfa98xx->handle].interrupt_status[0] |=
 					enable << TFA98XX_STATUSREG_SPKS_POS;
 
-		
+		/* update interrupt_reg to match enabled interrupts */
 		handles_local[tfa98xx->handle].interrupt_enable[0] &=
 					~TFA98XX_INTERRUPT_REG_SPKD;
 		handles_local[tfa98xx->handle].interrupt_enable[0] |=
 					spkerr << TFA98XX_INTERRUPT_REG_SPKD_POS;
 	}
 
-	
+	/* check disabled => enabled transition to clear pending events */
 	if (!tfa98xx->tapdet_enabled && enable) {
-		
+		/* clear pending event if any */
 		err = tfa98xx_dsp_write_mem_word(tfa98xx->handle, XMEM_TAP_ACK, 0,
 							Tfa98xx_DMEM_XMEM);
 		if (err)
@@ -1915,11 +2043,14 @@ static void tfa98xx_tapdet_check_update(struct tfa98xx *tfa98xx)
 		tfa98xx_interrupt_restore(tfa98xx);
 }
 
+/* Initial configuration of interrupt masks of devices for TFA1 family
+ * Disable all interrupts by default.
+ */
 static void __tfa98xx_interrupt_setup(struct tfa98xx *tfa98xx)
 {
 	uint16_t ie_reg = 0;
 
-	
+	/* disable all interrupt sources */
 	ie_reg = TFA98XX_INTERRUPT_REG_VDDD |
 		TFA98XX_INTERRUPT_REG_OTDD |
 		TFA98XX_INTERRUPT_REG_OVDD |
@@ -1929,16 +2060,17 @@ static void __tfa98xx_interrupt_setup(struct tfa98xx *tfa98xx)
 		TFA98XX_INTERRUPT_REG_DCCD |
 		TFA98XX_INTERRUPT_REG_SPKD |
 		TFA98XX_INTERRUPT_REG_WDD;
-	
+	/* preserve reserved value */
 	ie_reg |= 1 << 9;
 
-	
+	/* Store requested setup */
 	handles_local[tfa98xx->handle].interrupt_enable[0] = ie_reg;
 	handles_local[tfa98xx->handle].interrupt_status[0] = 0;
 
 	dev_dbg(&tfa98xx->i2c->dev, "Initial interrupts setup: ICR = 0x%04x\n", ie_reg);
 }
 
+/* Restore for 1st generation of devices */
 static void __tfa98xx_interrupt_restore(struct tfa98xx *tfa98xx)
 {
 	unsigned int ie_reg = 0;
@@ -1948,7 +2080,7 @@ static void __tfa98xx_interrupt_restore(struct tfa98xx *tfa98xx)
 	if (ie_reg != handles_local[tfa98xx->handle].interrupt_enable[0]) {
 		ie_reg = handles_local[tfa98xx->handle].interrupt_enable[0];
 
-		
+		/* Write interrupt enable registers */
 		regmap_write(tfa98xx->regmap, TFA98XX_INTERRUPT_REG, ie_reg);
 
 		dev_dbg(&tfa98xx->i2c->dev, "Restored interrupts: ICR = 0x%04x\n",
@@ -1959,6 +2091,7 @@ static void __tfa98xx_interrupt_restore(struct tfa98xx *tfa98xx)
 
 }
 
+/* Enable for 1st generation of devices */
 static void __tfa98xx_interrupt_enable(struct tfa98xx *tfa98xx, bool enable)
 {
 	handles_local[tfa98xx->handle].interrupt_enable[0] &= ~TFA98XX_INTERRUPT_REG_INT;
@@ -1967,6 +2100,7 @@ static void __tfa98xx_interrupt_enable(struct tfa98xx *tfa98xx, bool enable)
 	__tfa98xx_interrupt_restore(tfa98xx);
 }
 
+/* Initial SW configuration for interrupts. Does not enable HW interrupts. */
 static void tfa98xx_interrupt_setup(struct tfa98xx *tfa98xx)
 {
 	if (tfa98xx->flags & TFA98XX_FLAG_SKIP_INTERRUPTS)
@@ -1975,8 +2109,12 @@ static void tfa98xx_interrupt_setup(struct tfa98xx *tfa98xx)
 	if (tfa98xx->flags & TFA98XX_FLAG_TFA9890_FAM_DEV)
 		__tfa98xx_interrupt_setup(tfa98xx);
 
+	/* Other devices interrupt setup is handled in their specific init as
+	 * appropriate
+	 */
 }
 
+/* Restore interrupt setup in case it would be lost (at device cold-start) */
 static void tfa98xx_interrupt_restore(struct tfa98xx *tfa98xx)
 {
 	if (tfa98xx->flags & TFA98XX_FLAG_SKIP_INTERRUPTS)
@@ -1988,6 +2126,7 @@ static void tfa98xx_interrupt_restore(struct tfa98xx *tfa98xx)
 		__tfa98xx_interrupt_restore(tfa98xx);
 }
 
+/* global enable / disable interrupts */
 static void tfa98xx_interrupt_enable(struct tfa98xx *tfa98xx, bool enable)
 {
 	if (tfa98xx->flags & TFA98XX_FLAG_SKIP_INTERRUPTS)
@@ -1999,7 +2138,12 @@ static void tfa98xx_interrupt_enable(struct tfa98xx *tfa98xx, bool enable)
 		__tfa98xx_interrupt_enable(tfa98xx, enable);
 }
 
+/* Firmware management
+ * Downloaded once only at module init
+ * FIXME: may need to review that (one per instance of codec device?)
+ */
 
+//HTC_AUD_START
 static char *fw_name_default = "tfa98xx.cnt";
 module_param(fw_name_default, charp, S_IRUSR | S_IRGRP | S_IWUSR);
 MODULE_PARM_DESC(fw_name_default, "TFA98xx DSP firmware (container file) name.");
@@ -2018,6 +2162,7 @@ MODULE_PARM_DESC(fw_name2_n1b, "TFA98xx N1B DSP firmware (container file) name."
 
 static char* fw_name = "Tfa98xx.cnt";
 static nxpTfaContainer_t *container;
+//HTC_AUD_END
 
 static void tfa98xx_container_loaded(const struct firmware *cont, void *context)
 {
@@ -2056,7 +2201,7 @@ static void tfa98xx_container_loaded(const struct firmware *cont, void *context)
 
 	tfa_load_cnt(container, container_size);
 
-	
+	/* register codec with dsp */
 	tfa98xx->handle = tfa98xx_register_dsp(tfa98xx);
 	if (tfa98xx->handle < 0) {
 		dev_err(tfa98xx->dev, "Cannot register with DSP, aborting\n");
@@ -2068,10 +2213,10 @@ static void tfa98xx_container_loaded(const struct firmware *cont, void *context)
 		return;
 	}
 
-	
+	/* prefix is the application name from the cnt */
 	tfa_cnt_get_app_name(tfa98xx->fw.name);
 
-	
+	/* Override default profile if requested */
 	if (strcmp(dflt_prof_name, "")) {
 		unsigned int i;
 		for (i = 0; i < tfaContMaxProfile(tfa98xx->handle); i++) {
@@ -2097,7 +2242,7 @@ static void tfa98xx_container_loaded(const struct firmware *cont, void *context)
 	if (no_start == 1)
 		return;
 
-	
+	/* Only controls for master device */
 	if (tfa98xx->handle == 0)
 		tfa98xx_create_controls(tfa98xx);
 
@@ -2134,7 +2279,7 @@ static void tfa98xx_tapdet(struct tfa98xx *tfa98xx)
 	int err, btn, count = 0;
 	uint16_t val;
 
-	
+	/* check tap pattern (BTN_0 is "error" wrong tap indication */
 	tfa98xx_dsp_read_mem(tfa98xx->handle, XMEM_TAP_READ, 1, &mem);
 	switch (mem) {
 	case 0xffffffff:
@@ -2159,7 +2304,7 @@ static void tfa98xx_tapdet(struct tfa98xx *tfa98xx)
 	input_report_key(tfa98xx->input, btn, 0);
 	input_sync(tfa98xx->input);
 
-	
+	/* acknowledge event */
 	err = tfa98xx_dsp_write_mem_word(tfa98xx->handle, XMEM_TAP_ACK, 0, Tfa98xx_DMEM_XMEM);
 	if (err)
 		pr_info("Unable to write to XMEM\n");
@@ -2181,7 +2326,7 @@ static void tfa98xx_tapdet_work(struct work_struct *work)
 
 	tfa98xx = container_of(work, struct tfa98xx, tapdet_work.work);
 
-	
+	/* Check for SPKS bit*/
 	val = snd_soc_read(tfa98xx->codec, TFA98XX_STATUSREG);
 
 	if (val & TFA98XX_STATUSREG_SPKS)
@@ -2197,8 +2342,12 @@ static void tfa98xx_monitor(struct work_struct *work)
 
 	tfa98xx = container_of(work, struct tfa98xx, monitor_work.work);
 
-	
+	/* Check for tap-detection - bypass monitor if it is active */
 	if (!tfa98xx->input) {
+		/*
+		 * check IC status bits: cold start, amp switching, speaker error
+		 * and DSP watch dog bit to re init
+		 */
 		val = snd_soc_read(tfa98xx->codec, TFA98XX_STATUSREG);
 		pr_debug("SYS_STATUS0: 0x%04x\n", val);
 		if ((TFA98XX_STATUSREG_ACS & val) ||
@@ -2220,7 +2369,7 @@ static void tfa98xx_monitor(struct work_struct *work)
 				queue_delayed_work(tfa98xx->tfa98xx_wq, &tfa98xx->init_work, 0);
 		}
 
-		
+		/* Check secondary errors */
 		if (	!(val & TFA98XX_STATUSREG_CLKS) ||
 			!(val & TFA98XX_STATUSREG_UVDS) ||
 			!(val & TFA98XX_STATUSREG_OVDS) ||
@@ -2236,7 +2385,7 @@ static void tfa98xx_monitor(struct work_struct *work)
 			pr_err("TDM related errors: STATUS_FLAG1 = 0x%x\n", val);
 	}
 
-	
+	/* reschedule */
 	queue_delayed_work(tfa98xx->tfa98xx_wq, &tfa98xx->monitor_work, 5*HZ);
 }
 
@@ -2246,6 +2395,7 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 	bool failed = false;
 	bool reschedule = false;
 
+//HTC_AUD_START: update profile from mixer path
 	bool from_mixer = false;
 	struct timeval begin;
 	struct timeval end;
@@ -2260,6 +2410,7 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 	if(tfa98xx->dsp_init == TFA98XX_DSP_INIT_INVALIDATED) {
 		from_mixer = true;
 	}
+//HTC_AUD_END
 
 	if (tfa98xx->dsp_fw_state != TFA98XX_DSP_FW_OK) {
 		pr_debug("Skipping tfa_start (no FW: %d)\n", tfa98xx->dsp_fw_state);
@@ -2277,10 +2428,11 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 
 	if (tfa98xx->init_count < TF98XX_MAX_DSP_START_TRY_COUNT) {
 
+//HTC_AUD_START: Set previews_profie first if switching new profile and check on profile 7 (bypass mode)
 		ret = Tfa98xx_Error_Ok;
-                
+                /* check if clock enabled */
 		noclk = TFA_GET_BF(tfa98xx->handle, NOCLK);
-		for(noclk_count = 0; noclk && (noclk_count < 20); noclk_count++) { 
+		for(noclk_count = 0; noclk && (noclk_count < 20); noclk_count++) { //MAX sleep 20ms
 			usleep_range(1000,1000);
 			noclk = TFA_GET_BF(tfa98xx->handle, NOCLK);
 		}
@@ -2289,15 +2441,15 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 
 		if (from_mixer && (previews_profile != tfa98xx_profile))
 			ret = tfa98xx_tfa_start(tfa98xx, previews_profile, default_vsteps);
-		
+		/* directly try to start DSP */
 		if (ret == Tfa98xx_Error_Ok) {
-			if(n1b_chip)  
+			if(n1b_chip)  //HTC_AUDIO: vstep not support n1b
 				vsteps = default_vsteps;
 			ret = tfa98xx_tfa_start(tfa98xx, tfa98xx_profile, vsteps);
 
 			if(tfa98xx_profile == 7) {
 				manstate = TFA_GET_BF(tfa98xx->handle, MANSTATE);
-				for(check_count = 0; (manstate != 9) && (check_count < 10); check_count++) { 
+				for(check_count = 0; (manstate != 9) && (check_count < 10); check_count++) { //MAX sleep 20ms
 					usleep_range(2000,2000);
 					manstate = TFA_GET_BF(tfa98xx->handle, MANSTATE);
 				}
@@ -2305,34 +2457,50 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 					ret = Tfa98xx_Error_Fail;
 			}
 		}
+//HTC_AUD_END
 
 		if (ret != Tfa98xx_Error_Ok) {
+			/* It may fail as we may not have a valid clock at that
+			 * time, so re-schedule and re-try later.
+			 */
 			dev_err(&tfa98xx->i2c->dev,
 					"tfa_start failed! (err %d) - %d manstate:%d\n",
 					ret, tfa98xx->init_count, manstate);
 			reschedule = true;
-			tfa_reset(); 
+			tfa_reset(); //HTC_AUDIO: reset if setting fail
 		} else {
+//HTC_AUD_START: Print success info
 			do_gettimeofday(&end);
 			diff = 1000 * (end.tv_sec-begin.tv_sec) + ((end.tv_usec-begin.tv_usec)/1000);
 			pr_info("tfa_start profile %d, vstep %d success with %ld ms\n", tfa98xx_profile, vsteps[0], diff);
-			
+//HTC_AUD_END
+			/* Subsystem ready, tfa init complete */
 			dev_dbg(&tfa98xx->i2c->dev,
 						"tfa_start success (%d)\n",
 						tfa98xx->init_count);
-			
+			/* cancel other pending init works */
 			cancel_delayed_work(&tfa98xx->init_work);
 			tfa98xx->init_count = 0;
+			/*
+			 * start monitor thread to check IC status bit
+			 * periodically, and re-init IC to recover if
+			 * needed.
+			 */
+//HTC_AUD_START: not trigger monitor_work
+//			queue_delayed_work(tfa98xx->tfa98xx_wq,
+//						&tfa98xx->monitor_work,
+//						1*HZ);
+//HTC_AUD_END
 		}
 	} else {
-		
+		/* exceeded max number ot start tentatives, cancel start */
 		dev_err(&tfa98xx->i2c->dev,
 			"Failed starting device (%d)\n",
 			tfa98xx->init_count);
 			failed = true;
 	}
 	if (reschedule) {
-		
+		/* reschedule this init work for later */
 		queue_delayed_work(tfa98xx->tfa98xx_wq,
 						&tfa98xx->init_work,
 						msecs_to_jiffies(5));
@@ -2340,7 +2508,7 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 	}
 	if (failed) {
 		tfa98xx->dsp_init = TFA98XX_DSP_INIT_FAIL;
-		
+		/* cancel other pending init works */
 		cancel_delayed_work(&tfa98xx->init_work);
 		tfa98xx->init_count = 0;
 	}
@@ -2353,7 +2521,7 @@ static void tfa98xx_dsp_init_work(struct work_struct *work)
 {
 	struct tfa98xx *tfa98xx = container_of(work, struct tfa98xx, init_work.work);
 
-	
+	/* Only do dsp init for master device */
 	if (tfa98xx->handle != 0)
 		return;
 
@@ -2366,7 +2534,7 @@ static void tfa98xx_interrupt(struct work_struct *work)
 	unsigned int base_addr_inten = TFA_FAM(tfa98xx->handle,INTENVDDS) >> 8;
 	unsigned int base_addr_ist   = TFA_FAM(tfa98xx->handle,ISTVDDS) >> 8;
 	unsigned int base_addr_icl   = TFA_FAM(tfa98xx->handle,ICLVDDS) >> 8;
-	
+	//unsigned int base_addr_ipo   = TFA_FAM(tfa98xx->handle,IPOVDDS) >> 8;
 	u32 out1, out2, out3;
 
 	pr_info("\n");
@@ -2380,14 +2548,14 @@ static void tfa98xx_interrupt(struct work_struct *work)
 	out3 &= handles_local[tfa98xx->handle].interrupt_enable[2];
 
 	if (out1) {
-		
+		/* clear and enable interrupt(s) again */
 		regmap_write(tfa98xx->regmap, base_addr_icl + 0, out1);
 		regmap_write(tfa98xx->regmap, base_addr_inten + 0,
 			handles_local[tfa98xx->handle].interrupt_enable[0]);
 	}
 
 	if (out2) {
-		
+		/* manager wait for source state */
 		if (TFA_GET_BF_VALUE(tfa98xx->handle, ISTMWSRC, out2) > 0) {
 			int manwait1 = TFA_GET_BF(tfa98xx->handle, MANWAIT1);
 
@@ -2395,15 +2563,15 @@ static void tfa98xx_interrupt(struct work_struct *work)
 				pr_info("entering wait for source state\n");
 				tfa98xx->count_wait_for_source_state++;
 				
-				
+				/* set AMPC and AMPE to make sure the amp is enabled */
 				pr_info("setting AMPC and AMPE to 1 (default) \n");	
 				TFA_SET_BF(tfa98xx->handle, AMPC, 1);
 				TFA_SET_BF(tfa98xx->handle, AMPE, 1);
 
-				
+				/* set MANSCONF here, the manager will continue if clock is there */
 				TFA_SET_BF(tfa98xx->handle, MANSCONF, 1);
 			} else {
-				
+				/* Now we can switch profile with internal clock it is not required to call tfa_start */
 				 
 				pr_info("leaving wait for source state\n");
 
@@ -2416,14 +2584,14 @@ static void tfa98xx_interrupt(struct work_struct *work)
 				TFA_SET_BF(tfa98xx->handle, IPOMWSRC, 1);
 		}
 
-		
+		/* clear and enable interrupt(s) again */
 		regmap_write(tfa98xx->regmap, base_addr_icl + 1, out2);
 		regmap_write(tfa98xx->regmap, base_addr_inten + 1,
 			handles_local[tfa98xx->handle].interrupt_enable[1]);
 	}
 
 	if (out3) {
-		
+		/* clear and enable interrupt(s) again */
 		regmap_write(tfa98xx->regmap, base_addr_icl + 2, out3);
 		regmap_write(tfa98xx->regmap, base_addr_inten + 2,
 			handles_local[tfa98xx->handle].interrupt_enable[2]);
@@ -2444,12 +2612,18 @@ static int tfa98xx_startup(struct snd_pcm_substream *substream,
 	if (!basename)
 		return -ENOMEM;
     
-	
+	/* copy profile name into basename until the . */
 	get_profile_basename(basename, tfaContProfileName(tfa98xx->handle, tfa98xx_profile));  
 	len = strlen(basename);
     
+	/* loop over all profiles and get the supported samples rate(s) from
+	 * the profiles with the same basename
+	 */
 	for (prof = 0; prof < nprof; prof++) {
 		if (0 == strncmp(basename, tfaContProfileName(tfa98xx->handle, prof), len)) {   
+			/* Check which sample rate is supported with current profile,
+			 * and enforce this.
+			 */
 			sr = tfa98xx_get_profile_sr(tfa98xx->handle, prof);
 			if (!sr)
 				dev_info(codec->dev, "Unable to identify supported sample rate\n");
@@ -2458,9 +2632,15 @@ static int tfa98xx_startup(struct snd_pcm_substream *substream,
 		}
 	}
     
+//HTC_AUD_START
+//	return (substream->runtime != NULL)?snd_pcm_hw_constraint_list(substream->runtime, 0,
+//				   SNDRV_PCM_HW_PARAM_RATE,
+//				   &tfa98xx->rate_constraint):0;
 	return 0;
+//HTC_AUD_END
 }
 
+//HTC_AUD_START: add start on prepare function and stop on shutdown function
 static int tfa98xx_prepare(struct snd_pcm_substream *substream,
 						struct snd_soc_dai *dai)
 {
@@ -2483,6 +2663,7 @@ static void tfa98xx_shutdown(struct snd_pcm_substream *substream,
 	tfa98xx->dsp_init = TFA98XX_DSP_INIT_STOPPED;
 	mutex_unlock(&tfa98xx->dsp_lock);
 }
+//HTC_AUD_END
 
 static int tfa98xx_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 				  int clk_id, unsigned int freq, int dir)
@@ -2500,7 +2681,7 @@ static int tfa98xx_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 
 	pr_debug("fmt=0x%x\n", fmt);
 
-	
+	/* Supported mode: regular I2S, slave, or PDM */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		if ((fmt & SND_SOC_DAIFMT_MASTER_MASK) != SND_SOC_DAIFMT_CBS_CFS) {
@@ -2541,13 +2722,13 @@ static int tfa98xx_hw_params(struct snd_pcm_substream *substream,
 	unsigned int rate;
 	int prof_idx;
 
-	
+	/* Supported */
 	rate = params_rate(params);
 	pr_debug("Requested rate: %d, sample size: %d, physical size: %d\n",
 			rate, snd_pcm_format_width(params_format(params)),
 			snd_pcm_format_physical_width(params_format(params)));
 
-	
+	/* check if samplerate is supported for this mixer profile */
 	prof_idx = get_profile_id_for_sr(tfa98xx_mixer_profile, rate);
 	if (prof_idx < 0) {
 		pr_err("tfa98xx: invalid sample rate %d.\n", rate);
@@ -2559,16 +2740,16 @@ static int tfa98xx_hw_params(struct snd_pcm_substream *substream,
 		pr_warn("Unusual number of channels: %d\n", params_channels(params));
 	}
     
-	
+	/* update 'real' profile (container profile) */
 	tfa98xx_profile = prof_idx;
     
-	
+	/* update to new rate */
 	tfa98xx->rate = rate;
 
 	return 0;
 }
 
-#if 0 
+#if 0 //HTC_AUDIO: Disable mute function
 static int tfa98xx_mute(struct snd_soc_dai *dai, int mute, int stream)
 {
 	struct snd_soc_codec *codec = dai->codec;
@@ -2585,6 +2766,9 @@ static int tfa98xx_mute(struct snd_soc_dai *dai, int mute, int stream)
 	}
 
 	if (mute) {
+		/* stop DSP only when both playback and capture streams
+		 * are deactivated
+		 */
 		if (stream == SNDRV_PCM_STREAM_PLAYBACK)
 			tfa98xx->pstream = 0;
 		else
@@ -2607,7 +2791,7 @@ static int tfa98xx_mute(struct snd_soc_dai *dai, int mute, int stream)
 		else
 			tfa98xx->cstream = 1;
 
-		
+		/* Start DSP */
 		if (tfa98xx->dsp_init != TFA98XX_DSP_INIT_PENDING)
 			queue_delayed_work(tfa98xx->tfa98xx_wq,
 							&tfa98xx->init_work,
@@ -2616,15 +2800,16 @@ static int tfa98xx_mute(struct snd_soc_dai *dai, int mute, int stream)
 
 	return 0;
 }
-#endif 
+#endif //HTC_AUDIO: Disable mute function end
 
 static const struct snd_soc_dai_ops tfa98xx_dai_ops = {
 	.startup = tfa98xx_startup,
-	.shutdown = tfa98xx_shutdown, 
-	.prepare = tfa98xx_prepare, 
+	.shutdown = tfa98xx_shutdown, //HTC_AUDIO: add shutdown function for stop tfa
+	.prepare = tfa98xx_prepare, //HTC_AUDIO: add prepare for trigger tfa up with correct profile
 	.set_fmt = tfa98xx_set_fmt,
 	.set_sysclk = tfa98xx_set_dai_sysclk,
 	.hw_params = tfa98xx_hw_params,
+//	.mute_stream = tfa98xx_mute, //HTC_AUDIO:No use mute_stream function
 };
 
 static struct snd_soc_dai_driver tfa98xx_dai[] = {
@@ -2657,7 +2842,7 @@ static struct snd_soc_dai_driver tfa98xx_dai[] = {
 
 static int tfa98xx_probe(struct snd_soc_codec *codec)
 {
-	
+	/* struct i2c_client *i2c = to_i2c_client(codec->dev); */
 	struct tfa98xx *tfa98xx = snd_soc_codec_get_drvdata(codec);
 	int ret;
 
@@ -2667,7 +2852,7 @@ static int tfa98xx_probe(struct snd_soc_codec *codec)
 	tfa98xx->rate_constraint.count =
 		ARRAY_SIZE(tfa98xx->rate_constraint_list);
 
-	
+	/* setup work queue, will be used to initial DSP on first boot up */
 	tfa98xx->tfa98xx_wq = create_singlethread_workqueue("tfa98xx");
 	if (!tfa98xx->tfa98xx_wq)
 		return -ENOMEM;
@@ -2735,19 +2920,19 @@ static struct snd_soc_codec_driver soc_codec_dev_tfa98xx = {
 
 static bool tfa98xx_writeable_register(struct device *dev, unsigned int reg)
 {
-	
+	/* enable read access for all registers */
 	return 1;
 }
 
 static bool tfa98xx_readable_register(struct device *dev, unsigned int reg)
 {
-	
+	/* enable read access for all registers */
 	return 1;
 }
 
 static bool tfa98xx_volatile_register(struct device *dev, unsigned int reg)
 {
-	
+	/* enable read access for all registers */
 	return 1;
 }
 
@@ -2767,8 +2952,8 @@ static void tfa98xx_irq_9888(struct tfa98xx *tfa98xx)
 {
 	unsigned int base_addr_inten = TFA_FAM(tfa98xx->handle,INTENVDDS) >> 8;
 	unsigned int base_addr_ist   = TFA_FAM(tfa98xx->handle,ISTVDDS) >> 8;
-	
-	
+	//unsigned int base_addr_icl   = TFA_FAM(tfa98xx->handle,ICLVDDS) >> 8;
+	//unsigned int base_addr_ipo   = TFA_FAM(tfa98xx->handle,IPOVDDS) >> 8;
 	u32 en1, en2, en3;
 	u32 out1 = 0, out2 = 0, out3 = 0;
 
@@ -2813,6 +2998,9 @@ static void __tfa98xx_irq(struct tfa98xx *tfa98xx)
 #ifdef DEBUG
 	if (!(val & ie)) {
 		unsigned int ireg;
+		/* interrupt triggered while all interrupt sources supposedly
+		 * disabled
+		 */
 		ireg = snd_soc_read(tfa98xx->codec, TFA98XX_INTERRUPT_REG);
 		dev_dbg(&tfa98xx->i2c->dev, "ICR: 0x%04x\n", ireg);
 	}
@@ -2820,7 +3008,7 @@ static void __tfa98xx_irq(struct tfa98xx *tfa98xx)
 
 	val &= ie;
 
-	
+	/* Check for SPKS bit */
 	if (val & TFA98XX_STATUSREG_SPKS)
 		tfa98xx_tapdet(tfa98xx);
 }
@@ -2856,11 +3044,13 @@ static int tfa98xx_parse_dt(struct device *dev, struct tfa98xx *tfa98xx,
 	if (tfa98xx->irq_gpio < 0)
 		dev_dbg(dev, "No IRQ GPIO provided.\n");
 
+//HTC_AUD_START
 	tfa98xx->spk_source = of_get_named_gpio(np, "speaker-source", 0);
 	if (tfa98xx->spk_source < 0)
 		dev_info(dev, "property speaker-source not detected in node\n");
 	else if(gpio_request(tfa98xx->spk_source, "nxp_spk_source") < 0)
 		pr_err("%s: spk_source gpio request %d error\n",__func__, tfa98xx->spk_source);
+//HTC_AUD_END
 
 
 
@@ -2951,7 +3141,7 @@ retry:
 		}
 		return ret;
 	}
-	
+	/* ret contains the number of i2c messages send */
 	return 1 + ((ret > 1) ? count : 0);
 }
 
@@ -2984,7 +3174,7 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c,
 	int irq_flags;
 	unsigned int reg;
 	int ret;
-	int spk_source = 1; 
+	int spk_source = 1; //HTC_AUDIO: 1(main source), 0(second source)
 
 	pr_info("%s\n", __func__);
 
@@ -3001,7 +3191,7 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c,
 	tfa98xx->dev = &i2c->dev;
 	tfa98xx->i2c = i2c;
 	tfa98xx->dsp_init = TFA98XX_DSP_INIT_STOPPED;
-	tfa98xx->rate = 48000; 
+	tfa98xx->rate = 48000; /* init to the default sample rate (48kHz) */
 
 	tfa98xx->regmap = devm_regmap_init_i2c(i2c, &tfa98xx_regmap);
 	if (IS_ERR(tfa98xx->regmap)) {
@@ -3042,7 +3232,7 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c,
 			goto err;
 	}
 
-	
+	/* Power up! */
 	tfa98xx_ext_reset(tfa98xx);
 
 	if (no_start == 0) {
@@ -3053,20 +3243,22 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c,
 			return -EIO;
 		}
 		switch (reg & 0xff) {
-		case 0x88: 
+		case 0x88: /* tfa9888 */
 			pr_info("TFA9888 detected\n");
+//HTC_AUD_START: Add for tfa_stop or tfa will keep active
 			tfa98xx->flags |= TFA98XX_FLAG_DSP_START_ON_MUTE;
+//HTC_AUD_END
 			tfa98xx->flags |= TFA98XX_FLAG_STEREO_DEVICE;
 			tfa98xx->flags |= TFA98XX_FLAG_MULTI_MIC_INPUTS;
 			break;
-		case 0x80: 
-		case 0x81: 
+		case 0x80: /* tfa9890 */
+		case 0x81: /* tfa9890 */
 			pr_info("TFA9890 detected\n");
 			tfa98xx->flags |= TFA98XX_FLAG_DSP_START_ON_MUTE;
 			tfa98xx->flags |= TFA98XX_FLAG_SKIP_INTERRUPTS;
 			tfa98xx->flags |= TFA98XX_FLAG_TFA9890_FAM_DEV;
 			break;
-		case 0x92: 
+		case 0x92: /* tfa9891 */
 			pr_info("TFA9891 detected\n");
 			tfa98xx->flags |= TFA98XX_FLAG_DSP_START_ON_MUTE;
 			tfa98xx->flags |= TFA98XX_FLAG_SAAM_AVAILABLE;
@@ -3082,6 +3274,7 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c,
 		}
 	}
 
+//HTC_AUD_START: Select TFA table
 	spk_source = gpio_get_value(tfa98xx->spk_source);
 	n1b_chip = (reg == 0x3b88);
 
@@ -3095,8 +3288,15 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c,
 		fw_name = fw_name_n1b;
 	else if(!spk_source && n1b_chip)
 		fw_name = fw_name2_n1b;
+//HTC_AUD_END
 
 
+	/* Modify the stream names, by appending the i2c device address.
+	 * This is used with multicodec, in order to discriminate the devices.
+	 * Stream names appear in the dai definition and in the stream  	 .
+	 * We create copies of original structures because each device will
+	 * have its own instance of this structure, with its own address.
+	 */
 	dai = devm_kzalloc(&i2c->dev, sizeof(tfa98xx_dai), GFP_KERNEL);
 	if (!dai)
 		return -ENOMEM;
@@ -3120,7 +3320,7 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c,
 
 	if (gpio_is_valid(tfa98xx->irq_gpio) &&
 		!(tfa98xx->flags & TFA98XX_FLAG_SKIP_INTERRUPTS)) {
-		
+		/* register irq handler */
 		irq_flags = IRQF_TRIGGER_FALLING | IRQF_ONESHOT;
 		ret = devm_request_threaded_irq(&i2c->dev,
 					gpio_to_irq(tfa98xx->irq_gpio),
@@ -3134,14 +3334,14 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c,
 		tfa98xx_interrupt_setup(tfa98xx);
 	} else {
 		dev_info(&i2c->dev, "Skipping IRQ registration\n");
-		
+		/* disable feature support if gpio was invalid */
 		tfa98xx->flags |= TFA98XX_FLAG_SKIP_INTERRUPTS;
 	}
 
 #ifdef CONFIG_DEBUG_FS
 	tfa98xx_debug_init(tfa98xx, i2c);
 #endif
-	
+	/* Register the sysfs files for climax backdoor access */
 	ret = device_create_bin_file(&i2c->dev, &dev_attr_rw);
 	if (ret)
 		dev_info(&i2c->dev, "error creating sysfs files\n");
@@ -3224,7 +3424,7 @@ static int __init tfa98xx_i2c_init(void)
 
 	pr_info("TFA98XX driver version %s\n", TFA98XX_VERSION);
 
-	
+	/* Enable debug traces */
 	tfa_verbose(trace_level);
 	tfa98xx_kmsg_regs = trace_level & 2;
 	tfa98xx_ftrace_regs = trace_level & 4;

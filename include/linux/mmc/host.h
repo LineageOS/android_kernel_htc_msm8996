@@ -23,8 +23,8 @@
 #include <linux/mmc/ring_buffer.h>
 
 #define MMC_AUTOSUSPEND_DELAY_MS	3000
-#define MMC_STATS_INTERVAL		5000	
-#define MMC_STATS_LOG_INTERVAL		60000	
+#define MMC_STATS_INTERVAL		5000	/* 5 secs */
+#define MMC_STATS_LOG_INTERVAL		60000	/* 60 secs */
 extern struct workqueue_struct *stats_workqueue;
 
 struct mmc_ios {
@@ -385,7 +385,7 @@ struct mmc_host {
 #define MMC_VDD_35_36		0x00800000	/* VDD voltage 3.5 ~ 3.6 */
 
 	u32			caps;		/* Host capabilities */
-	u32                     caps_uhs;       
+	u32                     caps_uhs;       /* bake up Host capabilities for uhs*/
 
 #define MMC_CAP_4_BIT_DATA	(1 << 0)	/* Can the host do 4 bit transfers */
 #define MMC_CAP_MMC_HIGHSPEED	(1 << 1)	/* Can do MMC high-speed timing */
@@ -489,7 +489,7 @@ struct mmc_host {
 
 	int			rescan_disable;	/* disable card detection */
 	int			rescan_entered;	/* used with nonremovable devices */
-	int			retry_disable;	
+	int			retry_disable;	/* disable retry error handling */
 
 	bool			trigger_card_event; /* card_event necessary */
 
@@ -567,32 +567,32 @@ struct mmc_host {
 		ktime_t rtime_drv;	   /* Rd time  MMC Host  */
 		ktime_t wtime_drv;	   /* Wr time  MMC Host  */
 
-		unsigned long rcount;		
-		unsigned long wcount;		
+		unsigned long rcount;		/* Rd req count */
+		unsigned long wcount;		/* Wr req count */
 
-		
-		unsigned long rbytes_drv_rand;	
-		unsigned long wbytes_drv_rand;	
-		unsigned long rcount_rand;	
-		unsigned long wcount_rand;	
-		ktime_t rtime_drv_rand;		
-		ktime_t wtime_drv_rand;		
+		/* random r/w */
+		unsigned long rbytes_drv_rand;	/* Rd bytes MMC Host  */
+		unsigned long wbytes_drv_rand;	/* Wr bytes MMC Host  */
+		unsigned long rcount_rand;	/* Rd req count */
+		unsigned long wcount_rand;	/* Wr req count */
+		ktime_t rtime_drv_rand;		/* Rd time  MMC Host  */
+		ktime_t wtime_drv_rand;		/* Wr time  MMC Host  */
 		unsigned long wbytes_low_perf;
 		unsigned long wtime_low_perf;
-		unsigned long lp_duration;	
+		unsigned long lp_duration;	/* low performance duration */
 
-		
-		unsigned long erase_rq;		
-		unsigned long erase_blks;	
-		ktime_t erase_time;		
+		/* erase command */
+		unsigned long erase_rq;		/* erase req count */
+		unsigned long erase_blks;	/* total erase blocks */
+		ktime_t erase_time;		/* total erase time */
 
-		
+		/* workload */
 		unsigned long wkbytes_drv;
 		ktime_t workload_time;
 
 		ktime_t start;
 
-		
+		/* CMDQ */
 		unsigned long cmdq_read_map;
 		unsigned long cmdq_write_map;
 		ktime_t cmdq_read_start;

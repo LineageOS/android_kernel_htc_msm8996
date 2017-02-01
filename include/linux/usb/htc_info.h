@@ -33,6 +33,13 @@
 	printk(KERN_INFO "[USB] " fmt, ## args)
 #define USB_DEBUG(fmt, args...) \
 	printk(KERN_DEBUG "[USB] " fmt, ## args)
+/*
+#ifdef pr_debug
+#undef pr_debug
+#endif
+#define pr_debug(fmt, args...) \
+	printk(KERN_INFO "[USB] " pr_fmt(fmt), ## args)
+*/
 #ifdef pr_warn
 #undef pr_warn
 #endif
@@ -53,4 +60,4 @@
 
 void ufp_switch_usb_speed(int on);
 
-#endif 
+#endif /* __HTC_INFO__ */

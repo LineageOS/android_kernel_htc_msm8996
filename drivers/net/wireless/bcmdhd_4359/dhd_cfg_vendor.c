@@ -64,7 +64,7 @@ static int dhd_cfgvendor_priv_string_handler(struct wiphy *wiphy,
 
 	DHD_OS_WAKE_LOCK(dhd);
 
-	
+	/* send to dongle only if we are not waiting for reload already */
 	if (dhd->hang_was_sent) {
 		WL_ERR(("HANG was sent up earlier\n"));
 		DHD_OS_WAKE_LOCK_CTRL_TIMEOUT_ENABLE(dhd, DHD_EVENT_TIMEOUT_MS);
@@ -171,4 +171,4 @@ int cfgvendor_detach(struct wiphy *wiphy)
 
 	return 0;
 }
-#endif 
+#endif /* VENDOR_EXT_SUPPORT */

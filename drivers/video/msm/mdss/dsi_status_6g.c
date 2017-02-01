@@ -51,6 +51,9 @@ static bool mdss_check_te_status(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 	return ret;
 }
 
+/*
+ * Return true if TE checking is fine, next workqueue is scheduled as well.
+ */
 static bool mdss_check_te_status_v2(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 		struct dsi_status_data *pstatus_data, uint32_t interval)
 {

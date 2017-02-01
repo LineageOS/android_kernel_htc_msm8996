@@ -15,6 +15,7 @@
 #define pr_info(fmt, args...) \
 	printk(KERN_INFO "[OHIO] " pr_fmt(fmt), ## args)
 
+//#define OHIO_OCM_OTP_VERSION
 
 #ifdef OHIO_OCM_OTP_VERSION
 #define OHIO_OCM_LOADING_TIME 20
@@ -22,8 +23,13 @@
 #define OHIO_OCM_LOADING_TIME 3200
 #endif
 #define CABLE_DET_PIN_HAS_GLITCH
+//#define OHIO_DEBUG
+//#define  PD_CTS_TEST
 #define SUP_OHIO_INT_VECTOR
+//#define SUP_VBUS_CTL
+//#define AUTO_RDO_ENABLE
 #define SUP_TRY_SRC_SINK
+//#define SUPP_VDM_CHARGING
 
 #define YES     1
 #define NO      0
@@ -38,9 +44,11 @@
 #define MA 1
 #define MW 1
 
+/*5000mv voltage*/
 #define PD_VOLTAGE_5V 5000
 
 #define PD_MAX_VOLTAGE_20V 20000
+/*0.9A current */
 #define PD_CURRENT_900MA   900
 #define PD_CURRENT_1500MA 1500
 
@@ -50,6 +58,7 @@
 
 #define PD_POWER_60W  60000
 
+/* RDO : Request Data Object */
 #define RDO_OBJ_POS(n)             (((u32)(n) & 0x7) << 28)
 #define RDO_POS(rdo)               ((((32)rdo) >> 28) & 0x7)
 #define RDO_GIVE_BACK              ((u32)1 << 27)
@@ -68,10 +77,16 @@
 	RDO_FIXED_VAR_MAX_CURR(max_ma))
 
 #define EXTERNALLY_POWERED  YES
+/* Source Capabilities */
+/* 1 to 5 */
 #define SOURCE_PROFILE_NUMBER   1
+/* 0 = Fixed, 1 = Battery, 2 = Variable */
 #define SRC_PDO_SUPPLY_TYPE1    0
+/* 0 to 3 */
 #define SRC_PDO_PEAK_CURRENT1   0
+/* 5000mV (5V) */
 #define SRC_PDO_VOLTAGE1        5000
+/* 500mA (0.5A) */
 #define SRC_PDO_MAX_CURRENT1    500
 
 #define IRQ_STATUS 0x53
@@ -100,13 +115,24 @@
 #define DATA_ROLE_CHANGE 0x20
 
 #define OHIO_SYSTEM_STSTUS 0x29
+/*0: VCONN off; 1: VCONN on*/
 #define VCONN_STATUS 0x04
+/*0: vbus off; 1: vbus on*/
 #define VBUS_STATUS 0x08
+/*0: host; 1:device*/
+/* 1: to DFP;  0: to UFP */
 #define DATA_ROLE 0x20
 
 #define NEW_CC_STATUS 0x2A
 #define INTP_CTRL 0x33
 
+/*
+* Delay time for OCM
+* bit4-bit7 Reserved
+* bit0-bit3 Aelay time ocm disable vbus after receiving hardreset
+*           According USB PD spec, this time shall be 25ms~35ms,
+*           Real value: 30ms - (T_TIME_1 & 0x0F)
+*/
 #define T_TIME_1 0x6C
 #define T_HARDREST_VBUS_OFF_MASK 0x0F
 
@@ -123,15 +149,16 @@
 #define CC2_STATUS_RA (0x2 << 4)
 #define CC1_STATUS_RA 0x2
 
+/*Ohio access register function*/
 int ohio_read_reg(uint8_t slave_addr, uint8_t offset, uint8_t *buf);
 int ohio_write_reg(uint8_t slave_addr, uint8_t offset, uint8_t value);
 unsigned char OhioReadReg(unsigned char RegAddr);
 void OhioWriteReg(unsigned char RegAddr, unsigned char RegVal);
 
 struct tagInterfaceHeader {
-	unsigned char Indicator:1;	
-	unsigned char Type:3;		
-	unsigned char Length:4;		
+	unsigned char Indicator:1;	/* indicator */
+	unsigned char Type:3;		/* data type */
+	unsigned char Length:4;		/* data length */
 };
 
 struct tagInterfaceData {
@@ -146,6 +173,7 @@ struct tagInterfaceData {
 	unsigned long AMM_VDO;
 };
 
+/*Comands status*/
 enum interface_status { CMD_SUCCESS, CMD_REJECT, CMD_FAIL, CMD_BUSY,
 	CMD_STATUS
 };
@@ -204,12 +232,15 @@ extern u8 configure_DP_caps[];
 extern u8 src_dp_caps[];
 extern atomic_t ohio_power_status;
 extern unsigned char downstream_pd_cap;
+/* check soft interrupt happens or not */
 #define is_soft_reset_intr() \
 	(OhioReadReg(IRQ_EXT_SOURCE_2) & IRQ_EXT_SOFT_RESET_BIT)
 
+/* clear the Ohio's soft  interrupt bit */
 #define clear_soft_interrupt()	\
 	OhioWriteReg(IRQ_EXT_SOURCE_2, IRQ_EXT_SOFT_RESET_BIT)
 
+/*control cmd*/
 #define interface_pr_swap() \
 	interface_send_msg_timeout(TYPE_PSWAP_REQ, 0, 0, INTERFACE_TIMEOUT)
 #define interface_dr_swap() \
@@ -282,6 +313,7 @@ void ohio_vbus_control(bool value);
 void pd_vbus_control_default_func(bool on);
 void pd_vconn_control_default_func(bool on);
 void pd_cc_status_default_func(u8 cc_status);
+//void pd_drole_change_default_func(bool on);
 void handle_intr_vector(void);
 struct dual_role_phy_instance *ohio_get_dual_role_instance(void);
 int ohio_get_data_value(int data_member);
@@ -291,12 +323,63 @@ int ohio_hardware_disable_vconn(void);
 int ohio_hardware_disable_boost_5v(void);
 void enable_drole_work_func(int on);
 void enable_oc_work_func(void);
+/* 0, send interface msg timeout
+  * 1 successfull */
 u8 interface_send_msg_timeout(u8 type, u8 *pbuf, u8 len, int timeout_ms);
 pd_callback_t get_pd_callback_fnc(PD_MSG_TYPE type);
 void set_pd_callback_fnc(PD_MSG_TYPE type, pd_callback_t fnc);
 
+/**
+ * @desc:   The interface AP will set(fill) the source capability to Ohio
+ *
+ * @param:
+ *	src_caps: PDO buffer pointer of source capability
+ *		whose bit formats follow the rules:
+ *		it's little-endian, defined in USB PD spec 5.5
+ *		Transmitted Bit Ordering
+ *		source capability's specific format defined in
+ *		USB PD spec 6.4.1 Capabilities Message
+ *              PDO refer to Table 6-4 Power Data Object
+ *              Variable PDO : Table 6-8 Variable Supply (non-battery)
+ *              Battery PDO : Table 6-9 Battery Supply PDO --source
+ *              Fixed PDO refer to  Table 6-6 Fixed Supply PDO --source
+ *	eg: default5Vsafe src_cap(5V, 0.9A fixed)
+ *		PDO_FIXED(5000,900, PDO_FIXED_FLAGS)
+ *
+ *	src_caps_size: source capability's size
+ *		if the source capability obtains one PDO object
+ *		src_caps_size is 4, two PDO objects, src_caps_size is 8
+ *
+ * @return:  0: success.  1: fail
+ *
+ */
 u8 send_src_cap(const u8 *src_caps, u8 src_caps_size);
 
+/**
+ * @desc:   The interface AP will set(fill) the sink capability to Ohio
+ *
+ * @param:
+ *	snk_caps: PDO buffer pointer of sink capability
+ *		whose bit formats follow the rules:
+ *		it's little-endian, defined in USB PD spec 5.5
+ *		Transmitted Bit Ordering
+ *		source capability's specific format defined in
+ *		USB PD spec 6.4.1 Capabilities Message
+ *		PDO refer to Table 6-4 Power Data Object
+ *		Variable PDO : Table 6-8 Variable Suppl
+ *              Battery PDO : Table 6-9 Battery Supply PDO
+ *		Fixed PDO refer to  Table 6-6 Fixed Supply PDO
+ *	eg: default5Vsafe snk_cap(5V, 0.9A fixed) -->
+ *		PDO_FIXED(5000,900, PDO_FIXED_FLAGS)
+ *
+ *	snk_caps_size: sink capability's size
+ *		if the sink capability obtains
+ *		one PDO object, snk_caps_size is 4
+ *		two PDO objects, snk_caps_size is 8
+ *
+ * @return:  0: success.  1: fail
+ *
+ */
 u8 send_snk_cap(const u8 *snk_caps, u8 snk_caps_size);
 u8 send_rdo(const u8 *rdo, u8 size);
 u8 send_data_swap(void);
@@ -305,8 +388,24 @@ u8 send_accept(void);
 
 
 
+/**
+ * @desc:   The interface AP will get the ohio's data role
+ *
+ * @param:  none
+ *
+ * @return:  data role , dfp 1 , ufp 0, other error: -1, not ready
+ *
+ */
 s8 get_data_role(void);
 
+/**
+ * @desc:   The interface AP will get the ohio's power role
+ *
+ * @param:  none
+ *
+ * @return:  data role , source 1 , sink 0, other error, -1, not ready
+ *
+ */
 s8 get_power_role(void);
 
 

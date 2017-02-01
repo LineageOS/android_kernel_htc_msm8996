@@ -786,6 +786,7 @@ static int snd_compr_set_next_track_param(struct snd_compr_stream *stream,
 	return retval;
 }
 
+//HTC_AUD_START
 static int snd_compr_effect(struct snd_compr_stream *stream, unsigned long arg)
 {
    int rc = 0;
@@ -824,7 +825,7 @@ static int snd_compr_effect(struct snd_compr_stream *stream, unsigned long arg)
        kfree(payload);
        return -EFAULT;
    }
-   if (q6_param.effect_type == 0) { 
+   if (q6_param.effect_type == 0) { /* POPP */
        rc = stream->ops->config_effect(stream, (void *)&q6_param, payload);
        if (rc) {
            pr_err("[%p] %s: config_effect error %d\n", prtd, __func__, rc);
@@ -834,6 +835,7 @@ static int snd_compr_effect(struct snd_compr_stream *stream, unsigned long arg)
    kfree(payload);
    return 0;
 }
+//HTC_AUD_END
 
 static int snd_compress_simple_ioctls(struct file *file,
 				struct snd_compr_stream *stream,
@@ -936,9 +938,11 @@ static long snd_compr_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 		retval = snd_compr_set_next_track_param(stream, arg);
 		break;
 
+//HTC_AUD_START
 	case _IOC_NR(SNDRV_COMPRESS_ENABLE_EFFECT):
 		retval = snd_compr_effect(stream, arg);
 		break;
+//HTC_AUD_END
 
 	default:
 		mutex_unlock(&stream->device->lock);
@@ -972,7 +976,7 @@ static int snd_compress_dev_register(struct snd_device *device)
 		return -EBADFD;
 	compr = device->device_data;
 
-	snprintf(str, sizeof(str), "comprC%iD%i", compr->card->number, compr->device);
+	snprintf(str, sizeof(str), "comprC%iD%i", compr->card->number, compr->device);//HTC_AUD klocwork
 	pr_debug("reg %s for device %s, direction %d\n", str, compr->name,
 			compr->direction);
 	/* register compressed device */

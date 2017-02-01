@@ -93,10 +93,10 @@ struct subsys_desc {
 	int sysmon_shutdown_ret;
 	bool system_debug;
 	const char *edge;
-#if 1 
+#if 1 //Modem_BSP++
        irqreturn_t (*reboot_req_handler) (int irq, void *dev_id);
        unsigned int reboot_req_irq;
-#endif 
+#endif //Modem_BSP--
 };
 
 /**

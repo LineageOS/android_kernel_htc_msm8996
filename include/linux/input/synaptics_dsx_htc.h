@@ -24,6 +24,11 @@
 #define I2C_DRIVER_NAME "synaptics_dsx_i2c"
 #define SPI_DRIVER_NAME "synaptics_dsx_spi"
 
+/*
+ * struct synaptics_dsx_cap_button_map - 0D button map
+ * @nbuttons: number of 0D buttons
+ * @map: pointer to array of button types
+ */
 struct synaptics_dsx_cap_button_map {
 	unsigned char nbuttons;
 	unsigned int *map;
@@ -46,6 +51,30 @@ struct synaptics_rmi4_config {
 	const char *disp_panel;
 };
 
+/*
+ * struct synaptics_dsx_board_data - DSX board data
+ * @x_flip: x flip flag
+ * @y_flip: y flip flag
+ * @swap_axes: swap axes flag
+ * @irq_gpio: attention interrupt GPIO
+ * @irq_on_state: attention interrupt active state
+ * @power_gpio: power switch GPIO
+ * @power_on_state: power switch active state
+ * @reset_gpio: reset GPIO
+ * @reset_on_state: reset active state
+ * @irq_flags: IRQ flags
+ * @device_descriptor_addr: HID device descriptor address
+ * @panel_x: x-axis resolution of display panel
+ * @panel_y: y-axis resolution of display panel
+ * @power_delay_ms: delay time to wait after powering up device
+ * @reset_delay_ms: delay time to wait after resetting device
+ * @reset_active_ms: reset active time
+ * @byte_delay_us: delay time between two bytes of SPI data
+ * @block_delay_us: delay time between two SPI transfers
+ * @pwr_reg_name: pointer to name of regulator for power control
+ * @bus_reg_name: pointer to name of regulator for bus pullup control
+ * @cap_button_map: pointer to 0D button map
+ */
 struct synaptics_dsx_board_data {
 	bool x_flip;
 	bool y_flip;

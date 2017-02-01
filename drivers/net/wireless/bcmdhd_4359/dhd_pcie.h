@@ -39,9 +39,9 @@
 #include <linux/msm_pcie.h>
 #else
 #include <mach/msm_pcie.h>
-#endif 
-#endif 
-#endif 
+#endif /* CONFIG_ARCH_MSM8994 || CONFIG_ARCH_MSM8996 */
+#endif /* CONFIG_ARCH_MSM */
+#endif /* SUPPORT_LINKDOWN_RECOVERY */
 
 #ifdef DHD_PCIE_RUNTIMEPM
 #include <linux/mutex.h>
@@ -50,18 +50,19 @@
 #define DEFAULT_DHD_RUNTIME_MS 100
 #ifndef CUSTOM_DHD_RUNTIME_MS
 #define CUSTOM_DHD_RUNTIME_MS DEFAULT_DHD_RUNTIME_MS
-#endif 
+#endif /* CUSTOM_DHD_RUNTIME_MS */
 
 
 #ifndef MAX_IDLE_COUNT
 #define MAX_IDLE_COUNT 16
-#endif 
+#endif /* MAX_IDLE_COUNT */
 
 #ifndef MAX_RESUME_WAIT
 #define MAX_RESUME_WAIT 100
-#endif 
-#endif 
+#endif /* MAX_RESUME_WAIT */
+#endif /* DHD_PCIE_RUNTIMEPM */
 
+/* defines */
 
 #define PCMSGBUF_HDRLEN 0
 #define DONGLE_REG_MAP_SIZE (32 * 1024)
@@ -70,30 +71,36 @@
 #ifdef DHD_DEBUG
 #define DHD_PCIE_SUCCESS 0
 #define DHD_PCIE_FAILURE 1
-#endif 
+#endif /* DHD_DEBUG */
 #define	REMAP_ENAB(bus)			((bus)->remap)
 #define	REMAP_ISADDR(bus, a)		(((a) >= ((bus)->orig_ramsize)) && ((a) < ((bus)->ramsize)))
 
+/*
+ * Router with 4366 can have 128 stations and 16 BSS,
+ * hence (128 stations x 4 access categories for ucast) + 16 bc/mc flowrings
+ */
 #define MAX_DHD_TX_FLOWS	320
 
+/* user defined data structures */
+/* Device console log buffer state */
 #define CONSOLE_LINE_MAX	192
 #define CONSOLE_BUFFER_MAX	(8 * 1024)
 
 #ifndef MAX_CNTL_D3ACK_TIMEOUT
 #define MAX_CNTL_D3ACK_TIMEOUT 1
-#endif 
+#endif /* MAX_CNTL_D3ACK_TIMEOUT */
 
 #ifdef DHD_DEBUG
 
 typedef struct dhd_console {
-	 uint		count;	
-	 uint		log_addr;		 
-	 hnd_log_t	 log;			 
-	 uint		 bufsize;		 
-	 uint8		 *buf;			 
-	 uint		 last;			 
+	 uint		count;	/* Poll interval msec counter */
+	 uint		log_addr;		 /* Log struct address (fixed) */
+	 hnd_log_t	 log;			 /* Log struct (host copy) */
+	 uint		 bufsize;		 /* Size of log buffer */
+	 uint8		 *buf;			 /* Log buffer (host copy) */
+	 uint		 last;			 /* Last buffer read index */
 } dhd_console_t;
-#endif 
+#endif /* DHD_DEBUG */
 typedef struct ring_sh_info {
 	uint32 ring_mem_addr;
 	uint32 ring_state_w;
@@ -102,50 +109,53 @@ typedef struct ring_sh_info {
 
 typedef struct dhd_bus {
 	dhd_pub_t	*dhd;
-	struct pci_dev  *dev;		
-	dll_t       const_flowring; 
+	struct pci_dev  *dev;		/* pci device handle */
+	dll_t       const_flowring; /* constructed list of tx flowring queues */
 
-	si_t		*sih;			
-	char		*vars;			
-	uint		varsz;			
-	uint32		sbaddr;			
-	sbpcieregs_t	*reg;			
+	si_t		*sih;			/* Handle for SI calls */
+	char		*vars;			/* Variables (from CIS and/or other) */
+	uint		varsz;			/* Size of variables buffer */
+	uint32		sbaddr;			/* Current SB window pointer (-1, invalid) */
+	sbpcieregs_t	*reg;			/* Registers for PCIE core */
 
-	uint		armrev;			
-	uint		ramrev;			
-	uint32		ramsize;		
-	uint32		orig_ramsize;		
-	uint32		srmemsize;		
+	uint		armrev;			/* CPU core revision */
+	uint		ramrev;			/* SOCRAM core revision */
+	uint32		ramsize;		/* Size of RAM in SOCRAM (bytes) */
+	uint32		orig_ramsize;		/* Size of RAM in SOCRAM (bytes) */
+	uint32		srmemsize;		/* Size of SRMEM */
 
-	uint32		bus;			
-	uint32		intstatus;		
-	bool		dpc_sched;		
-	bool		fcstate;		
+	uint32		bus;			/* gSPI or SDIO bus */
+	uint32		intstatus;		/* Intstatus bits (events) pending */
+	bool		dpc_sched;		/* Indicates DPC schedule (intrpt rcvd) */
+	bool		fcstate;		/* State of dongle flow-control */
 
-	uint16		cl_devid;		
-	char		*fw_path;		
-	char		*nv_path;		
+	uint16		cl_devid;		/* cached devid for dhdsdio_probe_attach() */
+	char		*fw_path;		/* module_param: path to firmware image */
+	char		*nv_path;		/* module_param: path to nvram vars file */
 #ifdef CACHE_FW_IMAGES
-	int			processed_nvram_params_len;	
+	int			processed_nvram_params_len;	/* Modified len of NVRAM info */
 #endif
 
 
-	struct pktq	txq;			
+	struct pktq	txq;			/* Queue length used for flow-control */
 
-	bool		intr;			
-	bool		ipend;			
-	bool		intdis;			
-	uint		intrcount;		
-	uint		lastintrs;		
+	bool		intr;			/* Use interrupts */
+	bool		ipend;			/* Device interrupt is pending */
+	bool		intdis;			/* Interrupts disabled by isr */
+	uint		intrcount;		/* Count of device interrupt callbacks */
+	uint		lastintrs;		/* Count as of last watchdog timer */
 
 #ifdef DHD_DEBUG
-	dhd_console_t	console;		
-	uint		console_addr;		
-#endif 
+	dhd_console_t	console;		/* Console output polling support */
+	uint		console_addr;		/* Console address from shared struct */
+#endif /* DHD_DEBUG */
 
-	bool		alp_only;		
+	bool		alp_only;		/* Don't use HT clock (ALP only) */
 
-	bool		remap;		
+	bool		remap;		/* Contiguous 1MB RAM: 512K socram + 512K devram
+					 * Available with socram rev 16
+					 * Remap region not DMA-able
+					 */
 	uint32		resetinstr;
 	uint32		dongle_ram_base;
 
@@ -153,15 +163,15 @@ typedef struct dhd_bus {
 	pciedev_shared_t	*pcie_sh;
 	bool bus_flowctrl;
 	uint32		dma_rxoffset;
-	volatile char	*regs;		
-	volatile char	*tcm;		
+	volatile char	*regs;		/* pci device memory va */
+	volatile char	*tcm;		/* pci device memory va */
 	uint32		tcm_size;
 #ifdef CUSTOMER_HW_ONE
 	phys_addr_t bar0_addr;
 	phys_addr_t bar1_addr;
-#endif 
+#endif /* CUSTOMER_HW_ONE */
 	osl_t		*osh;
-	uint32		nvram_csm;	
+	uint32		nvram_csm;	/* Nvram checksum */
 	uint16		pollrate;
 	uint16  polltick;
 
@@ -169,7 +179,7 @@ typedef struct dhd_bus {
 	void    *pcie_mb_intr_osh;
 	bool	sleep_allowed;
 
-	
+	/* version 3 shared struct related info start */
 	ring_sh_info_t	ring_sh[BCMPCIE_COMMON_MSGRINGS + MAX_DHD_TX_FLOWS];
 	uint8	h2d_ring_count;
 	uint8	d2h_ring_count;
@@ -180,7 +190,7 @@ typedef struct dhd_bus {
 
 	uint32 h2d_mb_data_ptr_addr;
 	uint32 d2h_mb_data_ptr_addr;
-	
+	/* version 3 shared struct related info end */
 
 	uint32 def_intmask;
 	bool	ltrsleep_on_unload;
@@ -194,21 +204,21 @@ typedef struct dhd_bus {
 	bool	device_wake_state;
 #ifdef PCIE_OOB
 	bool	oob_enabled;
-#endif 
+#endif /* PCIE_OOB */
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 #ifdef CONFIG_ARCH_MSM
 	struct msm_pcie_register_event pcie_event;
 	uint8 islinkdown;
-#endif 
-#endif 
+#endif /* CONFIG_ARCH_MSM */
+#endif /* SUPPORT_LINKDOWN_RECOVERY */
 #ifdef DHD_PCIE_RUNTIMEPM
-	int32 idlecount;                
-	int32 idletime;                 
-	int32 bus_wake;                 
-	bool runtime_resume_done;       
-	struct mutex pm_lock;            
-	wait_queue_head_t rpm_queue;    
-#endif 
+	int32 idlecount;                /* Activity timeout counter */
+	int32 idletime;                 /* Control for activity timeout */
+	int32 bus_wake;                 /* For wake up the bus */
+	bool runtime_resume_done;       /* For check runtime suspend end */
+	struct mutex pm_lock;            /* Synchronize for system PM & runtime PM */
+	wait_queue_head_t rpm_queue;    /* wait-queue for bus wake up */
+#endif /* DHD_PCIE_RUNTIMEPM */
 	uint32 d3_inform_cnt;
 	uint32 d0_inform_cnt;
 	uint32 d0_inform_in_use_cnt;
@@ -224,6 +234,7 @@ typedef struct dhd_bus {
 
 } dhd_bus_t;
 
+/* function declarations */
 
 extern uint32* dhdpcie_bus_reg_map(osl_t *osh, ulong addr, int size);
 extern int dhdpcie_bus_register(void);
@@ -245,7 +256,7 @@ extern int dhdpcie_pci_suspend_resume(struct  dhd_bus *bus, bool state);
 extern bool dhdpcie_tcm_valid(dhd_bus_t *bus);
 #ifndef BCMPCIE_OOB_HOST_WAKE
 extern void dhdpcie_pme_active(osl_t *osh, bool enable);
-#endif 
+#endif /* !BCMPCIE_OOB_HOST_WAKE */
 extern bool dhdpcie_pme_cap(osl_t *osh);
 extern int dhdpcie_start_host_pcieclock(dhd_bus_t *bus);
 extern int dhdpcie_stop_host_pcieclock(dhd_bus_t *bus);
@@ -258,12 +269,12 @@ extern int dhdpcie_bus_request_irq(struct dhd_bus *bus);
 extern int dhdpcie_oob_intr_register(dhd_bus_t *bus);
 extern void dhdpcie_oob_intr_unregister(dhd_bus_t *bus);
 extern void dhdpcie_oob_intr_set(dhd_bus_t *bus, bool enable);
-#endif 
+#endif /* BCMPCIE_OOB_HOST_WAKE */
 #ifdef PCIE_OOB
 extern void dhd_oob_set_bt_reg_on(struct dhd_bus *bus, bool val);
 extern int dhd_oob_get_bt_reg_on(struct dhd_bus *bus);
-#endif 
+#endif /* PCIE_OOB */
 
 extern int dhd_buzzz_dump_dngl(dhd_bus_t *bus);
 
-#endif 
+#endif /* dhd_pcie_h */

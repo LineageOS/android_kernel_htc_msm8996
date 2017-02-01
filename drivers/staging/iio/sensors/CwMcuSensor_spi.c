@@ -133,9 +133,9 @@ int CWMCU_do_write_block(struct cwmcu_bus_client *mcu_client,
 	spi_protocol_data[2] = len;
 	spi_protocol_data[3] = spi_check_crc(spi_protocol_data, MCU_SPI_REG_RW_PROTOCOL_LEN, crc, 0);
 
-	transfer[transfer_len].tx_buf = spi_protocol_data; 
+	transfer[transfer_len].tx_buf = spi_protocol_data; // mcu spi  protocol
 	transfer[transfer_len].len = len + MCU_SPI_DUMMY_LENGTH;
-	transfer[transfer_len].rx_buf = spi_dummy_data; 
+	transfer[transfer_len].rx_buf = spi_dummy_data; // mcu spi  protocol
 	transfer_len++;
 
 	crc = spi_check_crc(data, len, crc, 0);
@@ -155,11 +155,11 @@ int CWMCU_do_write_block(struct cwmcu_bus_client *mcu_client,
 		}
 	}
 
-	
+	//retry when ack error
 	for(retry = 1; retry < MCU_SPI_RETRY_TIMES && ret < 0; retry ++) {
-		transfer[0].tx_buf = NULL; 
+		transfer[0].tx_buf = NULL; // mcu spi  protocol
 		transfer[0].len = len + MCU_SPI_DUMMY_LENGTH;
-		transfer[0].rx_buf = spi_dummy_data + (len + MCU_SPI_DUMMY_LENGTH) * retry; 
+		transfer[0].rx_buf = spi_dummy_data + (len + MCU_SPI_DUMMY_LENGTH) * retry; // mcu spi  protocol
 		ret = spi_sync_transfer(mcu_client->spi_client, transfer, 1);
 
 		for (i = 0; i < (len + MCU_SPI_DUMMY_LENGTH) * (retry + 1) - 1 ; i++) {
@@ -230,7 +230,7 @@ int CWMCU_do_read(struct cwmcu_bus_client *mcu_client,
 		}
 	}
 
-	
+	//retry when ack error
 	for(retry = 1; retry < MCU_SPI_RETRY_TIMES && ret < 0; retry ++) {
 		transfer[0].tx_buf = NULL;
 		transfer[0].rx_buf = spi_dummy_data + (len + MCU_SPI_DUMMY_LENGTH) * retry;
@@ -294,9 +294,9 @@ int mcu_spi_tx_cmd(const struct cwmcu_bus_client *mcu_client, u8 cmd, u8 *data, 
 	spi_protocol_data[2] = len;
 	spi_protocol_data[3] = spi_check_crc(spi_protocol_data, MCU_SPI_REG_RW_PROTOCOL_LEN, crc, 0);
 
-	transfer[transfer_len].tx_buf = spi_protocol_data; 
+	transfer[transfer_len].tx_buf = spi_protocol_data; // mcu spi  protocol
 	transfer[transfer_len].len = len + MCU_SPI_DUMMY_LENGTH;
-	transfer[transfer_len].rx_buf = spi_dummy_data; 
+	transfer[transfer_len].rx_buf = spi_dummy_data; // mcu spi  protocol
 	transfer_len++;
 
 	crc = spi_check_crc(data, len, crc, 0);
@@ -316,11 +316,11 @@ int mcu_spi_tx_cmd(const struct cwmcu_bus_client *mcu_client, u8 cmd, u8 *data, 
 		}
 	}
 
-	
+	//retry when ack error
 	for(retry = 1; retry < MCU_SPI_RETRY_TIMES && ret < 0; retry ++) {
-		transfer[0].tx_buf = NULL; 
+		transfer[0].tx_buf = NULL; // mcu spi  protocol
 		transfer[0].len = len + MCU_SPI_DUMMY_LENGTH;
-		transfer[0].rx_buf = spi_dummy_data + (len + MCU_SPI_DUMMY_LENGTH) * retry; 
+		transfer[0].rx_buf = spi_dummy_data + (len + MCU_SPI_DUMMY_LENGTH) * retry; // mcu spi  protocol
 		ret = spi_sync_transfer(mcu_client->spi_client, transfer, 1);
 
 		for (i = 0; i < (len + MCU_SPI_DUMMY_LENGTH) * (retry + 1) - 1 ; i++) {
@@ -389,7 +389,7 @@ int mcu_spi_rx_cmd(const struct cwmcu_bus_client *mcu_client, u8 cmd, u8 *data, 
 		}
 	}
 
-	
+	//retry when ack error
 	for(retry = 1; retry < MCU_SPI_RETRY_TIMES && ret < 0; retry ++) {
 		transfer[0].tx_buf = NULL;
 		transfer[0].rx_buf = spi_dummy_data + (len + MCU_SPI_DUMMY_LENGTH) * retry;

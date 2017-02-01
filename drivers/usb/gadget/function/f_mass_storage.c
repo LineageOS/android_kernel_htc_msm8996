@@ -214,7 +214,7 @@
 #include <linux/string.h>
 #include <linux/freezer.h>
 #include <linux/module.h>
-#include <linux/switch.h> 
+#include <linux/switch.h> /*++ 2015/10/22 USB Team, PCN00025 ++*/
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
@@ -228,8 +228,10 @@
 
 #define FSG_DRIVER_DESC		"Mass Storage Function"
 #define FSG_DRIVER_VERSION	"2009/09/11"
+/*++ 2015/10/22 USB Team, PCN00025 ++*/
 #define FSG_VENDOR_NAME		"HTC"
 #define FSG_PRODUCT_NAME	"Android Phone"
+/*-- 2015/10/22 USB Team, PCN00025 --*/
 
 static const char fsg_string_interface[] = "Mass Storage";
 
@@ -252,10 +254,13 @@ static struct usb_gadget_strings *fsg_strings_array[] = {
 	NULL,
 };
 
+/*++ 2015/10/22 USB Team, PCN00025 ++*/
 static struct switch_dev scsi_switch = {
 	.name = "scsi_cmd",
 };
+/*-- 2015/10/22 USB Team, PCN00025 --*/
 
+/*-------------------------------------------------------------------------*/
 
 /*
  * If USB mass storage vfs operation is stuck for more than 10 sec
@@ -270,7 +275,7 @@ MODULE_PARM_DESC(msc_vfs_timer_period_ms, "Set period for MSC VFS timer");
 static int write_error_after_csw_sent;
 static int must_report_residue;
 static int csw_sent;
-static int scsi_adb_state; 
+static int scsi_adb_state; /*++ 2015/10/22 USB Team, PCN00025 ++*/
 
 struct fsg_dev;
 struct fsg_common;
@@ -690,6 +695,7 @@ static int sleep_thread(struct fsg_common *common, bool can_freeze)
 }
 
 
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 static void _lba_to_msf(u8 *buf, int lba)
 {
     lba += 150;
@@ -709,42 +715,42 @@ static int _read_toc_raw(struct fsg_common *common, struct fsg_buffhd *bh)
 
 	q = buf + 2;
 	memset(q, 0, 46);
-	*q++ = 1; 
-	*q++ = 1; 
+	*q++ = 1; /* first session */
+	*q++ = 1; /* last session */
 
-	*q++ = 1; 
-	*q++ = 0x14; 
-	*q++ = 0; 
-	*q++ = 0xa0; 
-	*q++ = 0; 
-	*q++ = 0; 
-	*q++ = 0; 
+	*q++ = 1; /* session number */
+	*q++ = 0x14; /* data track */
+	*q++ = 0; /* track number */
+	*q++ = 0xa0; /* lead-in */
+	*q++ = 0; /* min */
+	*q++ = 0; /* sec */
+	*q++ = 0; /* frame */
 	*q++ = 0;
-	*q++ = 1; 
-	*q++ = 0x00; 
+	*q++ = 1; /* first track */
+	*q++ = 0x00; /* disk type */
 	*q++ = 0x00;
 
-	*q++ = 1; 
-	*q++ = 0x14; 
-	*q++ = 0; 
+	*q++ = 1; /* session number */
+	*q++ = 0x14; /* data track */
+	*q++ = 0; /* track number */
 	*q++ = 0xa1;
-	*q++ = 0; 
-	*q++ = 0; 
-	*q++ = 0; 
+	*q++ = 0; /* min */
+	*q++ = 0; /* sec */
+	*q++ = 0; /* frame */
 	*q++ = 0;
-	*q++ = 1; 
+	*q++ = 1; /* last track */
 	*q++ = 0x00;
 	*q++ = 0x00;
 
-	*q++ = 1; 
-	*q++ = 0x14; 
-	*q++ = 0; 
-	*q++ = 0xa2; 
-	*q++ = 0; 
-	*q++ = 0; 
-	*q++ = 0; 
+	*q++ = 1; /* session number */
+	*q++ = 0x14; /* data track */
+	*q++ = 0; /* track number */
+	*q++ = 0xa2; /* lead-out */
+	*q++ = 0; /* min */
+	*q++ = 0; /* sec */
+	*q++ = 0; /* frame */
 	if (msf) {
-		*q++ = 0; 
+		*q++ = 0; /* reserved */
 		_lba_to_msf(q, curlun->num_sectors);
 		q += 3;
 	} else {
@@ -752,13 +758,13 @@ static int _read_toc_raw(struct fsg_common *common, struct fsg_buffhd *bh)
 		q += 4;
 	}
 
-	*q++ = 1; 
-	*q++ = 0x14; 
-	*q++ = 0; 
-	*q++ = 1; 
-	*q++ = 0; 
-	*q++ = 0; 
-	*q++ = 0; 
+	*q++ = 1; /* session number */
+	*q++ = 0x14; /* ADR, control */
+	*q++ = 0; /* track number */
+	*q++ = 1; /* point */
+	*q++ = 0; /* min */
+	*q++ = 0; /* sec */
+	*q++ = 0; /* frame */
 	if (msf) {
 		*q++ = 0;
 		_lba_to_msf(q, 0);
@@ -777,25 +783,27 @@ static int _read_toc_raw(struct fsg_common *common, struct fsg_buffhd *bh)
 
 static void cd_data_to_raw(u8 *buf, int lba)
 {
-	
+	/* sync bytes */
 	buf[0] = 0x00;
 	memset(buf + 1, 0xff, 10);
 	buf[11] = 0x00;
 	buf += 12;
 
-	
+	/* MSF */
 	_lba_to_msf(buf, lba);
-	buf[3] = 0x01; 
+	buf[3] = 0x01; /* mode 1 data */
 	buf += 4;
 
-	
+	/* data */
 	buf += 2048;
 
-	
+	/* XXX: ECC not computed */
 	memset(buf, 0, 288);
 }
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 
 
+/*-------------------------------------------------------------------------*/
 
 static int do_read(struct fsg_common *common)
 {
@@ -807,20 +815,30 @@ static int do_read(struct fsg_common *common)
 	loff_t			file_offset, file_offset_tmp;
 	unsigned int		amount;
 	ssize_t			nread;
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 	u32			transfer_request;
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 	ktime_t			start, diff;
 
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 	if (common->cmnd[0] == READ_CD) {
 		if (common->data_size_from_cmnd == 0)
 			return 0;
 		transfer_request = common->cmnd[9];
 	} else
 		transfer_request = 0;
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 
+	/*
+	 * Get the starting Logical Block Address and check that it's
+	 * not too big.
+	 */
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 	if (common->cmnd[0] == READ_CD)
 		lba = get_unaligned_be32(&common->cmnd[2]);
 	else if (common->cmnd[0] == READ_6)
 		lba = get_unaligned_be24(&common->cmnd[1]);
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 	else {
 		lba = get_unaligned_be32(&common->cmnd[2]);
 
@@ -839,10 +857,11 @@ static int do_read(struct fsg_common *common)
 		return -EINVAL;
 	}
 
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 	if ((transfer_request & 0xf8) == 0xf8) {
 		file_offset = ((loff_t) lba) << 11;
 
-		
+		/* read all data, 2352 byte */
 		amount_left = 2352;
 	} else {
 	file_offset = ((loff_t) lba) << curlun->blkbits;
@@ -850,6 +869,7 @@ static int do_read(struct fsg_common *common)
 	/* Carry out the file reads */
 	amount_left = common->data_size_from_cmnd;
 	}
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 	if (unlikely(amount_left == 0))
 		return -EIO;		/* No default reply */
 
@@ -899,11 +919,13 @@ static int do_read(struct fsg_common *common)
 		start = ktime_get();
 		mod_timer(&common->vfs_timer, jiffies +
 			msecs_to_jiffies(msc_vfs_timer_period_ms));
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 		if ((transfer_request & 0xf8) == 0xf8)
 			nread = vfs_read(curlun->filp,
 				    ((char __user *)bh->buf) + 16,
 				    amount, &file_offset_tmp);
 		else
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 			nread = vfs_read(curlun->filp,
 				 (char __user *)bh->buf,
 				 amount, &file_offset_tmp);
@@ -958,10 +980,12 @@ static int do_read(struct fsg_common *common)
 		common->next_buffhd_to_fill = bh->next;
 	}
 
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 	if ((transfer_request & 0xf8) == 0xf8)
 		cd_data_to_raw(bh->buf, lba);
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 
-	return -EIO;		
+	return -EIO;		/* No default reply */
 }
 
 
@@ -1466,7 +1490,9 @@ static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
 	struct fsg_lun	*curlun = common->curlun;
 	int		msf = common->cmnd[1] & 0x02;
 	int		start_track = common->cmnd[6];
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 	int		format = (common->cmnd[9] & 0xC0) >> 6;
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 	u8		*buf = (u8 *)bh->buf;
 
 	if ((common->cmnd[1] & ~0x02) != 0 ||	/* Mask away MSF */
@@ -1475,8 +1501,10 @@ static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
 		return -EINVAL;
 	}
 
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 	if (format == 2)
 		return _read_toc_raw(common, bh);
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 
 	memset(buf, 0, 20);
 	buf[1] = (20-2);		/* TOC data length */
@@ -1546,9 +1574,11 @@ static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 		memset(buf+2, 0, 10);	/* None of the fields are changeable */
 
 		if (!changeable_values) {
-			buf[2] = 0x00;	
-					
-					
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
+			buf[2] = 0x00;	/* Write cache disable, */
+/*-- 2015/12/28, USB Team, PCN00053 --*/
+					/* Read cache not disabled */
+					/* No cache retention priorities */
 			put_unaligned_be16(0xffff, &buf[4]);
 					/* Don't disable prefetch */
 					/* Minimum prefetch = 0 */
@@ -1683,6 +1713,7 @@ static int do_mode_select(struct fsg_common *common, struct fsg_buffhd *bh)
 	return -EINVAL;
 }
 
+/*++ 2015/10/22 USB Team, PCN00025 ++*/
 struct work_struct	ums_adb_state_change_work;
 char *switch_adb_off_state[3] = { "SWITCH_NAME=scsi_cmd", "SWITCH_STATE=0", NULL };
 char *switch_adb_on_state[3] = { "SWITCH_NAME=scsi_cmd", "SWITCH_STATE=1", NULL };
@@ -1698,14 +1729,14 @@ static int do_reserve(struct fsg_common *common, struct fsg_buffhd *bh)
 {
 	if (common->cmnd[1] == ('h'&0x1f) && common->cmnd[2] == 't'
 			&& common->cmnd[3] == 'c') {
-		
+		/* No special options */
 		switch (common->cmnd[5]) {
-			case 0x01: 
+			case 0x01: /* enable adbd */
 				printk(KERN_NOTICE "[USB] Enable adb daemon from mass_storage\n");
 				scsi_adb_state = 1;
 				schedule_work(&ums_adb_state_change_work);
 				break;
-			case 0x02: 
+			case 0x02: /*disable adbd */
 				printk(KERN_NOTICE "[USB] Disable adb daemon from mass_storage\n");
 				scsi_adb_state = 0;
 				schedule_work(&ums_adb_state_change_work);
@@ -1762,6 +1793,7 @@ int ums_ctrlrequest(struct usb_composite_dev *cdev,
 
 	return value;
 }
+/*-- 2015/10/22 USB Team, PCN00025 --*/
 
 /*-------------------------------------------------------------------------*/
 
@@ -2107,8 +2139,10 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 			    "but we got %d\n", name,
 			    cmnd_size, common->cmnd_size);
 			cmnd_size = common->cmnd_size;
+/*++ 2015/10/22 USB Team, PCN00025 ++*/
 		} else if (common->cmnd[0] == RESERVE){
 			cmnd_size = common->cmnd_size;
+/*-- 2015/10/22 USB Team, PCN00025 --*/
 		} else {
 			common->phase_error = 1;
 			return -EINVAL;
@@ -2304,6 +2338,7 @@ static int do_scsi_command(struct fsg_common *common)
 			reply = do_read(common);
 		break;
 
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 	case READ_CD:
 		common->data_size_from_cmnd = ((common->cmnd[6] << 16) |
 			    (common->cmnd[7] << 8) | (common->cmnd[8])) << 9;
@@ -2313,6 +2348,7 @@ static int do_scsi_command(struct fsg_common *common)
 		if (reply == 0)
 			reply = do_read(common);
 		break;
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 
 	case READ_CAPACITY:
 		common->data_size_from_cmnd = 8;
@@ -2341,7 +2377,9 @@ static int do_scsi_command(struct fsg_common *common)
 		common->data_size_from_cmnd =
 			get_unaligned_be16(&common->cmnd[7]);
 		reply = check_command(common, 10, DATA_DIR_TO_HOST,
+/*++ 2015/12/28, USB Team, PCN00053 ++*/
 				      (0xf<<6) | (1<<1), 1,
+/*-- 2015/12/28, USB Team, PCN00053 --*/
 				      "READ TOC");
 		if (reply == 0)
 			reply = do_read_toc(common, bh);
@@ -2437,6 +2475,7 @@ static int do_scsi_command(struct fsg_common *common)
 			reply = do_write(common);
 		break;
 
+/*++ 2015/10/22 USB Team, PCN00025 ++*/
 	case RESERVE:
 		common->data_size_from_cmnd = 0;
 		reply = check_command(common, 10, DATA_DIR_TO_HOST,
@@ -2445,6 +2484,13 @@ static int do_scsi_command(struct fsg_common *common)
 		if (reply == 0)
 			reply = do_reserve(common, bh);
 		break;
+/*-- 2015/10/22 USB Team, PCN00025 --*/
+	/*
+	 * Some mandatory commands that we recognize but don't implement.
+	 * They don't mean much in this setting.  It's left as an exercise
+	 * for anyone interested to implement RESERVE and RELEASE in terms
+	 * of Posix locks.
+	 */
 	case FORMAT_UNIT:
 	case RELEASE:
 	case SEND_DIAGNOSTIC:
@@ -3553,7 +3599,9 @@ int fsg_sysfs_update(struct fsg_common *common, struct device *dev, bool create)
 	pr_debug("%s(): common->nluns:%d\n", __func__, common->nluns);
 	if (create) {
 		for (i = 0; i < common->nluns; i++) {
+/*++ 2015/10/27, USB Team, PCN00001 ++*/
 			snprintf(common->name[i], 8, "lun%d", i);
+/*-- 2015/10/27, USB Team, PCN00001 --*/
 			ret = sysfs_create_link(&dev->kobj,
 					&common->luns[i]->dev.kobj,
 					common->name[i]);
@@ -3599,7 +3647,7 @@ static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 					  fsg->common->can_stall);
 		if (ret)
 			return ret;
-		
+		/* HTC hack: write FSG_VENDOR_NAME / FSG_PRODUCT_NAME */
 		fsg_common_set_inquiry_string(fsg->common, FSG_VENDOR_NAME, FSG_PRODUCT_NAME);
 		ret = fsg_common_run_thread(fsg->common);
 		if (ret)
@@ -4062,11 +4110,13 @@ static struct usb_function_instance *fsg_alloc_inst(void)
 
 	config_group_init_type_name(&opts->func_inst.group, "", &fsg_func_type);
 
+/*++ 2015/10/22 USB Team, PCN00025 ++*/
 	INIT_WORK(&ums_adb_state_change_work, handle_reserve_cmd_scsi);
 
 	rc = switch_dev_register(&scsi_switch);
 	if (rc < 0)
 		pr_err("[USB]fail to register scsi_command switch!\n");
+/*-- 2015/10/22 USB Team, PCN00025 --*/
 
 	return &opts->func_inst;
 
@@ -4148,9 +4198,11 @@ void fsg_config_from_params(struct fsg_config *cfg,
 			: NULL;
 	}
 
-	
+/*++ 2015/10/22 USB Team, PCN00025 ++*/
+	/* Let MSF use defaults */
 	cfg->vendor_name = FSG_VENDOR_NAME;
 	cfg->product_name = FSG_PRODUCT_NAME;
+/*++ 2015/10/22 USB Team, PCN00025 ++*/
 
 	cfg->ops = NULL;
 	cfg->private_data = NULL;

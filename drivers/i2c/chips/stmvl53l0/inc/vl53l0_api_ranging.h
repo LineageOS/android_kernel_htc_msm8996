@@ -44,4 +44,4 @@ extern "C" {
 }
 #endif
 
-#endif 
+#endif /* _VL53L0_API_RANGING_H_ */

@@ -1078,6 +1078,19 @@ static int pil_tz_driver_probe(struct platform_device *pdev)
 	}
 
 #if defined(CONFIG_HTC_FEATURES_SSR)
+	/*LPASS restart condition and ramdump rule would follow below
+	1.LPASS restart default enable
+	- flag [6] 0,   [8] 0 -> enable restart, no ramdump
+	- flag [6] 20,  [8] 0 -> reboot
+	- flag [6] 20,  [8] 8 -> disable restart, go DL mode
+	- flag [6] 0,   [8] 8 -> enable restart, online ramdump
+	2.LPASS restart default disable
+	- flag [6] 0,   [8] 0 -> reboot
+	- flag [6] 20,  [8] 0 -> enable restart, no ramdump
+	- flag [6] 20,  [8] 8 -> enable restart, online ramdump
+	- flag [6] 0,   [8] 8 -> disable restart, go DL mode
+	3. Always disable LPASS SSR if boot_mode != normal
+	*/
 	if(!strcmp(d->desc.name, "adsp")) {
 #if defined(CONFIG_HTC_FEATURES_SSR_LPASS_ENABLE)
 		if (get_kernel_flag() & (KERNEL_FLAG_ENABLE_SSR_LPASS)) {

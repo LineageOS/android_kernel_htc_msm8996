@@ -24,6 +24,7 @@
 #include "tfa_internal.h"
 
 
+/* translate a I2C driver error into an error for Tfa9887 API */
 static enum Tfa98xx_Error tfa98xx_classify_i2c_error(enum NXP_I2C_Error i2c_error)
 {
 	switch (i2c_error) {
@@ -37,12 +38,15 @@ static enum Tfa98xx_Error tfa98xx_classify_i2c_error(enum NXP_I2C_Error i2c_erro
 			return Tfa98xx_Error_I2C_Fatal;
 	}
 }
+/*
+ * write a 16 bit subaddress
+ */
 enum Tfa98xx_Error
 tfa98xx_write_register16(Tfa98xx_handle_t handle,
 			unsigned char subaddress, unsigned short value)
 {
 	enum NXP_I2C_Error i2c_error;
-	unsigned char write_data[3]; 
+	unsigned char write_data[3]; /* subaddress and 2 bytes of the value */
 	if (!tfa98xx_handle_is_open(handle))
 		return Tfa98xx_Error_NotOpen;
 
@@ -60,8 +64,8 @@ tfa98xx_read_register16(Tfa98xx_handle_t handle,
 		       unsigned char subaddress, unsigned short *pValue)
 {
 	enum NXP_I2C_Error i2c_error;
-	unsigned char write_data[1]; 
-	unsigned char read_buffer[2]; 
+	unsigned char write_data[1]; /* subaddress */
+	unsigned char read_buffer[2]; /* 2 data bytes */
 
 	_ASSERT(pValue != NULL);
 	if (!tfa98xx_handle_is_open(handle))
@@ -84,7 +88,7 @@ tfa98xx_read_data(Tfa98xx_handle_t handle,
 		 unsigned char subaddress, int num_bytes, unsigned char data[])
 {
 	enum NXP_I2C_Error i2c_error;
-	unsigned char write_data[1]; 
+	unsigned char write_data[1]; /* subaddress */
 
 	if (!tfa98xx_handle_is_open(handle))
 		return Tfa98xx_Error_NotOpen;
@@ -98,6 +102,9 @@ tfa98xx_read_data(Tfa98xx_handle_t handle,
 	return tfa98xx_classify_i2c_error(i2c_error);
 }
 
+/*
+ * Write raw I2C data with no sub address
+ */
 enum Tfa98xx_Error
 tfa98xx_write_raw(Tfa98xx_handle_t handle,
 		  int num_bytes,

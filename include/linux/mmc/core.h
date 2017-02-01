@@ -224,6 +224,9 @@ extern int mmc_simple_transfer(struct mmc_card *card,
 	struct scatterlist *sg, unsigned sg_len, unsigned dev_addr,
 	unsigned blocks, unsigned blksz, int write);
 
+/*
+ * eMMC5.0 Field Firmware Update (FFU) opcodes
+*/
 #define MMC_FFU_INVOKE_OP 302
 
 #define MMC_FFU_MODE_SET 0x1
@@ -251,6 +254,9 @@ struct device_node;
 extern u32 mmc_vddrange_to_ocrmask(int vdd_min, int vdd_max);
 extern int mmc_of_parse_voltage(struct device_node *np, u32 *mask);
 
+/*
+ * eMMC5.0 Field Firmware Update (FFU) opcodes
+*/
 #define MMC_FFU_INVOKE_OP 302
 
 #define MMC_FFU_MODE_SET 0x1
@@ -265,4 +271,4 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name);
 
 
 
-#endif 
+#endif /* LINUX_MMC_CORE_H */

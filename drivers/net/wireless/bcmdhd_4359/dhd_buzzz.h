@@ -43,7 +43,7 @@ extern void dhd_os_sched_buzzz_thread(void *thr_hdl);
 
 typedef enum buzzz_evt_id
 {
-	BUZZZ_EVT__DHD = 100, 
+	BUZZZ_EVT__DHD = 100, /* BUZZZ_EVT(DHD) */
 	BUZZZ_EVT(GENERAL_LOCK)
 	BUZZZ_EVT(GENERAL_UNLOCK)
 	BUZZZ_EVT(FLOWRING_LOCK)
@@ -199,7 +199,7 @@ static inline void dhd_buzzz_fmt_init(void)
 
 #define BUZZZ_LOG(ID, N, ARG...)    dhd_buzzz_log ##N(BUZZZ_EVT__ ##ID, ##ARG)
 
-#else  
+#else  /* DHD_BUZZZ_LOG_ENABLED */
 /*
  * Broadcom logging system - Empty implementaiton
  * Copyright (C) 1999-2016, Broadcom Corporation
@@ -228,11 +228,11 @@ static inline void dhd_buzzz_fmt_init(void)
  * $Id$
  */
 
-#define dhd_buzzz_attach()              do {  } while (0)
-#define dhd_buzzz_detach()              do {  } while (0)
-#define dhd_buzzz_panic(x)              do {  } while (0)
-#define BUZZZ_LOG(ID, N, ARG...)    do {  } while (0)
+#define dhd_buzzz_attach()              do { /* noop */ } while (0)
+#define dhd_buzzz_detach()              do { /* noop */ } while (0)
+#define dhd_buzzz_panic(x)              do { /* noop */ } while (0)
+#define BUZZZ_LOG(ID, N, ARG...)    do { /* noop */ } while (0)
 
-#endif 
+#endif /* DHD_BUZZZ_LOG_ENABLED */
 
-#endif 
+#endif /* _DHD_BUZZZ_H_INCLUDED_ */

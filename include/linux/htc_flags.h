@@ -18,8 +18,8 @@ enum {
 	KERNEL_FLAG_PVS_FAST_CPU = BIT(10),
 #else
 	KERNEL_FLAG_RTB_HOOK = BIT(8),
-	KERNEL_FLAG_ENABLE_DIAG_LOG = BIT(9),
-	KERNEL_FLAG_ENABLE_SSR_SLPI = BIT(10),
+	KERNEL_FLAG_ENABLE_DIAG_LOG = BIT(9),/*++ 2015/07/15, USB Team, PCN00017 ++*/
+	KERNEL_FLAG_ENABLE_SSR_SLPI = BIT(10),/*++ 2015/10/30, SSC/SLPI SSR ++*/
 #endif
 	KERNEL_FLAG_ENABLE_SSR_MODEM = BIT(11),
 	KERNEL_FLAG_ENABLE_SSR_WCNSS = BIT(12),
@@ -54,4 +54,4 @@ unsigned int get_radio_ex2_flag(void);
 unsigned int get_cpumask_flag(void);
 char *htc_get_bootmode(void);
 
-#endif 
+#endif /* _LINUX_HTC_FLAGS_H */

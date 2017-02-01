@@ -591,7 +591,7 @@ static irqreturn_t qpnp_hap_sc_irq(int irq, void *_hap)
 	u8 disable_haptics = 0x00;
 	u8 val;
 
-	
+	/* clear short circuit register */
 	sc_irq_count++;
 	dev_dbg(&hap->spmi->dev, "Short circuit detected\n");
 
@@ -1283,6 +1283,7 @@ static ssize_t qpnp_hap_play_mode_show(struct device *dev,
 
 	return snprintf(buf, PAGE_SIZE, "%s\n", str);
 }
+/* sysfs show for voltage_level */
 static ssize_t qpnp_hap_voltage_level_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1293,6 +1294,7 @@ static ssize_t qpnp_hap_voltage_level_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "[VIB] voltage input:%dmV\n", hap->vmax_mv);
 }
 
+/* sysfs store for voltage_level */
 static ssize_t qpnp_hap_voltage_level_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -1692,6 +1694,9 @@ static int qpnp_hap_set(struct qpnp_hap *hap, int on)
 			}
 			if (hap->act_type == QPNP_HAP_LRA &&
 						hap->correct_lra_drive_freq) {
+				/*
+				 * Start timer to poll Auto Resonance error bit
+				 */
 				spin_lock(&hap->lock);
 				hrtimer_cancel(&hap->auto_res_err_poll_timer);
 				hrtimer_start(&hap->auto_res_err_poll_timer,
@@ -1941,13 +1946,13 @@ static int qpnp_hap_switch(u8 vib_duration) {
 		if (rc)
 			goto SPMI_ERROR;
 
-		
+		//read long vibration register2 high bits
 		rc = qpnp_hap_read_reg(hap, &temp,
 			QPNP_HAP_RATE_CFG2_REG(hap->base));
 		if (rc < 0)
 			goto SPMI_ERROR;
 
-		
+		//cal long vibration register2 parameter
 		temp &= QPNP_HAP_RATE_CFG2_MASK;
 		hap->long_freq_register2 |= temp;
 
@@ -1963,13 +1968,13 @@ static int qpnp_hap_switch(u8 vib_duration) {
 		if (rc)
 			goto SPMI_ERROR;
 
-		
+		//read short vibration register2 high bits
 		rc = qpnp_hap_read_reg(hap, &temp,
 			QPNP_HAP_RATE_CFG2_REG(hap->base));
 		if (rc < 0)
 			goto SPMI_ERROR;
 
-		
+		//cal short vibration register2 parameter
 		temp &= QPNP_HAP_RATE_CFG2_MASK;
 		hap->short_freq_register2 |= temp;
 
@@ -2135,6 +2140,12 @@ static int qpnp_hap_config(struct qpnp_hap *hap)
 
 	temp2 = hap->short_play_rate_us / QPNP_HAP_RATE_CFG_STEP_US;
 
+	/*
+	 * The frequency of 19.2Mzhz RC clock is subject to variation. Currently
+	 * a few PMI modules have MISC_TRIM_ERROR_RC19P2_CLK register
+	 * present in their MISC  block. This register holds the frequency error
+	 * in 19.2Mhz RC clock.
+	 */
 	if (hap->act_type == QPNP_HAP_LRA
 			&& hap->misc_trim_error_rc19p2_clk_reg_present) {
 		unlock_val = MISC_SEC_UNLOCK;
@@ -2615,7 +2626,7 @@ static int qpnp_haptic_probe(struct spmi_device *spmi)
 		dev_err(&spmi->dev, "hap config failed\n");
 		return rc;
 	}
-	hap->last_set = LONG_DURATION;		
+	hap->last_set = LONG_DURATION;		//set vibration to long vibrate because qpnp_hap_config was finished without error
 
 	spin_lock_init(&hap->lock);
 	mutex_init(&hap->wf_lock);

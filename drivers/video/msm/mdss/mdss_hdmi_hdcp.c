@@ -485,7 +485,7 @@ static int hdmi_hdcp_authentication_part1(struct hdmi_hdcp_ctrl *hdcp_ctrl)
 
 	DEV_INFO("%s: Before read An, timeout=%d, l0_status=0x%08x\n",
 	     __func__, timeout_count, link0_status);
-	
+	/* As per hardware recommendations, wait before reading An */
 	msleep(20);
 
 	/* Read An0 and An1 */

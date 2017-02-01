@@ -930,7 +930,7 @@ void msm_isp_notify(struct vfe_device *vfe_dev, uint32_t event_type,
 				pr_err("%s: PIX0 frame id: %u\n", __func__,
 				vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id);
 			vfe_dev->isp_sof_debug++;
-		
+		//HTC_START
 		if ((vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id < 3)||
 			(vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id == 10)||
 			((vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id%50) == 0))
@@ -938,7 +938,7 @@ void msm_isp_notify(struct vfe_device *vfe_dev, uint32_t event_type,
 			pr_info("[CAM]%s:(%d)PIX0 frame id: %u\n", __func__, vfe_dev->pdev->id,
 				vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id);
 		}
-		
+		//HTC_END
 
 		} else if (frame_src == VFE_RAW_0) {
 			if (vfe_dev->isp_raw0_debug < ISP_SOF_DEBUG_COUNT)
@@ -2233,6 +2233,7 @@ static int msm_isp_update_stream_bandwidth(struct vfe_device *vfe_dev)
 
 	return rc;
 }
+//HTC_START
 #if 1
 static int msm_isp_axi_wait_for_cfg_done(struct vfe_device *vfe_dev,
 	enum msm_isp_camif_update_state camif_update,
@@ -2242,6 +2243,7 @@ static int msm_isp_axi_wait_for_cfg_done(struct vfe_device *vfe_dev,
 	enum msm_isp_camif_update_state camif_update,
 	uint32_t src_mask, int regUpdateCnt)
 #endif
+//HTC_END
 {
 	int rc;
 	unsigned long flags;
@@ -2266,6 +2268,7 @@ static int msm_isp_axi_wait_for_cfg_done(struct vfe_device *vfe_dev,
 		vfe_dev->axi_data.pipeline_update = camif_update;
 	}
 	spin_unlock_irqrestore(&vfe_dev->shared_data_lock, flags);
+//HTC_START
 	if(ReduceTimeout == 1)
 	{
 		pr_info("[CAM]%s:wait_for_completion_timeout reduce timeout 100ms\n", __func__);
@@ -2274,6 +2277,7 @@ static int msm_isp_axi_wait_for_cfg_done(struct vfe_device *vfe_dev,
 		msecs_to_jiffies(100));
 	}
 	else
+//HTC_END
 	rc = wait_for_completion_timeout(
 		&vfe_dev->stream_config_complete,
 		msecs_to_jiffies(VFE_MAX_CFG_TIMEOUT));
@@ -2875,6 +2879,7 @@ static int msm_isp_start_axi_stream(struct vfe_device *vfe_dev,
 	}
 
 	if (wait_for_complete) {
+//HTC_START
 #if 1
 		rc = msm_isp_axi_wait_for_cfg_done(vfe_dev, camif_update,
 			src_mask, 2, 0);
@@ -2882,6 +2887,7 @@ static int msm_isp_start_axi_stream(struct vfe_device *vfe_dev,
 		rc = msm_isp_axi_wait_for_cfg_done(vfe_dev, camif_update,
 			src_mask, 2);
 #endif
+//HTC_END
 		if (rc < 0) {
 			pr_err("%s: wait for config done failed\n", __func__);
 			for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
@@ -2915,7 +2921,9 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 	uint32_t src_mask = 0, intf, bufq_id = 0, bufq_handle = 0;
 	unsigned long flags;
 	struct msm_isp_timestamp timestamp;
+//HTC_START
 	uint32_t reduce_timeout = stream_cfg_cmd->reduce_timeout;
+//HTC_END
 	if (stream_cfg_cmd->num_streams > MAX_NUM_STREAM ||
 		stream_cfg_cmd->num_streams == 0)
 		return -EINVAL;
@@ -2984,6 +2992,7 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 	}
 
 	if (src_mask) {
+//HTC_START
 #if 1
 		rc = msm_isp_axi_wait_for_cfg_done(vfe_dev, camif_update,
 			src_mask, 2, reduce_timeout);
@@ -2991,6 +3000,7 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 		rc = msm_isp_axi_wait_for_cfg_done(vfe_dev, camif_update,
 			src_mask, 2);
 #endif
+//HTC_END
 		if (rc < 0) {
 			pr_err("%s: wait for config done failed, retry...\n",
 				__func__);
@@ -3004,6 +3014,7 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 				vfe_dev->hw_info->vfe_ops.core_ops.reg_update(
 					vfe_dev,
 					SRC_TO_INTF(stream_info->stream_src));
+//HTC_START
 #if 1
 				rc = msm_isp_axi_wait_for_cfg_done(vfe_dev,
 					camif_update, src_mask, 1, reduce_timeout);
@@ -3011,6 +3022,7 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 				rc = msm_isp_axi_wait_for_cfg_done(vfe_dev,
 					camif_update, src_mask, 1);
 #endif
+//HTC_END
 				if (rc < 0) {
 					pr_err("%s: vfe%d cfg done failed\n",
 						__func__, vfe_dev->pdev->id);
@@ -3687,6 +3699,7 @@ int msm_isp_update_axi_stream(struct vfe_device *vfe_dev, void *arg)
 				__func__, stream_info->stream_id);
 			if (stream_info->state == ACTIVE) {
 				stream_info->state = UPDATING;
+//HTC_START
 #if 1
 				rc = msm_isp_axi_wait_for_cfg_done(vfe_dev,
 					NO_UPDATE, (1 << SRC_TO_INTF(
@@ -3696,6 +3709,7 @@ int msm_isp_update_axi_stream(struct vfe_device *vfe_dev, void *arg)
 					NO_UPDATE, (1 << SRC_TO_INTF(
 					stream_info->stream_src)), 2);
 #endif
+//HTC_END
 				if (rc < 0)
 					pr_err("%s: wait for update failed\n",
 						__func__);

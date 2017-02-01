@@ -110,4 +110,4 @@ struct cypress_cap_platform_data {
 	struct pinctrl_state *gpio_state_suspend;
 };
 
-#endif 
+#endif //CYPRESS_CAP_I2C_H

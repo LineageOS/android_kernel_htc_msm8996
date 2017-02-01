@@ -1,3 +1,5 @@
+// Version Name : 00-00-0000
+// Time Stamp : 2016/03/23 20:03:03
 
 const unsigned char CcMagicCode_F[] = {
 0x00,
@@ -4144,5 +4146,5 @@ const unsigned char CcCRC16Code_F[] ={
 
 #define FROMCODE_MD5_F 74da8ba2f193e0cc4140f8bf1f93d5fa
 
-#define		VERNUM_F		0x0305028E	
-#define		CALID_F		0x00000001	
+#define		VERNUM_F		0x0305028E	// 5BS501P1	LC898123AXD 
+#define		CALID_F		0x00000001	// Calibration ID 

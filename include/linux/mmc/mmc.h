@@ -224,9 +224,9 @@ struct _mmc_csd {
  */
 
 #define EXT_CSD_CMDQ			15	/* R/W */
-#define EXT_CSD_FFU_STATUS		26	
-#define EXT_CSD_MODE_OPERATION_CODES	29	
-#define EXT_CSD_MODE_CONFIG		30	
+#define EXT_CSD_FFU_STATUS		26	/* R */
+#define EXT_CSD_MODE_OPERATION_CODES	29	/* W */
+#define EXT_CSD_MODE_CONFIG		30	/* R/W */
 #define EXT_CSD_BARRIER_CTRL		31      /* R/W */
 #define EXT_CSD_FLUSH_CACHE		32      /* W */
 #define EXT_CSD_CACHE_CTRL		33      /* R/W */
@@ -236,7 +236,7 @@ struct _mmc_csd {
 #define EXT_CSD_EXP_EVENTS_STATUS	54	/* RO, 2 bytes */
 #define EXT_CSD_EXP_EVENTS_CTRL		56	/* R/W, 2 bytes */
 #define EXT_CSD_DATA_SECTOR_SIZE	61	/* R */
-#define EXT_CSD_VENDOR_SPECIFIC_FIELDS_73 73	
+#define EXT_CSD_VENDOR_SPECIFIC_FIELDS_73 73	/* R */
 #define EXT_CSD_GP_SIZE_MULT		143	/* R/W */
 #define EXT_CSD_PARTITION_SETTING_COMPLETED 155	/* R/W */
 #define EXT_CSD_PARTITION_ATTRIBUTE	156	/* R/W */
@@ -287,12 +287,12 @@ struct _mmc_csd {
 #define EXT_CSD_GENERIC_CMD6_TIME	248	/* RO */
 #define EXT_CSD_CACHE_SIZE		249	/* RO, 4 bytes */
 #define EXT_CSD_PWR_CL_DDR_200_360	253	/* RO */
-#define EXT_CSD_VENDOR_SPECIFIC_FIELDS_258 258	
+#define EXT_CSD_VENDOR_SPECIFIC_FIELDS_258 258	/* R */
 #define EXT_CSD_FW_VERSION		254	/* RO */
-#define EXT_CSD_NUM_OF_FW_SEC_PROG	302	
-#define EXT_CSD_FFU_ARG			487	
-#define EXT_CSD_OPERATION_CODE_TIMEOUT	491	
-#define EXT_CSD_FFU_FEATURES		492	
+#define EXT_CSD_NUM_OF_FW_SEC_PROG	302	/* RO, 4 bytes */
+#define EXT_CSD_FFU_ARG			487	/* RO, 4 bytes */
+#define EXT_CSD_OPERATION_CODE_TIMEOUT	491	/* RO */
+#define EXT_CSD_FFU_FEATURES		492	/* RO */
 #define EXT_CSD_CMDQ_DEPTH		307	/* RO */
 #define EXT_CSD_CMDQ_SUPPORT		308	/* RO */
 #define EXT_CSD_BARRIER_SUPPORT		486	/* RO */

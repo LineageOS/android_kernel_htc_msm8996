@@ -30,6 +30,7 @@
 #ifndef _rte_ioctl_h_
 #define _rte_ioctl_h_
 
+/* RTE IOCTL definitions for generic ether devices */
 #define RTEGHWADDR		0x8901
 #define RTESHWADDR		0x8902
 #define RTEGMTU			0x8903
@@ -41,8 +42,8 @@
 #define RTESMULTILIST	0x8909
 #define RTEGUP			0x890A
 #define RTEGPERMADDR		0x890B
-#define RTEDEVPWRSTCHG		0x890C	
-#define RTEDEVPMETOGGLE		0x890D	
+#define RTEDEVPWRSTCHG		0x890C	/* Device pwr state change for PCIedev */
+#define RTEDEVPMETOGGLE		0x890D	/* Toggle PME# to wake up the host */
 
 #define RTE_IOCTL_QUERY			0x00
 #define RTE_IOCTL_SET			0x01
@@ -52,9 +53,9 @@
 #define RTE_IOCTL_OVL_IDX_SHIFT	1
 
 enum hnd_ioctl_cmd {
-	HND_RTE_DNGL_IS_SS = 1, 
+	HND_RTE_DNGL_IS_SS = 1, /* true if device connected at super speed */
 
-	
+	/* PCIEDEV specific wl <--> bus ioctls */
 	BUS_GET_VAR = 2,
 	BUS_SET_VAR = 3,
 	BUS_FLUSH_RXREORDER_Q = 4,
@@ -66,19 +67,19 @@ enum hnd_ioctl_cmd {
 #define SDPCMDEV_SET_MAXTXPKTGLOM	1
 
 typedef struct memuse_info {
-	uint16 ver;			
-	uint16 len;			
-	uint32 tot;			
-	uint32 text_len;	
-	uint32 data_len;	
-	uint32 bss_len;		
+	uint16 ver;			/* version of this struct */
+	uint16 len;			/* length in bytes of this structure */
+	uint32 tot;			/* Total memory */
+	uint32 text_len;	/* Size of Text segment memory */
+	uint32 data_len;	/* Size of Data segment memory */
+	uint32 bss_len;		/* Size of BSS segment memory */
 
-	uint32 arena_size;	
-	uint32 arena_free;	
-	uint32 inuse_size;	
-	uint32 inuse_hwm;	
-	uint32 inuse_overhead;	
-	uint32 inuse_total;	
+	uint32 arena_size;	/* Total Heap size */
+	uint32 arena_free;	/* Heap memory available or free */
+	uint32 inuse_size;	/* Heap memory currently in use */
+	uint32 inuse_hwm;	/* High watermark of memory - reclaimed memory */
+	uint32 inuse_overhead;	/* tally of allocated mem_t blocks */
+	uint32 inuse_total;	/* Heap in-use + Heap overhead memory  */
 } memuse_info_t;
 
-#endif 
+#endif /* _rte_ioctl_h_ */

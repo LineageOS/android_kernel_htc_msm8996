@@ -856,7 +856,9 @@ void msm_vfe47_cfg_framedrop(void __iomem *vfe_base,
 		msm_camera_io_w(temp | (framedrop_period - 1) << 2,
 		vfe_base + VFE47_WM_BASE(stream_info->wm[i]) + 0x14);
 	}
-	msm_camera_io_w_mb(0x1,vfe_base + 0x4AC); 
+/* HTC_START */
+	msm_camera_io_w_mb(0x1,vfe_base + 0x4AC); // qcom's CR fix
+/* HTC_END */
 }
 
 void msm_vfe47_clear_framedrop(struct vfe_device *vfe_dev,

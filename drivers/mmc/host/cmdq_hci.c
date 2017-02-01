@@ -759,7 +759,7 @@ static int cmdq_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	if (mmc->perf_enable && mrq->data) {
 		if (mmc->card)
-			
+			// Not real CMD46/47, and real commands are issued by CPU
 			trace_mmc_req_start(&mmc->class_dev,
 				(mrq->data->flags == MMC_DATA_READ) ? 46 : 47,
 				mrq->cmdq_req->blk_addr, mrq->data->blocks, tag);
@@ -785,7 +785,7 @@ static int cmdq_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		}
 	}
 
-	
+	/* PM QoS */
 	sdhci_msm_pm_qos_irq_vote(host);
 	cmdq_pm_qos_vote(host, mrq);
 ring_doorbell:

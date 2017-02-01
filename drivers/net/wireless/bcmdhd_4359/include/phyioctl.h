@@ -34,4 +34,4 @@
 
 #include <devctrl_if/phyioctl_defs.h>
 
-#endif 
+#endif /* _phyioctl_h_ */

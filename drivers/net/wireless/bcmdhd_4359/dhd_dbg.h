@@ -59,7 +59,7 @@
 #define DHD_ERROR_HW_ONE        DHD_ERROR
 #else
 #define DHD_ERROR_HW_ONE        DHD_INFO
-#endif 
+#endif /* HTC_DEBUG_FLAG */
 #define DHD_TRACE_HW4	DHD_TRACE
 #define DHD_INFO_HW4	DHD_INFO
 
@@ -83,7 +83,7 @@
 #define DHD_FWLOG_ON()		(dhd_msg_level & DHD_FWLOG_VAL)
 #define DHD_RTT_ON()		(dhd_msg_level & DHD_RTT_VAL)
 
-#else 
+#else /* defined(BCMDBG) || defined(DHD_DEBUG) */
 
 #define DHD_ERROR(args)		do {if (USE_NET_RATELIMIT) printf args;} while (0)
 #define DHD_TRACE(args)
@@ -108,7 +108,7 @@
 #define DHD_ERROR_HW_ONE        DHD_ERROR
 #else
 #define DHD_ERROR_HW_ONE        DHD_INFO
-#endif 
+#endif /* HTC_DEBUG_FLAG */
 #define DHD_TRACE_HW4	DHD_TRACE
 #define DHD_INFO_HW4	DHD_INFO
 
@@ -140,6 +140,7 @@
 #define DHD_NONE(args)
 extern int dhd_msg_level;
 
+/* Defines msg bits */
 #include <dhdioctl.h>
 
-#endif 
+#endif /* _dhd_dbg_ */

@@ -38,6 +38,7 @@
 #ifdef CONFIG_HTC_BATT
 #include <linux/power/htc_battery.h>
 #include <linux/htc_flags.h>
+/* Sync from commit http://git.htc.com:8081/#/c/452196/ */
 #include <linux/async.h>
 #endif
 
@@ -346,7 +347,7 @@ module_param_named(
 
 #ifdef CONFIG_HTC_BATT_PCN0002
 static bool g_is_ima_error_handling = false;
-#endif 
+#endif //CONFIG_HTC_BATT_PCN0002
 
 static bool fg_batt_valid_ocv;
 module_param_named(batt_valid_ocv, fg_batt_valid_ocv, bool, S_IRUSR | S_IWUSR);
@@ -630,7 +631,7 @@ struct fg_chip {
 	bool			block_sram_access;
 #ifdef CONFIG_HTC_BATT_WA_PCN0019
 	bool			skip_check_iacs_ready;
-#endif 
+#endif //CONFIG_HTC_BATT_WA_PCN0019
 	bool			irqs_enabled;
 	bool			use_last_soc;
 	int			last_soc;
@@ -671,7 +672,7 @@ static const char *missing_batt_type	= "Disconnected Battery";
 
 #ifdef CONFIG_HTC_BATT_WA_PCN0016
 static struct fg_chip *the_chip;
-#endif 
+#endif //CONFIG_HTC_BATT_WA_PCN0016
 
 /* Log buffer */
 struct fg_log_buffer {
@@ -1408,7 +1409,7 @@ static void fg_check_ima_error_handling(struct fg_chip *chip)
 	chip->ima_error_handling = true;
 #ifdef CONFIG_HTC_BATT_PCN0002
 	g_is_ima_error_handling = true;
-#endif 
+#endif //CONFIG_HTC_BATT_PCN0002
 	if (!work_pending(&chip->ima_error_recovery_work))
 		schedule_work(&chip->ima_error_recovery_work);
 	mutex_unlock(&chip->ima_recovery_lock);
@@ -1472,7 +1473,7 @@ static int fg_check_alg_status(struct fg_chip *chip)
 		pr_err("ALG is stuck\n");
 #ifdef CONFIG_HTC_BATT_WA_PCN0019
 		chip->skip_check_iacs_ready = true;
-#endif 
+#endif //CONFIG_HTC_BATT_WA_PCN0019
 		fg_check_ima_error_handling(chip);
 		rc = -EBUSY;
 	}
@@ -1489,7 +1490,7 @@ static int fg_check_iacs_ready(struct fg_chip *chip)
 		pr_err("skip_check_iacs_ready\n");
 		return -EBUSY;
 	}
-#endif 
+#endif //CONFIG_HTC_BATT_WA_PCN0019
 
 	/*
 	 * Additional delay to make sure IACS ready bit is set after
@@ -2239,7 +2240,7 @@ bool get_ima_error_status(void)
 {
 	return g_is_ima_error_handling;
 }
-#endif 
+#endif //CONFIG_HTC_BATT_PCN0002
 
 #define EMPTY_CAPACITY		0
 #define DEFAULT_CAPACITY	50
@@ -2723,12 +2724,12 @@ static void update_sram_data_work(struct work_struct *work)
   int rc = 0;
 
 wait:
-  
+  /* Wait for MEMIF access revoked */
   ret = wait_for_completion_interruptible_timeout(
           &chip->sram_access_revoked,
           msecs_to_jiffies(SRAM_TIMEOUT_MS));
 
-  
+  /* If we were interrupted wait again one more time. */
   if (ret == -ERESTARTSYS && !tried_again) {
       tried_again = true;
       goto wait;
@@ -2787,12 +2788,12 @@ static void update_temp_data(struct work_struct *work)
       }
 
 wait:
-      
+      /* Wait for MEMIF access revoked */
       ret = wait_for_completion_interruptible_timeout(
               &chip->sram_access_revoked,
               msecs_to_jiffies(timeout));
 
-      
+      /* If we were interrupted wait again one more time. */
       if (ret == -ERESTARTSYS && !tried_again) {
           tried_again = true;
           goto wait;
@@ -2803,7 +2804,7 @@ wait:
       }
   }
 
-  
+  /* Read FG_DATA_BATT_TEMP now */
   rc = fg_mem_read(chip, reg, fg_data[0].address,
       fg_data[0].len, fg_data[0].offset,
       chip->sw_rbias_ctrl ? 1 : 0);
@@ -2815,6 +2816,11 @@ wait:
   temp = reg[0] | (reg[1] << 8);
   temp = (temp * TEMP_LSB_16B / 1000) - DECIKELVIN;
 
+  /*
+   * If temperature is within the specified range (e.g. -60C and 150C),
+   * update it to the userspace. Otherwise, use the last read good
+   * temperature.
+   */
   if (temp > chip->batt_temp_low_limit &&
           temp < chip->batt_temp_high_limit) {
       chip->last_good_temp = temp;
@@ -2822,6 +2828,11 @@ wait:
   } else {
       fg_data[0].value = chip->last_good_temp;
 
+      /*
+       * If the temperature is read before and seems to be in valid
+       * range, then a bad temperature reading could be because of
+       * FG lockup. Trigger the FG reset sequence in such cases.
+       */
       if (chip->last_temp_update_time && fg_reset_on_lockup &&
           (chip->last_good_temp > chip->batt_temp_low_limit &&
           chip->last_good_temp < chip->batt_temp_high_limit)) {
@@ -2977,12 +2988,17 @@ static void update_cycle_count(struct work_struct *work)
   batt_soc = reg[2];
 
   if (chip->status == POWER_SUPPLY_STATUS_CHARGING) {
-      
+      /* Find out which bucket the SOC falls in */
       bucket = batt_soc / BUCKET_SOC_PCT;
 
       if (fg_debug_mask & FG_STATUS)
           pr_info("batt_soc: %x bucket: %d\n", reg[2], bucket);
 
+      /*
+       * If we've started counting for the previous bucket,
+       * then store the counter for that bucket if the
+       * counter for current bucket is getting started.
+       */
       if (bucket > 0 && chip->cyc_ctr.started[bucket - 1] &&
           !chip->cyc_ctr.started[bucket]) {
           rc = fg_inc_store_cycle_ctr(chip, bucket - 1);
@@ -3054,7 +3070,7 @@ static int voltage_2b(u8 *buffer)
   u16 val;
 
   val = buffer[1] << 8 | buffer[0];
-  
+  /* the range of voltage 2b is [-5V, 5V], so it will fit in an int */
   return (int)div_u64(((u64)val) * LSB_16B_NUMRTR, LSB_16B_DENMTR);
 }
 
@@ -3132,7 +3148,7 @@ static int lookup_ocv_for_soc(struct fg_chip *chip, int soc)
       coeffs = chip->ocv_coeffs + 4;
   else
       coeffs = chip->ocv_coeffs + 8;
-  
+  /* the range of ocv will fit in a 32 bit int */
   return (int)(coeffs[0]
       + div_s64(coeffs[1] * soc, 1000LL)
       + div_s64(coeffs[2] * soc * soc, 1000000LL)
@@ -3143,11 +3159,15 @@ static int lookup_soc_for_ocv(struct fg_chip *chip, int ocv)
 {
   int64_t val;
   int soc = -EINVAL;
+  /*
+   * binary search variables representing the valid start and end
+   * percentages to search
+   */
   int start = 0, end = 1000, mid;
 
   if (fg_debug_mask & FG_AGING)
       pr_info("target_ocv = %d\n", ocv);
-  
+  /* do a binary search for the closest soc to match the ocv */
   while (end - start > 1) {
       mid = (start + end) / 2;
       val = lookup_ocv_for_soc(chip, mid);
@@ -3163,6 +3183,10 @@ static int lookup_soc_for_ocv(struct fg_chip *chip, int ocv)
           break;
       }
   }
+  /*
+   * if the exact soc was not found and there are two or less values
+   * remaining, just compare them and see which one is closest to the ocv
+   */
   if (soc == -EINVAL) {
       if (abs(ocv - lookup_ocv_for_soc(chip, start))
               > abs(ocv - lookup_ocv_for_soc(chip, end)))
@@ -3247,13 +3271,13 @@ static int estimate_battery_age(struct fg_chip *chip, int *actual_capacity)
               temp_rs_to_rslow, battery_esr, esr_actual);
   }
 
-  
+  /* calculate soc_cutoff_new */
   val = (1000000LL + temp_rs_to_rslow) * battery_esr;
   do_div(val, 1000000);
   ocv_cutoff_new = div64_s64(chip->evaluation_current * val, 1000)
       + chip->cutoff_voltage;
 
-  
+  /* calculate soc_cutoff_aged */
   val = (1000000LL + temp_rs_to_rslow) * esr_actual;
   do_div(val, 1000000);
   ocv_cutoff_aged = div64_s64(chip->evaluation_current * val, 1000)
@@ -4586,7 +4610,7 @@ static int fg_power_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_SYSTEM_SOC:
 		val->intval = get_system_soc(chip);
 		break;
-#endif 
+#endif //CONFIG_HTC_BATT
 	case POWER_SUPPLY_PROP_HI_POWER:
 		val->intval = !!chip->bcl_lpm_disabled;
 		break;
@@ -4784,12 +4808,12 @@ void force_dump_fg_sram(void)
 {
 	schedule_work(&the_chip->dump_sram);
 }
-#endif 
+#endif //CONFIG_HTC_BATT_WA_PCN0016
 
 #ifdef CONFIG_HTC_BATT_WA_PCN0016
 #define SRAM_DUMP_START_0x0		0x0
 #define SRAM_DUMP_START_0x200	0x200
-#endif 
+#endif //CONFIG_HTC_BATT_WA_PCN0016
 #define SRAM_DUMP_START		0x400
 #define SRAM_DUMP_LEN		0x200
 static void dump_sram(struct work_struct *work)
@@ -4829,10 +4853,10 @@ static void dump_sram(struct work_struct *work)
 		pr_info("memif rt_sts: 0x%x\n", rt_sts);
 
 #ifdef CONFIG_HTC_BATT_WA_PCN0016
-	
+	// dump FG regs
 	dump_fg_reg();
 
-	
+	// dump FG SRAM
 	rc = fg_mem_read(chip, buffer, SRAM_DUMP_START_0x0, SRAM_DUMP_LEN, 0, 0);
 	if (rc) {
 		pr_err("dump failed: rc = %d\n", rc);
@@ -4856,7 +4880,7 @@ static void dump_sram(struct work_struct *work)
 		fill_string(str, DEBUG_PRINT_BUFFER_SIZE, buffer + i, 4);
 		pr_info("%03X %s\n", SRAM_DUMP_START_0x200 + i, str);
 	}
-#endif 
+#endif //CONFIG_HTC_BATT_WA_PCN0016
 
 	rc = fg_mem_read(chip, buffer, SRAM_DUMP_START, SRAM_DUMP_LEN, 0, 0);
 	if (rc) {
@@ -6584,14 +6608,16 @@ done:
 		fg_data[FG_DATA_VOLTAGE].value);
 	complete_all(&chip->fg_reset_done);
 #ifdef CONFIG_HTC_BATT_PCN0006
+		/* Put here because battery capacity ready when profile loaded done.
+		here finish after fg_probe done. */
 		if (get_kernel_flag() & KERNEL_FLAG_ENABLE_BMS_CHARGER_LOG)
 			fg_debug_mask = 0xFF;
 		else
 			fg_debug_mask = 0x04;
-#endif 
+#endif //CONFIG_HTC_BATT_PCN0006
 #ifdef CONFIG_HTC_BATT_PCN0014
 		htc_battery_probe_process(GAUGE_PROBE_DONE);
-#endif 
+#endif //CONFIG_HTC_BATT_PCN0014
 
 	return rc;
 no_profile:
@@ -8403,7 +8429,7 @@ static void ima_error_recovery_work(struct work_struct *work)
 		pr_info("resetting FG\n");
 #ifdef CONFIG_HTC_BATT_WA_PCN0019
 	chip->skip_check_iacs_ready = false;
-#endif 
+#endif //CONFIG_HTC_BATT_WA_PCN0019
 
 	/* Assert FG reset */
 	rc = fg_reset(chip, true);
@@ -8500,7 +8526,7 @@ out:
 	chip->ima_error_handling = false;
 #ifdef CONFIG_HTC_BATT_PCN0002
 	g_is_ima_error_handling = false;
-#endif 
+#endif //CONFIG_HTC_BATT_PCN0002
 	mutex_unlock(&chip->ima_recovery_lock);
 	fg_relax(&chip->fg_reset_wakeup_source);
     pr_info("ima_error_recovery_work end\n");
@@ -8905,7 +8931,7 @@ static int fg_probe(struct spmi_device *spmi)
 
 #ifdef CONFIG_HTC_BATT_WA_PCN0016
 	the_chip = chip;
-#endif 
+#endif //CONFIG_HTC_BATT_WA_PCN0016
 
 	return rc;
 
@@ -9173,6 +9199,7 @@ static struct spmi_driver fg_driver = {
 };
 
 #ifdef CONFIG_HTC_BATT
+/* Sync from commit http://git.htc.com:8081/#/c/452196/ */
 static void __init fg_init_async(void *unused, async_cookie_t cookie)
 {
 	spmi_driver_register(&fg_driver);

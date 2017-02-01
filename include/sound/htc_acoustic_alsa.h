@@ -67,6 +67,7 @@ void htc_acoustic_register_spk_version(void (*spk_func)(unsigned char*));
 void htc_acoustic_register_hs_notify(enum HS_NOTIFY_TYPE type, struct hs_notify_t *notify);
 #endif
 
+/* To query if feature is enable */
 int htc_acoustic_query_feature(enum HTC_FEATURE feature);
 
 #endif

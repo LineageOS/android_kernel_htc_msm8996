@@ -32,10 +32,12 @@
 
 #include <osl_decl.h>
 
-#define OSL_PKTTAG_SZ	32 
+#define OSL_PKTTAG_SZ	32 /* Size of PktTag */
 
+/* Drivers use PKTFREESETCB to register a callback function when a packet is freed by OSL */
 typedef void (*pktfree_cb_fn_t)(void *ctx, void *pkt, unsigned int status);
 
+/* Drivers use REGOPSSET() to register register read/write funcitons */
 typedef unsigned int (*osl_rreg_fn_t)(void *ctx, volatile void *reg, unsigned int size);
 typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, unsigned int size);
 
@@ -53,23 +55,26 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 
 #define PKTCTFMAP(osh, p)		BCM_REFERENCE(osh)
 
+/* --------------------------------------------------------------------------
+** Register manipulation macros.
+*/
 
 #define	SET_REG(osh, r, mask, val)	W_REG((osh), (r), ((R_REG((osh), r) & ~(mask)) | (val)))
 
 #ifndef AND_REG
 #define AND_REG(osh, r, v)		W_REG(osh, (r), R_REG(osh, r) & (v))
-#endif   
+#endif   /* !AND_REG */
 
 #ifndef OR_REG
 #define OR_REG(osh, r, v)		W_REG(osh, (r), R_REG(osh, r) | (v))
-#endif   
+#endif   /* !OR_REG */
 
 #if !defined(OSL_SYSUPTIME)
 #define OSL_SYSUPTIME() (0)
 #define OSL_SYSUPTIME_SUPPORT FALSE
 #else
 #define OSL_SYSUPTIME_SUPPORT TRUE
-#endif 
+#endif /* OSL_SYSUPTIME */
 
 #ifndef OSL_SYS_HALT
 #define OSL_SYS_HALT()	do {} while (0)
@@ -107,7 +112,7 @@ do { \
 		(h) = (t) = (p); \
 	} \
 } while (0)
-#endif 
+#endif /* !linux || !PKTC */
 
 #if !defined(HNDCTF) && !defined(PKTC_TX_DONGLE)
 #define PKTSETCHAINED(osh, skb)		BCM_REFERENCE(osh)
@@ -115,6 +120,7 @@ do { \
 #define PKTISCHAINED(skb)		FALSE
 #endif
 
+/* Lbuf with fraglist */
 #define PKTFRAGPKTID(osh, lb)		(0)
 #define PKTSETFRAGPKTID(osh, lb, id)	BCM_REFERENCE(osh)
 #define PKTFRAGTOTNUM(osh, lb)		(0)
@@ -125,6 +131,7 @@ do { \
 #define PKTSETIFINDEX(osh, lb, idx)	BCM_REFERENCE(osh)
 #define	PKTGETLF(osh, len, send, lbuf_type)	(0)
 
+/* in rx path, reuse totlen as used len */
 #define PKTFRAGUSEDLEN(osh, lb)			(0)
 #define PKTSETFRAGUSEDLEN(osh, lb, len)		BCM_REFERENCE(osh)
 
@@ -135,19 +142,23 @@ do { \
 #define PKTFRAGDATA_HI(osh, lb, ix)		(0)
 #define PKTSETFRAGDATA_HI(osh, lb, ix, addr)	BCM_REFERENCE(osh)
 
+/* RX FRAG */
 #define PKTISRXFRAG(osh, lb)    	(0)
 #define PKTSETRXFRAG(osh, lb)		BCM_REFERENCE(osh)
 #define PKTRESETRXFRAG(osh, lb)		BCM_REFERENCE(osh)
 
+/* TX FRAG */
 #define PKTISTXFRAG(osh, lb)		(0)
 #define PKTSETTXFRAG(osh, lb)		BCM_REFERENCE(osh)
 
+/* Need Rx completion used for AMPDU reordering */
 #define PKTNEEDRXCPL(osh, lb)           (TRUE)
 #define PKTSETNORXCPL(osh, lb)          BCM_REFERENCE(osh)
 #define PKTRESETNORXCPL(osh, lb)        BCM_REFERENCE(osh)
 
 #define PKTISFRAG(osh, lb)		(0)
 #define PKTFRAGISCHAINED(osh, i)	(0)
+/* TRIM Tail bytes from lfrag */
 #define PKTFRAG_TRIM_TAILBYTES(osh, p, len, type)	PKTSETLEN(osh, p, PKTLEN(osh, p) - len)
 
 #ifdef BCM_SECURE_DMA
@@ -164,4 +175,4 @@ do { \
 #endif
 
 
-#endif	
+#endif	/* _osl_h_ */

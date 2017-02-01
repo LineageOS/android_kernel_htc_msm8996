@@ -41,31 +41,37 @@
 
 #define DEFAULT_IOCTL_RESP_TIMEOUT	2000
 #ifndef IOCTL_RESP_TIMEOUT
+/* In milli second default value for Production FW */
 #define IOCTL_RESP_TIMEOUT  DEFAULT_IOCTL_RESP_TIMEOUT
-#endif 
+#endif /* IOCTL_RESP_TIMEOUT */
 
 #ifndef MFG_IOCTL_RESP_TIMEOUT
-#define MFG_IOCTL_RESP_TIMEOUT  20000  
-#endif 
+#define MFG_IOCTL_RESP_TIMEOUT  20000  /* In milli second default value for MFG FW */
+#endif /* MFG_IOCTL_RESP_TIMEOUT */
 
 #define DEFAULT_D3_ACK_RESP_TIMEOUT	4000
 #ifndef D3_ACK_RESP_TIMEOUT
 #define D3_ACK_RESP_TIMEOUT		DEFAULT_D3_ACK_RESP_TIMEOUT
-#endif 
+#endif /* D3_ACK_RESP_TIMEOUT */
 
 #ifdef DHD_TRACE_WAKE_LOCK
 #define TIMEOUT_WAKE_LOCK_DBG_PRINT 600000
-#endif 
+#endif /* DHD_TRACE_WAKE_LOCK */
 
 #define DEFAULT_DHD_BUS_BUSY_TIMEOUT	(IOCTL_RESP_TIMEOUT + 1000)
 #ifndef DHD_BUS_BUSY_TIMEOUT
 #define DHD_BUS_BUSY_TIMEOUT	DEFAULT_DHD_BUS_BUSY_TIMEOUT
-#endif 
+#endif /* DEFAULT_DHD_BUS_BUSY_TIMEOUT */
 
 #define IOCTL_DISABLE_TIMEOUT 0
+/*
+ * Exported from the dhd protocol module (dhd_cdc, dhd_rndis)
+ */
 
+/* Linkage, sets prot link and updates hdrlen in pub */
 extern int dhd_prot_attach(dhd_pub_t *dhdp);
 
+/* Initilizes the index block for dma'ing indices */
 extern int dhd_prot_dma_indx_init(dhd_pub_t *dhdp, uint32 rw_index_sz,
 	uint8 type, uint32 length);
 
@@ -73,28 +79,43 @@ extern int dhd_prot_dma_indx_init(dhd_pub_t *dhdp, uint32 rw_index_sz,
 extern int dhd_prot_wake_lock_dbg_print(dhd_pub_t *dhd);
 #endif
 
+/* Unlink, frees allocated protocol memory (including dhd_prot) */
 extern void dhd_prot_detach(dhd_pub_t *dhdp);
 
+/* Initialize protocol: sync w/dongle state.
+ * Sets dongle media info (iswl, drv_version, mac address).
+ */
 extern int dhd_sync_with_dongle(dhd_pub_t *dhdp);
 
+/* Protocol initialization needed for IOCTL/IOVAR path */
 extern int dhd_prot_init(dhd_pub_t *dhd);
 
+/* Stop protocol: sync w/dongle state. */
 extern void dhd_prot_stop(dhd_pub_t *dhdp);
 
+/* Add any protocol-specific data header.
+ * Caller must reserve prot_hdrlen prepend space.
+ */
 extern void dhd_prot_hdrpush(dhd_pub_t *, int ifidx, void *txp);
 extern uint dhd_prot_hdrlen(dhd_pub_t *, void *txp);
 
+/* Remove any protocol-specific data header. */
 extern int dhd_prot_hdrpull(dhd_pub_t *, int *ifidx, void *rxp, uchar *buf, uint *len);
 
+/* Use protocol to issue ioctl to dongle */
 extern int dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int len);
 
+/* Handles a protocol control response asynchronously */
 extern int dhd_prot_ctl_complete(dhd_pub_t *dhd);
 
+/* Check for and handle local prot-specific iovar commands */
 extern int dhd_prot_iovar_op(dhd_pub_t *dhdp, const char *name,
                              void *params, int plen, void *arg, int len, bool set);
 
+/* Add prot dump output to a buffer */
 extern void dhd_prot_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf);
 
+/* Update local copy of dongle statistics */
 extern void dhd_prot_dstats(dhd_pub_t *dhdp);
 
 extern int dhd_ioctl(dhd_pub_t * dhd_pub, dhd_ioctl_t *ioc, void * buf, uint buflen);
@@ -139,14 +160,17 @@ extern void dhd_prot_reset(dhd_pub_t *dhd);
 extern void dhd_lb_tx_compl_handler(unsigned long data);
 extern void dhd_lb_rx_compl_handler(unsigned long data);
 extern void dhd_lb_rx_process_handler(unsigned long data);
-#endif 
-#endif 
+#endif /* DHD_LB */
+#endif /* BCMPCIE */
+/********************************
+ * For version-string expansion *
+ */
 #if defined(BDC)
 #define DHD_PROTOCOL "bdc"
 #elif defined(CDC)
 #define DHD_PROTOCOL "cdc"
 #else
 #define DHD_PROTOCOL "unknown"
-#endif 
+#endif /* proto */
 
-#endif 
+#endif /* _dhd_proto_h_ */

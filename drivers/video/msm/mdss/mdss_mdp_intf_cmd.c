@@ -2773,7 +2773,7 @@ static int mdss_mdp_cmd_kickoff(struct mdss_mdp_ctl *ctl, void *arg)
 	writel_relaxed(0xffffffff, ctl->mdata->mdp_base + MDSS_REG_HW_INTR2_CLEAR);
 	wmb();
 
-	
+	/* Kickoff */
 	__mdss_mdp_kickoff(ctl, ctx);
 
 	mdss_mdp_cmd_post_programming(ctl);

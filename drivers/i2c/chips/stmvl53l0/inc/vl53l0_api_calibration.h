@@ -79,4 +79,4 @@ VL53L0_Error VL53L0_get_ref_calibration(VL53L0_DEV Dev,
 }
 #endif
 
-#endif 
+#endif /* _VL53L0_API_CALIBRATION_H_ */

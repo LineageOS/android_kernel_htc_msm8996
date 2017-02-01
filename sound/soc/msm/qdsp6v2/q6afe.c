@@ -4512,7 +4512,7 @@ static int afe_sidetone_iir(u16 tx_port_id, u16 rx_port_id, bool enable)
 	iir_sidetone.param.port_id = tx_port_id;
 	iir_sidetone.param.payload_address_lsw = 0x00;
 	iir_sidetone.param.payload_address_msw = 0x00;
-	iir_sidetone.param.mem_map_handle = 0x00;	
+	iir_sidetone.param.mem_map_handle = 0x00;	/* size of data param & payload */
 
 	if(this_afe.cal_data[cal_index]== NULL) {
 		pr_err( "%s cal data is wrong\n", __func__);
@@ -4532,9 +4532,15 @@ static int afe_sidetone_iir(u16 tx_port_id, u16 rx_port_id, bool enable)
         mid =  ((struct audio_cal_info_sidetone_iir *) cal_block->cal_info)->mid;
 
 
+	/* calculate the actual size of payload based on no of stages
+	 * enabled in calibration
+	 */
         size = (MAX_SIDETONE_IIR_DATA_SIZE / MAX_NO_IIR_FILTER_STAGE) *
 		iir_num_biquad_stages;
 
+	/* For an odd number of stages, 2 bytes of padding are
+	 * required at the end of the payload.
+	 */
 	if (iir_num_biquad_stages % 2) {
 		pr_debug("%s: adding 2 to size:%d\n", __func__, size);
 		size = size + 2;
@@ -4544,7 +4550,7 @@ static int afe_sidetone_iir(u16 tx_port_id, u16 rx_port_id, bool enable)
 
 	mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 
-	
+	/* Calculate the payload size for the setparams command*/
 	iir_sidetone.param.payload_size = (sizeof(iir_sidetone) -
 				sizeof(struct apr_hdr) -
 				sizeof(struct afe_port_cmd_set_param_v2) -
@@ -4552,13 +4558,13 @@ static int afe_sidetone_iir(u16 tx_port_id, u16 rx_port_id, bool enable)
 
 	pr_debug("%s: payload size :%d\n", __func__,  iir_sidetone.param.payload_size);
 
-	
+	/* Setup IIR enable params*/
 	iir_sidetone.st_iir_enable_pdata.module_id = AFE_MODULE_SIDETONE_IIR_FILTER;
 	iir_sidetone.st_iir_enable_pdata.param_id = AFE_PARAM_ID_ENABLE;
 	iir_sidetone.st_iir_enable_pdata.param_size = sizeof(iir_sidetone.st_iir_mode_enable_data);
 	iir_sidetone.st_iir_mode_enable_data.enable = ((enable == true) ? iir_enable : 0);
 
-	
+	/* Setup IIR filter config params*/
 	iir_sidetone.st_iir_filter_config_pdata.module_id = AFE_MODULE_SIDETONE_IIR_FILTER;
 	iir_sidetone.st_iir_filter_config_pdata.param_id = AFE_PARAM_ID_SIDETONE_IIR_FILTER_CONFIG;
 	iir_sidetone.st_iir_filter_config_pdata.param_size = sizeof(iir_sidetone.st_iir_filter_config_data.num_biquad_stages) +
@@ -4639,14 +4645,14 @@ static int afe_sidetone(u16 tx_port_id, u16 rx_port_id, bool enable)
 
 	cmd_sidetone.gain_pdata.module_id = AFE_MODULE_LOOPBACK;
 	cmd_sidetone.gain_pdata.param_id = AFE_PARAM_ID_LOOPBACK_GAIN_PER_PATH;
-	
+	/* size of actual payload only */
 	cmd_sidetone.gain_pdata.param_size = sizeof(struct afe_loopback_sidetone_gain);
 	cmd_sidetone.gain_data.rx_port_id = rx_port_id;
 	cmd_sidetone.gain_data.gain = sidetone_gain;
 
 	cmd_sidetone.cfg_pdata.module_id = AFE_MODULE_LOOPBACK;
 	cmd_sidetone.cfg_pdata.param_id = AFE_PARAM_ID_LOOPBACK_CONFIG;
-	
+	/* size of actual payload only */
 	cmd_sidetone.cfg_pdata.param_size =  sizeof(struct loopback_cfg_data);
 	cmd_sidetone.cfg_data.loopback_cfg_minor_version =
 					AFE_API_VERSION_LOOPBACK_CONFIG;

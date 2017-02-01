@@ -1536,7 +1536,7 @@ static bool wcd9335_is_volatile_register(struct device *dev, unsigned int reg)
 	    reg <= WCD9335_RCO_CAL_OUT_5)
 		return true;
 
-	
+	/* Update HPH path compander coefficients for better THD+N.*/
 	if (reg >= WCD9335_CDC_TOP_HPHL_COMP_WR_LSB &&
 	    reg <= WCD9335_CDC_TOP_HPHR_COMP_RD_MSB)
 		return true;

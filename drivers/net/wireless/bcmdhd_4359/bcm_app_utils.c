@@ -35,7 +35,7 @@
 #include <osl.h>
 #define strtoul(nptr, endptr, base) bcm_strtoul((nptr), (endptr), (base))
 #define tolower(c) (bcm_isupper((c)) ? ((c) + 'a' - 'A') : (c))
-#else 
+#else /* BCMDRIVER */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -43,11 +43,11 @@
 #ifndef ASSERT
 #define ASSERT(exp)
 #endif
-#endif 
+#endif /* BCMDRIVER */
 #include <bcmwifi_channels.h>
 
 #if defined(WIN32) && (defined(BCMDLL) || defined(WLMDLL))
-#include <bcmstdlib.h>	
+#include <bcmstdlib.h>	/* For wl/exe/GNUmakefile.brcm_wlu and GNUmakefile.wlm_dll */
 #endif
 
 #include <bcmutils.h>
@@ -55,6 +55,10 @@
 #include <wlioctl_utils.h>
 
 #ifndef BCMDRIVER
+/*	Take an array of measurments representing a single channel over time and return
+	a summary. Currently implemented as a simple average but could easily evolve
+	into more cpomplex alogrithms.
+*/
 cca_congest_channel_req_t *
 cca_per_chan_summary(cca_congest_channel_req_t *input, cca_congest_channel_req_t *avg, bool percent)
 {
@@ -118,18 +122,21 @@ spec_to_chan(chanspec_t chspec)
 	if (CHSPEC_IS20(chspec)) {
 		return center_ch;
 	} else {
+		/* the lower edge of the wide channel is half the bw from
+		 * the center channel.
+		 */
 		if (CHSPEC_IS40(chspec)) {
 			edge = center_ch - CH_20MHZ_APART;
 		} else {
-			
+			/* must be 80MHz (until we support more) */
 			ASSERT(CHSPEC_IS80(chspec));
 			edge = center_ch - CH_40MHZ_APART;
 		}
 
-		
+		/* find the channel number of the lowest 20MHz primary channel */
 		primary = edge + CH_10MHZ_APART;
 
-		
+		/* select the actual subband */
 		sb = (chspec & WL_CHANSPEC_CTL_SB_MASK) >> WL_CHANSPEC_CTL_SB_SHIFT;
 		primary = primary + sb * CH_20MHZ_APART;
 
@@ -137,10 +144,18 @@ spec_to_chan(chanspec_t chspec)
 	}
 }
 
+/*
+	Take an array of measumrements representing summaries of different channels.
+	Return a recomended channel.
+	Interference is evil, get rid of that first.
+	Then hunt for lowest Other bss traffic.
+	Don't forget that channels with low duration times may not have accurate readings.
+	For the moment, do not overwrite input array.
+*/
 int
 cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chanspec_t *answer)
 {
-	uint8 *bitmap = NULL;	
+	uint8 *bitmap = NULL;	/* 38 Max channels needs 5 bytes  = 40 */
 	int i, left, winner, ret_val = 0;
 	uint32 min_obss = 1 << 30;
 	uint bitmap_sz;
@@ -153,7 +168,7 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 	}
 
 	memset(bitmap, 0, bitmap_sz);
-	
+	/* Initially, all channels are up for consideration */
 	for (i = 0; i < num_chans; i++) {
 		if (input[i]->chanspec)
 			setbit(bitmap, i);
@@ -164,7 +179,7 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 		goto f_exit;
 	}
 
-	
+	/* Filter for 2.4 GHz Band */
 	if (flags & CCA_FLAG_2G_ONLY) {
 		for (i = 0; i < num_chans; i++) {
 			if (!CHSPEC_IS2G(input[i]->chanspec))
@@ -177,7 +192,7 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 		goto f_exit;
 	}
 
-	
+	/* Filter for 5 GHz Band */
 	if (flags & CCA_FLAG_5G_ONLY) {
 		for (i = 0; i < num_chans; i++) {
 			if (!CHSPEC_IS5G(input[i]->chanspec))
@@ -190,7 +205,7 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 		goto f_exit;
 	}
 
-	
+	/* Filter for Duration */
 	if (!(flags & CCA_FLAG_IGNORE_DURATION)) {
 		for (i = 0; i < num_chans; i++) {
 			if (input[i]->secs[0].duration < CCA_THRESH_MILLI)
@@ -203,7 +218,7 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 		goto f_exit;
 	}
 
-	
+	/* Filter for 1 6 11 on 2.4 Band */
 	if (flags &  CCA_FLAGS_PREFER_1_6_11) {
 		int tmp_channel = spec_to_chan(input[i]->chanspec);
 		int is2g = CHSPEC_IS2G(input[i]->chanspec);
@@ -218,7 +233,7 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 		goto f_exit;
 	}
 
-	
+	/* Toss high interference interference */
 	if (!(flags & CCA_FLAG_IGNORE_INTERFER)) {
 		for (i = 0; i < num_chans; i++) {
 			if (input[i]->secs[0].interference > CCA_THRESH_INTERFERE)
@@ -231,7 +246,7 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 		}
 	}
 
-	
+	/* Now find lowest obss */
 	winner = 0;
 	for (i = 0; i < num_chans; i++) {
 		if (isset(bitmap, i) && input[i]->secs[0].congest_obss < min_obss) {
@@ -241,11 +256,12 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 	}
 	*answer = input[winner]->chanspec;
 	f_exit:
-	free(bitmap);	
+	free(bitmap);	/* free the allocated memory for bitmap */
 	return ret_val;
 }
-#endif 
+#endif /* !BCMDRIVER */
 
+/* offset of cntmember by sizeof(uint32) from the first cnt variable, txframe. */
 #define IDX_IN_WL_CNT_VER_6_T(cntmember)		\
 	((OFFSETOF(wl_cnt_ver_6_t, cntmember) - OFFSETOF(wl_cnt_ver_6_t, txframe)) / sizeof(uint32))
 
@@ -253,16 +269,21 @@ cca_analyze(cca_congest_channel_req_t *input[], int num_chans, uint flags, chans
 	((OFFSETOF(wl_cnt_ver_11_t, cntmember) - OFFSETOF(wl_cnt_ver_11_t, txframe))	\
 	/ sizeof(uint32))
 
+/* Exclude version and length fields */
 #define NUM_OF_CNT_IN_WL_CNT_VER_6_T	\
 	((sizeof(wl_cnt_ver_6_t) - 2 * sizeof(uint16)) / sizeof(uint32))
+/* Exclude macstat cnt variables. wl_cnt_ver_6_t only has 62 macstat cnt variables. */
 #define NUM_OF_WLCCNT_IN_WL_CNT_VER_6_T			\
 	(NUM_OF_CNT_IN_WL_CNT_VER_6_T - (WL_CNT_MCST_VAR_NUM - 2))
 
+/* Exclude version and length fields */
 #define NUM_OF_CNT_IN_WL_CNT_VER_11_T	\
 	((sizeof(wl_cnt_ver_11_t) - 2 * sizeof(uint16)) / sizeof(uint32))
+/* Exclude 64 macstat cnt variables. */
 #define NUM_OF_WLCCNT_IN_WL_CNT_VER_11_T		\
 	(NUM_OF_CNT_IN_WL_CNT_VER_11_T - WL_CNT_MCST_VAR_NUM)
 
+/* Index conversion table from wl_cnt_ver_6_t to wl_cnt_wlc_t */
 static const uint8 wlcntver6t_to_wlcntwlct[NUM_OF_WLCCNT_IN_WL_CNT_VER_6_T] = {
 	IDX_IN_WL_CNT_VER_6_T(txframe),
 	IDX_IN_WL_CNT_VER_6_T(txbyte),
@@ -390,6 +411,7 @@ static const uint8 wlcntver6t_to_wlcntwlct[NUM_OF_WLCCNT_IN_WL_CNT_VER_6_T] = {
 	IDX_IN_WL_CNT_VER_6_T(wepexcluded_mcst)
 };
 
+/* Index conversion table from wl_cnt_ver_11_t to wl_cnt_wlc_t */
 static const uint8 wlcntver11t_to_wlcntwlct[NUM_OF_WLCCNT_IN_WL_CNT_VER_11_T] = {
 	IDX_IN_WL_CNT_VER_11_T(txframe),
 	IDX_IN_WL_CNT_VER_11_T(txbyte),
@@ -571,6 +593,9 @@ static const uint8 wlcntver11t_to_wlcntwlct[NUM_OF_WLCCNT_IN_WL_CNT_VER_11_T] = 
 	IDX_IN_WL_CNT_VER_11_T(rxaction)
 };
 
+/* Index conversion table from wl_cnt_ver_11_t to
+ * either wl_cnt_ge40mcst_v1_t or wl_cnt_lt40mcst_v1_t
+ */
 static const uint8 wlcntver11t_to_wlcntXX40mcstv1t[WL_CNT_MCST_VAR_NUM] = {
 	IDX_IN_WL_CNT_VER_11_T(txallfrm),
 	IDX_IN_WL_CNT_VER_11_T(txrtsfrm),
@@ -638,7 +663,9 @@ static const uint8 wlcntver11t_to_wlcntXX40mcstv1t[WL_CNT_MCST_VAR_NUM] = {
 	IDX_IN_WL_CNT_VER_11_T(bphy_badplcp)
 };
 
+/* For mcst offsets that were not used. (2 Pads) */
 #define INVALID_MCST_IDX ((uint8)(-1))
+/* Index conversion table from wl_cnt_ver_11_t to wl_cnt_v_le10_mcst_t */
 static const uint8 wlcntver11t_to_wlcntvle10mcstt[WL_CNT_MCST_VAR_NUM] = {
 	IDX_IN_WL_CNT_VER_11_T(txallfrm),
 	IDX_IN_WL_CNT_VER_11_T(txrtsfrm),
@@ -707,6 +734,7 @@ static const uint8 wlcntver11t_to_wlcntvle10mcstt[WL_CNT_MCST_VAR_NUM] = {
 };
 
 
+/* Index conversion table from wl_cnt_ver_6_t to wl_cnt_v_le10_mcst_t */
 static const uint8 wlcntver6t_to_wlcntvle10mcstt[WL_CNT_MCST_VAR_NUM] = {
 	IDX_IN_WL_CNT_VER_6_T(txallfrm),
 	IDX_IN_WL_CNT_VER_6_T(txrtsfrm),
@@ -774,6 +802,7 @@ static const uint8 wlcntver6t_to_wlcntvle10mcstt[WL_CNT_MCST_VAR_NUM] = {
 	IDX_IN_WL_CNT_VER_6_T(bphy_badplcp)
 };
 
+/* copy wlc layer counters from old type cntbuf to wl_cnt_wlc_t type. */
 static int
 wl_copy_wlccnt(uint16 cntver, uint32 *dst, uint32 *src, uint8 src_max_idx)
 {
@@ -782,7 +811,7 @@ wl_copy_wlccnt(uint16 cntver, uint32 *dst, uint32 *src, uint8 src_max_idx)
 		return BCME_ERROR;
 	}
 
-	
+	/* Init wlccnt with invalid value. Unchanged value will not be printed out */
 	for (i = 0; i < (sizeof(wl_cnt_wlc_t) / sizeof(uint32)); i++) {
 		dst[i] = INVALID_CNT_VAL;
 	}
@@ -790,7 +819,7 @@ wl_copy_wlccnt(uint16 cntver, uint32 *dst, uint32 *src, uint8 src_max_idx)
 	if (cntver == WL_CNT_VERSION_6) {
 		for (i = 0; i < NUM_OF_WLCCNT_IN_WL_CNT_VER_6_T; i++) {
 			if (wlcntver6t_to_wlcntwlct[i] >= src_max_idx) {
-			
+			/* src buffer does not have counters from here */
 				break;
 			}
 			dst[i] = src[wlcntver6t_to_wlcntwlct[i]];
@@ -798,7 +827,7 @@ wl_copy_wlccnt(uint16 cntver, uint32 *dst, uint32 *src, uint8 src_max_idx)
 	} else {
 		for (i = 0; i < NUM_OF_WLCCNT_IN_WL_CNT_VER_11_T; i++) {
 			if (wlcntver11t_to_wlcntwlct[i] >= src_max_idx) {
-			
+			/* src buffer does not have counters from here */
 				break;
 			}
 			dst[i] = src[wlcntver11t_to_wlcntwlct[i]];
@@ -807,6 +836,7 @@ wl_copy_wlccnt(uint16 cntver, uint32 *dst, uint32 *src, uint8 src_max_idx)
 	return BCME_OK;
 }
 
+/* copy macstat counters from old type cntbuf to wl_cnt_v_le10_mcst_t type. */
 static int
 wl_copy_macstat_upto_ver10(uint16 cntver, uint32 *dst, uint32 *src)
 {
@@ -819,7 +849,7 @@ wl_copy_macstat_upto_ver10(uint16 cntver, uint32 *dst, uint32 *src)
 	if (cntver == WL_CNT_VERSION_6) {
 		for (i = 0; i < WL_CNT_MCST_VAR_NUM; i++) {
 			if (wlcntver6t_to_wlcntvle10mcstt[i] == INVALID_MCST_IDX) {
-				
+				/* This mcst counter does not exist in wl_cnt_ver_6_t */
 				dst[i] = INVALID_CNT_VAL;
 			} else {
 				dst[i] = src[wlcntver6t_to_wlcntvle10mcstt[i]];
@@ -828,7 +858,7 @@ wl_copy_macstat_upto_ver10(uint16 cntver, uint32 *dst, uint32 *src)
 	} else {
 		for (i = 0; i < WL_CNT_MCST_VAR_NUM; i++) {
 			if (wlcntver11t_to_wlcntvle10mcstt[i] == INVALID_MCST_IDX) {
-				
+				/* This mcst counter does not exist in wl_cnt_ver_11_t */
 				dst[i] = INVALID_CNT_VAL;
 			} else {
 				dst[i] = src[wlcntver11t_to_wlcntvle10mcstt[i]];
@@ -881,7 +911,7 @@ wl_cntbuf_to_xtlv_format(void *ctx, void *cntbuf, int buflen, uint32 corerev)
 #endif
 
 	if (ver == WL_CNT_T_VERSION) {
-		
+		/* Already in xtlv format. */
 		goto exit;
 	}
 
@@ -898,7 +928,7 @@ wl_cntbuf_to_xtlv_format(void *ctx, void *cntbuf, int buflen, uint32 corerev)
 		goto exit;
 	}
 
-	
+	/* Check if the max idx in the struct exceeds the boundary of uint8 */
 	if (NUM_OF_CNT_IN_WL_CNT_VER_6_T > ((uint8)(-1) + 1) ||
 		NUM_OF_CNT_IN_WL_CNT_VER_11_T > ((uint8)(-1) + 1)) {
 		printf("wlcntverXXt_to_wlcntwlct and src_max_idx need"
@@ -907,7 +937,7 @@ wl_cntbuf_to_xtlv_format(void *ctx, void *cntbuf, int buflen, uint32 corerev)
 		goto exit;
 	}
 
-	
+	/* Exclude version and length fields in either wlc_cnt_ver_6_t or wlc_cnt_ver_11_t */
 	src_max_idx = (cntinfo->datalen - OFFSETOF(wl_cnt_info_t, data)) / sizeof(uint32);
 
 	if (src_max_idx > (uint8)(-1)) {
@@ -917,14 +947,14 @@ wl_cntbuf_to_xtlv_format(void *ctx, void *cntbuf, int buflen, uint32 corerev)
 		res = BCME_ERROR;
 	}
 
-	
+	/* Copy wlc layer counters to wl_cnt_wlc_t */
 	res = wl_copy_wlccnt(ver, (uint32 *)wlccnt, (uint32 *)cntinfo->data, (uint8)src_max_idx);
 	if (res != BCME_OK) {
 		printf("wl_copy_wlccnt fail!\n");
 		goto exit;
 	}
 
-	
+	/* Copy macstat counters to wl_cnt_wlc_t */
 	if (ver == WL_CNT_VERSION_11) {
 		res = wl_copy_macstat_ver11(macstat, (uint32 *)cntinfo->data);
 		if (res != BCME_OK) {

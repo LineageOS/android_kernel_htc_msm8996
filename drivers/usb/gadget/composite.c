@@ -28,9 +28,11 @@
 #define SSUSB_GADGET_VBUS_DRAW_UNITS 8
 #define HSUSB_GADGET_VBUS_DRAW_UNITS 2
 
+/*++ 2015/11/16 USB Team, PCN00038 ++*/
 #define MAC_FIRST_DT_LENGTH  18
 #define WIN_LINUX_FIRST_DT1_LENGTH 8
 #define WIN_LINUX_FIRST_DT2_LENGTH 64
+/*-- 2015/11/16 USB Team, PCN00038 --*/
 
 static bool enable_l1_for_hs;
 module_param(enable_l1_for_hs, bool, S_IRUGO | S_IWUSR);
@@ -52,7 +54,14 @@ struct usb_os_string {
 	__u8	bPad;
 } __packed;
 
+/*
+ * The code in this file is utility code, used to build a gadget driver
+ * from one or more "function" drivers, one or more "configuration"
+ * objects, and a "usb_composite_driver" by gluing them together along
+ * with the relevant device-wide data.
+ */
 
+/*++ 2015/07/08 USB Team, PCN00011 ++*/
 enum {
 	OS_NOT_YET,
 	OS_MAC,
@@ -61,6 +70,7 @@ enum {
 };
 
 static int os_type;
+/*-- 2015/07/08 USB Team, PCN00011 --*/
 
 static struct usb_gadget_strings **get_containers_gs(
 		struct usb_gadget_string_container *uc)
@@ -483,9 +493,11 @@ static u8 encode_bMaxPower(enum usb_device_speed speed,
 	}
 }
 
+/*++ 2015/07/08 USB Team, PCN00011 ++*/
 extern struct usb_descriptor_header *ss_mtp_descs[];
 extern struct usb_descriptor_header *hs_mtp_descs[];
 extern struct usb_descriptor_header *fs_mtp_descs[];
+/*-- 2015/07/08 USB Team, PCN00011 --*/
 
 static int config_buf(struct usb_configuration *config,
 		enum usb_device_speed speed, void *buf, u8 type)
@@ -525,18 +537,24 @@ static int config_buf(struct usb_configuration *config,
 		switch (speed) {
 		case USB_SPEED_SUPER:
 			descriptors = f->ss_descriptors;
+/*++ 2015/07/08 USB Team, PCN00011 ++*/
 			if (!strcmp("mtp", f->name) && (os_type == OS_MAC))
 				descriptors = ss_mtp_descs;
+/*-- 2015/07/08 USB Team, PCN00011 --*/
 			break;
 		case USB_SPEED_HIGH:
 			descriptors = f->hs_descriptors;
+/*++ 2015/07/08 USB Team, PCN00011 ++*/
 			if (!strcmp("mtp", f->name) && (os_type == OS_MAC))
 				descriptors = hs_mtp_descs;
+/*-- 2015/07/08 USB Team, PCN00011 --*/
 			break;
 		default:
 			descriptors = f->fs_descriptors;
+/*++ 2015/07/08 USB Team, PCN00011 ++*/
 			if (!strcmp("mtp", f->name) && (os_type == OS_MAC))
 				descriptors = fs_mtp_descs;
+/*-- 2015/07/08 USB Team, PCN00011 --*/
 		}
 
 		if (!descriptors)
@@ -1060,10 +1078,12 @@ void usb_remove_config(struct usb_composite_dev *cdev,
 
 	spin_unlock_irqrestore(&cdev->lock, flags);
 
+/*++ 2015/11/16 USB Team, PCN00038 ++*/
 	os_type = OS_NOT_YET;
 #ifdef CONFIG_HTC_USB_DEBUG_FLAG
 	printk("[USB]%s unbind+\n",__func__);
 #endif
+/*-- 2015/11/16 USB Team, PCN00038 --*/
 
 	unbind_config(cdev, config);
 }
@@ -1468,6 +1488,7 @@ static void composite_setup_complete(struct usb_ep *ep, struct usb_request *req)
 				req->status, req->actual, req->length);
 }
 
+/*++ 2015/11/16 USB Team, PCN00038 ++*/
 /*
  * Copyright (C) 2015 HTC, Inc.
  * Author: HTC USB Team
@@ -1518,6 +1539,7 @@ static void get_os_type(int length)
 		check_MAC_or_LINUX(first_dt_w_length,first_string_w_length);
 	}
 }
+/*-- 2015/11/16 USB Team, PCN00038 --*/
 
 static int count_ext_compat(struct usb_configuration *c)
 {
@@ -1712,10 +1734,12 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		switch (w_value >> 8) {
 
 		case USB_DT_DEVICE:
+/*++ 2015/11/16 USB Team, PCN00038 ++*/
 			if (first_dt_w_length == 0) {
 				first_dt_w_length = w_length;
 				printk("[USB] first_dt_w_length = %d \n",first_dt_w_length);
 			}
+/*-- 2015/11/16 USB Team, PCN00038 --*/
 			cdev->desc.bNumConfigurations =
 				count_configs(cdev, USB_DT_DEVICE);
 			if (cdev->desc.bNumConfigurations == 0) {
@@ -1762,7 +1786,7 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 				break;
 			/* FALLTHROUGH */
 		case USB_DT_CONFIG:
-			get_os_type(w_length);
+			get_os_type(w_length);/*++ 2015/11/16 USB Team, PCN00038 ++*/
 			spin_lock(&cdev->lock);
 			value = config_desc(cdev, w_value);
 			spin_unlock(&cdev->lock);
@@ -1770,10 +1794,12 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 				value = min(w_length, (u16) value);
 			break;
 		case USB_DT_STRING:
+/*++ 2015/11/16 USB Team, PCN00038 ++*/
 			if (first_string_w_length == 0) {
 				first_string_w_length = w_length;
 				printk("[USB] first_string_w_length = %d \n",first_string_w_length);
 			}
+/*-- 2015/11/16 USB Team, PCN00038 --*/
 			spin_lock(&cdev->lock);
 			value = get_string(cdev, req->buf,
 					w_index, w_value & 0xff);
@@ -2122,10 +2148,12 @@ void composite_disconnect(struct usb_gadget *gadget)
 		}
 		reset_config(cdev);
 	}
+/*++ 2015/07/08 USB Team, PCN00011 ++*/
 	if (cdev->driver->disconnect) {
 		cdev->driver->disconnect(cdev);
 		os_type = OS_NOT_YET;
 	}
+/*-- 2015/07/08 USB Team, PCN00011 --*/
 	if (cdev->delayed_status != 0) {
 		INFO(cdev, "delayed status mismatch..resetting\n");
 		cdev->delayed_status = 0;
@@ -2133,11 +2161,15 @@ void composite_disconnect(struct usb_gadget *gadget)
 	spin_unlock_irqrestore(&cdev->lock, flags);
 }
 
+/*++ 2015/11/26 USB Team, PCN00043 ++*/
 void composite_mute_disconnect(struct usb_gadget *gadget)
 {
 	struct usb_composite_dev	*cdev = get_gadget_data(gadget);
 	unsigned long				flags;
 
+	/* REVISIT:  should we have config and device level
+	 * disconnect callbacks?
+	 */
 	spin_lock_irqsave(&cdev->lock, flags);
 	if (cdev->config)
 		reset_config(cdev);
@@ -2148,6 +2180,8 @@ void composite_mute_disconnect(struct usb_gadget *gadget)
 	}
 	spin_unlock_irqrestore(&cdev->lock, flags);
 }
+/*-- 2015/11/26 USB Team, PCN00043 --*/
+/*-------------------------------------------------------------------------*/
 
 static ssize_t suspended_show(struct device *dev, struct device_attribute *attr,
 			      char *buf)
@@ -2456,7 +2490,7 @@ static const struct usb_gadget_driver composite_driver_template = {
 	.reset		= composite_disconnect,
 	.disconnect	= composite_disconnect,
 
-	.mute_disconnect = composite_mute_disconnect,   
+	.mute_disconnect = composite_mute_disconnect,   /*++ 2015/11/26 USB Team, PCN00043 ++*/
 
 	.suspend	= composite_suspend,
 	.resume		= composite_resume,

@@ -53,6 +53,7 @@ static uint8_t write_addr(struct nanohub_data *data, uint32_t addr)
 	return data->bl.write_data(data, buffer, sizeof(uint32_t));
 }
 
+/* write length followed by the data */
 static uint8_t write_len_data(struct nanohub_data *data, int len,
 			      const uint8_t *buf)
 {
@@ -65,6 +66,7 @@ static uint8_t write_len_data(struct nanohub_data *data, int len,
 	return data->bl.write_data(data, buffer, sizeof(uint8_t) + len);
 }
 
+/* keep checking for ack until we receive a ack or nack */
 static uint8_t read_ack_loop(struct nanohub_data *data)
 {
 	uint8_t ret;
@@ -298,6 +300,7 @@ out:
 	return status;
 }
 
+/* erase a single sector */
 uint8_t nanohub_bl_erase_sector(struct nanohub_data *data, uint16_t sector)
 {
 	uint8_t ret;
@@ -316,6 +319,7 @@ uint8_t nanohub_bl_erase_sector(struct nanohub_data *data, uint16_t sector)
 	return ret;
 }
 
+/* erase special */
 uint8_t nanohub_bl_erase_special(struct nanohub_data *data, uint16_t special)
 {
 	uint8_t ret;
@@ -330,6 +334,7 @@ uint8_t nanohub_bl_erase_special(struct nanohub_data *data, uint16_t special)
 	return ret;
 }
 
+/* read memory - this will chop the request into 256 byte reads */
 uint8_t nanohub_bl_read_memory(struct nanohub_data *data, uint32_t addr,
 			       uint32_t length, uint8_t *buffer)
 {
@@ -372,6 +377,7 @@ uint8_t nanohub_bl_read_memory(struct nanohub_data *data, uint32_t addr,
 	return ret;
 }
 
+/* write memory - this will chop the request into 256 byte writes */
 uint8_t nanohub_bl_write_memory(struct nanohub_data *data, uint32_t addr,
 				uint32_t length, const uint8_t *buffer)
 {

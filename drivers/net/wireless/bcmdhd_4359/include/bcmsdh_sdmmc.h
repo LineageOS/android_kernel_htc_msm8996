@@ -53,30 +53,32 @@
 #define BLOCK_SIZE_4318 64
 #define BLOCK_SIZE_4328 512
 
+/* internal return code */
 #define SUCCESS	0
 #define ERROR	1
 
+/* private bus modes */
 #define SDIOH_MODE_SD4		2
-#define CLIENT_INTR			0x100	
+#define CLIENT_INTR			0x100	/* Get rid of this! */
 #define SDIOH_SDMMC_MAX_SG_ENTRIES	32
 
 struct sdioh_info {
-	osl_t		*osh;			
-	void		*bcmsdh;		
-	bool		client_intr_enabled;	
-	bool		intr_handler_valid;	
-	sdioh_cb_fn_t	intr_handler;		
-	void		*intr_handler_arg;	
-	uint16		intmask;		
+	osl_t		*osh;			/* osh handler */
+	void		*bcmsdh;		/* upper layer handle */
+	bool		client_intr_enabled;	/* interrupt connnected flag */
+	bool		intr_handler_valid;	/* client driver interrupt handler valid */
+	sdioh_cb_fn_t	intr_handler;		/* registered interrupt handler */
+	void		*intr_handler_arg;	/* argument to call interrupt handler */
+	uint16		intmask;		/* Current active interrupts */
 
-	int		intrcount;		
-	bool		sd_use_dma;		
-	bool		sd_blockmode;		
-						
-	bool		use_client_ints;	
-	int		sd_mode;		
-	int		client_block_size[SDIOD_MAX_IOFUNCS];		
-	uint8		num_funcs;		
+	int		intrcount;		/* Client interrupts */
+	bool		sd_use_dma;		/* DMA on CMD53 */
+	bool		sd_blockmode;		/* sd_blockmode == FALSE => 64 Byte Cmd 53s. */
+						/*  Must be on for sd_multiblock to be effective */
+	bool		use_client_ints;	/* If this is false, make sure to restore */
+	int		sd_mode;		/* SD1/SD4/SPI */
+	int		client_block_size[SDIOD_MAX_IOFUNCS];		/* Blocksize */
+	uint8		num_funcs;		/* Supported funcs on client */
 	uint32		com_cis_ptr;
 	uint32		func_cis_ptr[SDIOD_MAX_IOFUNCS];
 	bool		use_rxchain;
@@ -86,22 +88,33 @@ struct sdioh_info {
 
 };
 
+/************************************************************
+ * Internal interfaces: per-port references into bcmsdh_sdmmc.c
+ */
 
+/* Global message bits */
 extern uint sd_msglevel;
 
+/* OS-independent interrupt handler */
 extern bool check_client_intr(sdioh_info_t *sd);
 
+/* Core interrupt enable/disable of device interrupts */
 extern void sdioh_sdmmc_devintr_on(sdioh_info_t *sd);
 extern void sdioh_sdmmc_devintr_off(sdioh_info_t *sd);
 
 
+/**************************************************************
+ * Internal interfaces: bcmsdh_sdmmc.c references to per-port code
+ */
 
+/* Register mapping routines */
 extern uint32 *sdioh_sdmmc_reg_map(osl_t *osh, int32 addr, int size);
 extern void sdioh_sdmmc_reg_unmap(osl_t *osh, int32 addr, int size);
 
+/* Interrupt (de)registration routines */
 extern int sdioh_sdmmc_register_irq(sdioh_info_t *sd, uint irq);
 extern void sdioh_sdmmc_free_irq(uint irq, sdioh_info_t *sd);
 
 extern sdioh_info_t *sdioh_attach(osl_t *osh, struct sdio_func *func);
 extern SDIOH_API_RC sdioh_detach(osl_t *osh, sdioh_info_t *sd);
-#endif 
+#endif /* __BCMSDH_SDMMC_H__ */

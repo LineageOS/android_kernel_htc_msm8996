@@ -25,6 +25,7 @@
 #include <linux/of.h>
 #include <linux/poll.h>
 #include <asm/byteorder.h>
+//#include <linux/miscdevice.h>
 #include <linux/platform_device.h>
 #include "usb_typec_fw_update.h"
 
@@ -182,7 +183,7 @@ static int usb_typec_fwu_release(struct inode *inode, struct file *filp)
 
 static ssize_t usb_typec_fwu_read(struct file *file, char __user *buf, size_t count, loff_t *offset)
 {
-	
+	//struct cdev_data *fw_cdev = filp->private_data;
 	pr_info("%s: %zu", __func__, count);
 	return 0;
 }
@@ -299,7 +300,7 @@ usb_typec_fwu_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 }
 #else
 #define usb_typec_fwu_compat_ioctl NULL
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static int usb_typec_fw_update_process(struct data *fwu_data, struct firmware *fw)
 {
@@ -315,7 +316,7 @@ void usb_typec_fw_update_progress(struct usb_typec_fwu_notifier *notifier, int p
 {
 	struct data *fwu_data = notifier->fwu_data;
 
-	
+	//pr_info("%s: %d", __func__, percentage);
 	if (percentage >= 100)
 		fwu_data->flash_progress = 100;
 	else if (percentage <= 0)

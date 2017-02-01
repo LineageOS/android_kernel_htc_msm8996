@@ -15,7 +15,7 @@
 
 #include "lc898123AXD_htc.h"
 #include "Ois.h"
-#include "FromCode.h"	
+#include "FromCode.h"	// LC898123A firmware
 #include "md5.h"
 #include "OisLc898123AXD.h"
 #include "PmemCode.h"
@@ -31,6 +31,7 @@
 static struct msm_sensor_ctrl_t *g_s_ctrl = NULL;
 static struct GYRO_gpio_info *g_GYRO_info = NULL;
 #define GYRO_CAL_SIZE 2048
+/*HTC_START*/
 #define		INT16	signed short
 #define		INT32	long
 #define		INT64	long long
@@ -38,6 +39,7 @@ static struct GYRO_gpio_info *g_GYRO_info = NULL;
 #define		UINT16	unsigned short
 #define		UINT32	unsigned int
 #define		UINT64	unsigned long long
+/*HTC_END*/
 
 #define VERIFY_SIZE_CRC	4
 #define VERIFY_SIZE_MD5	16
@@ -144,8 +146,10 @@ unsigned char htc_GyroReCalib(struct msm_sensor_ctrl_t *s_ctrl, int cam_id)
     g_s_ctrl = s_ctrl;
 	pr_info("[OIS_Cali]%s:E\n", __func__);
 
+/*HTC_START*/
     if (g_s_ctrl == NULL)
         return -1;
+/*HTC_END*/
     WitTim(100);
 
     GYRO_Cali_init(s_ctrl);
@@ -167,8 +171,8 @@ unsigned char htc_GyroReCalib(struct msm_sensor_ctrl_t *s_ctrl, int cam_id)
 	RamRead32A( CMD_CALIBRATION , &UlRcvDat ) ;
 	UcSndDat = (unsigned char)(UlRcvDat >> 24);
 
-	
-	FlashNVR_ReadData_ByteA( CALIBRATION_DATA_ADDRESS, FLASH_SECTOR_BUFFER, 256	);
+	// Read calibration sector to buffer
+	FlashNVR_ReadData_ByteA( CALIBRATION_DATA_ADDRESS, FLASH_SECTOR_BUFFER, 256	);//blossom: FlashNVR_ReadData_ByteA
 
 	_GET_UINT32( UlCurrX,											GYRO_OFFSET_VALUE_X ) ;
 	_GET_UINT32( UlCurrY,											GYRO_OFFSET_VALUE_Y ) ;
@@ -193,6 +197,7 @@ unsigned char htc_GyroReCalib(struct msm_sensor_ctrl_t *s_ctrl, int cam_id)
 	pReCalib.SsDiffY = ((short)pReCalib.SsFctryOffY - (short)pReCalib.SsRecalOffY) > 0 ?  ((short)pReCalib.SsFctryOffY - (short)pReCalib.SsRecalOffY) : ((short)pReCalib.SsRecalOffY - (short)pReCalib.SsFctryOffY);
     pr_info("[OIS_Cali]%s: %u, pReCalib->SsDiffX = %d (%#x), pReCalib->SsDiffY = %d (%#x)\n", __func__, UcSndDat, pReCalib.SsDiffX, pReCalib.SsDiffX, pReCalib.SsDiffY, pReCalib.SsDiffY);
 
+//Write calibration result
     if (cam_id == 0)
     {
         fp=msm_fopen (m_path, O_CREAT|O_RDWR|O_TRUNC, 0666);
@@ -248,12 +253,12 @@ short htc_WrGyroOffsetData( void )
         return -1;
 	}
 
-	
-	
-	
-	
-	
-	
+	//
+	// Flash update procedure
+	//
+	// Read calibration sector to buffer
+	// Back up read calibration sector to buffer
+	// Erase NVR
 	iRetVal = Calibration_VerifyUpdate_PreRead();
 	if( iRetVal != 0 )
     {
@@ -276,7 +281,7 @@ short htc_WrGyroOffsetData( void )
 	_PUT_UINT32( UlGofY,											GYRO_OFFSET_VALUE_Y	) ;
 
 
-	
+	// Flash update procedure
 	iRetVal = Calibration_VerifyUpdate();
 
     pr_info("[OIS_Cali]%s: X  iRetVal = %d\n", __func__, iRetVal);
@@ -285,8 +290,17 @@ short htc_WrGyroOffsetData( void )
 }
 
 
+//********************************************************************************
+// Function Name 	: FlashWrite_NVRVerify
+// Retun Value		: INT16 0:Ok, 5: WPB LOW ERROR
+// Argment Value	: NON
+// Explanation		: NVR area's accuracy check by MD5 verification
+// History			: First edition 						
+//********************************************************************************
+//INT16 FlashWrite_NVRVerify( void )
 signed short FlashWrite_NVRVerify( void )
 {
+/*HTC_START*/
     #if 0
 	UINT16 UsNum;
 	UINT8 UcNvrData[2];
@@ -298,20 +312,25 @@ signed short FlashWrite_NVRVerify( void )
 	unsigned int UlReadVal[4];	
 	unsigned char UcCnt;
     #endif
+/*HTC_END*/
     md5_context ctx;
 	CRC_Reg = 0x0000ffff;
 	
-	
-	FlashResetRelease();		
-	
+	// Release RESET
+	FlashResetRelease();		// Reset release
+	// Autoconfig
 	FlashAutoConfig();
-	
-	IOWrite32A( FLASHROM_TPGS, 118 );			
-	IOWrite32A( FLASHROM_TPROG , 70 );			
-	IOWrite32A( FLASHROM_TERASES , 92 );		
-	IOWrite32A( FLASHROM_ADR , 0x00010000 );	
-	IOWrite32A( FLASHROM_ACSCNT , (256 - 1) );	
-	IOWrite32A( FLASHROM_CMD , 1 );				
+	// Flash access timing Setting
+	IOWrite32A( FLASHROM_TPGS, 118 );			// TPGS Flash spec.  min. 2.5usec max. 3.15uec
+	IOWrite32A( FLASHROM_TPROG , 70 );			// TPROG Flash spec.  min. 6usec max. 7.5usec
+	IOWrite32A( FLASHROM_TERASES , 92 );		// TERASES Flash spec.  Flash spec.  min. 4msec max. 5msec
+//--------------------------------------------------------------------------------
+// 0. Read All NVR ( Backup sequence )
+//--------------------------------------------------------------------------------
+	IOWrite32A( FLASHROM_ADR , 0x00010000 );	// Set NVR address
+//	IOWrite32A( FLASHROM_SEL , 7 );				// Flash selector
+	IOWrite32A( FLASHROM_ACSCNT , (256 - 1) );	// for 256 byte read count
+	IOWrite32A( FLASHROM_CMD , 1 );				// Read Start
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_RDAT ) ;
 	for ( UsNum = 0; UsNum <= 0xFF;  UsNum+=4 )
 	{
@@ -322,25 +341,31 @@ signed short FlashWrite_NVRVerify( void )
 			NVR2_Backup[UsNum + UcCnt]   = (unsigned char)(UlReadVal[UcCnt]>>16);
 		}
 	}
-	
-	IOWrite32A( FLASHROM_WPB , 1 );							
-	WPBCtrl(WPB_OFF) ;										
-	if ( ReadWPB() != 1 ){									
-		WPBCtrl(WPB_ON) ;									
+//--------------------------------------------------------------------------------
+// 1. NVR Erase except NVR2
+//--------------------------------------------------------------------------------
+	// WP disable
+	IOWrite32A( FLASHROM_WPB , 1 );							// Disable write protect
+	WPBCtrl(WPB_OFF) ;										// Disable write protect
+	if ( ReadWPB() != 1 ){									// WPB LOW ERROR
+		WPBCtrl(WPB_ON) ;									// Enable write protect
 		FlashReset();
 		return ( 5 );
 	}		
 
-	IOWrite32A( FLASHROM_ADR , 0x00010000 );				
-	IOWrite32A( FLASHROM_SEL , 0x04  );				
-	IOWrite32A( FLASHROM_CMD , 4 );							
-	
-	
+	IOWrite32A( FLASHROM_ADR , 0x00010000 );				// Set NVR address
+	IOWrite32A( FLASHROM_SEL , 0x04 /*NVR2*/ );				// Flash selector
+	IOWrite32A( FLASHROM_CMD , 4 );							// Sector Erase Start	
+	/*5msec wait*/
+//--------------------------------------------------------------------------------
+// 2. Update Calibration Code & Create Verify data
+//--------------------------------------------------------------------------------
+	// Update Verify Code	
 	for ( UsNum = 0; UsNum <= 0xFF; UsNum++ )	
 	{
-		
-		UcNvrData[0] = NVR0_Backup[ UsNum ];	
-		UcNvrData[1] = FLASH_SECTOR_BUFFER[ UsNum ];		
+		// LSB first 	
+		UcNvrData[0] = NVR0_Backup[ UsNum ];	// NVR0
+		UcNvrData[1] = FLASH_SECTOR_BUFFER[ UsNum ];		// NVR1	
 		CRC16_main( UcNvrData, 2 );
 	}
 	NVR2_Backup[ 0x22 ] = (unsigned char)(CRC_Reg>>8);
@@ -349,15 +374,18 @@ signed short FlashWrite_NVRVerify( void )
 	md5_starts( &ctx );
 	for ( UsNum = 0; UsNum <= 0xFF; UsNum++ )	
 	{
-		
-		UcNvrData[0] = FLASH_SECTOR_BUFFER[ UsNum ];		
-		UcNvrData[1] = NVR0_Backup[ UsNum ];	
+		// MSB first 		
+		UcNvrData[0] = FLASH_SECTOR_BUFFER[ UsNum ];		// NVR1	
+		UcNvrData[1] = NVR0_Backup[ UsNum ];	// NVR0
 		md5_update( &ctx, UcNvrData, 2);
 	}
 	md5_finish( &ctx, &(NVR2_Backup[ 0x10 ]) );
-	
+//--------------------------------------------------------------------------------
+// 3. Write Verify data to NVR
+//--------------------------------------------------------------------------------
+	// check whether sector erase function finished or not.
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_INT ) ;	
-	for ( UsNum  = 0; UsNum  < 10; UsNum ++ )						
+	for ( UsNum  = 0; UsNum  < 10; UsNum ++ )						// TimeOut 
 	{
 		RamRead32A(  CMD_IO_DAT_ACCESS, UlReadVal ) ;
 		if( !(UlReadVal[0] ==  0x80) ){
@@ -365,19 +393,24 @@ signed short FlashWrite_NVRVerify( void )
 		}
 		WitTim( 2 );
 	}
-	IOWrite32A( FLASHROM_ACSCNT , 0 );						
-	IOWrite32A( FLASHROM_ADR , 0x00010000 );				
-	for ( UsNum = 0; UsNum <= 0x24; UsNum++ )				
+//	IOWrite32A( FLASHROM_SEL , 0x04 /*NVR2*/ );			// Flash selector
+	IOWrite32A( FLASHROM_ACSCNT , 0 );						// should be set "0"
+	IOWrite32A( FLASHROM_ADR , 0x00010000 );				// Set NVR address
+	for ( UsNum = 0; UsNum <= 0x24; UsNum++ )				// Max. 127times
 	{
 		IOWriteDouble32A( FLASHROM_WDAT, ((UINT32)(NVR2_Backup[UsNum])<<16),
 						  FLASHROM_CMD,   2 );	
-		
+		/*20usec wait*/
 	}
-	IOWrite32A( FLASHROM_WPB, 0  );							
-	WPBCtrl(WPB_ON) ;										
-	IOWrite32A( FLASHROM_ADR, 0x00010000  );				
-	IOWrite32A( FLASHROM_ACSCNT, (0x24 -1)  );				
-	IOWrite32A( FLASHROM_CMD , 1  );						
+	IOWrite32A( FLASHROM_WPB, 0  );							// Enable write protect
+	WPBCtrl(WPB_ON) ;										// Enable write protect
+//--------------------------------------------------------------------------------
+// 4. Read Verify 
+//--------------------------------------------------------------------------------
+//	IOWrite32A( FLASHROM_SEL , 0x04 /*NVR1,2*/ );			// Flash selector
+	IOWrite32A( FLASHROM_ADR, 0x00010000  );				// Set NVR address
+	IOWrite32A( FLASHROM_ACSCNT, (0x24 -1)  );				// for 256 byte read count
+	IOWrite32A( FLASHROM_CMD , 1  );						// Read Start
 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_RDAT ) ;
 	for ( UsNum = 0; UsNum <= (0x24-1); UsNum+=4 )
@@ -388,14 +421,23 @@ signed short FlashWrite_NVRVerify( void )
 			if ( (unsigned char)(UlReadVal[ UcCnt ]  >>16 ) != NVR2_Backup[UsNum + UcCnt] ){	FlashReset();	return(-1); }
 		}
 	}
-	
+	// Set Flash RESET
 	FlashReset();
 		
 	return ( 0 );
 }
 
+//********************************************************************************
+// Function Name 	: PmemWriteByBoot
+// Retun Value		: 0: OK 1:  Verify Error
+// Argment Value	: 
+// Explanation		: Read From code version Command
+// History			: First edition 						
+//********************************************************************************
+//UINT8 PmemWriteByBoot( void )
 unsigned char PmemWriteByBoot( void )
 {
+/*HTC_START*/
 	#if 0
 	UINT8  UcCnt;
 	UINT32 UlCnt;
@@ -405,17 +447,18 @@ unsigned char PmemWriteByBoot( void )
 	unsigned int UlCnt;
 	unsigned int UlNum;
 	#endif
+/*HTC_END*/
 #ifdef _Upload_Ver2_
 	RamWrite32A( PMEMCMD + 4,  20 );
 	for ( UlCnt = 0, UlNum = 0x80000; UlCnt < (sizeof (ContinuouslyTranslationCode))/4 ; UlCnt+=5, UlNum += 8 )
 	{
-	
+	/*HTC_START*/
     #if 0
 	UINT32 UlData[5];
     #else
     unsigned int UlData[5];
     #endif
-    
+    /*HTC_END*/
 		RamWrite32A( PMEMCMD + 8, UlNum );
 		RamWrite32A( PMEMCMD + 12       ,  ContinuouslyTranslationCode[0+ UlCnt] );
 		RamWrite32A( PMEMCMD + 12 + 4	,  ContinuouslyTranslationCode[1+ UlCnt] );
@@ -423,7 +466,7 @@ unsigned char PmemWriteByBoot( void )
 		RamWrite32A( PMEMCMD + 12 + 12	,  ContinuouslyTranslationCode[3+ UlCnt] );
 		RamWrite32A( PMEMCMD + 12 + 16	,  ContinuouslyTranslationCode[4+ UlCnt] );
 		RamWrite32A( PMEMCMD, 1 );
-#if 1	
+#if 1	// Read check
 		RamWrite32A( PMEMCMD, 2 );
 		RamRead32A( PMEMCMD + 12 		,	&(UlData[0]) );
 		RamRead32A( PMEMCMD + 12 + 4 	,	&(UlData[1]) );
@@ -431,17 +474,18 @@ unsigned char PmemWriteByBoot( void )
 		RamRead32A( PMEMCMD + 12 + 12	,	&(UlData[3]) );
 		RamRead32A( PMEMCMD + 12 + 16	,	&(UlData[4]) );
 		for (UcCnt=0; UcCnt<5; UcCnt++){
-			if( ContinuouslyTranslationCode[UcCnt+UlCnt] != UlData[UcCnt] )	return(2);	
+			if( ContinuouslyTranslationCode[UcCnt+UlCnt] != UlData[UcCnt] )	return(2);	// PMEM Copy Error 
 		}
 #endif
 	}
 #else
-    
+    /*HTC_START*/
 	#if 0
 	UINT8 UcBuf[16];
 	#else
     unsigned char UcBuf[16];
 	#endif
+/*HTC_END*/
 
 	RamWrite32A( PMEMCMD + 4,  20 );
 	for ( UlCnt = 0, UlNum = 0x81280; UlCnt < (sizeof (ExtraPmemCode)/4) ; UlCnt+=5, UlNum += 8 )
@@ -455,7 +499,7 @@ unsigned char PmemWriteByBoot( void )
 		RamWrite32A( PMEMCMD, 1 );
 	}
 	
-	RamWrite32A( CmdEventCommand, 0x081280 ) ;		
+	RamWrite32A( CmdEventCommand, 0x081280 ) ;		// Execute
 
 	for ( UlCnt = 0; UlCnt <=  sizeof (ContinuouslyTranslationCode) ; UlCnt+=15 )
 	{
@@ -467,28 +511,35 @@ unsigned char PmemWriteByBoot( void )
 	}
 
 	UcBuf[0] = 0xEF;
-    
+    /*HTC_START*/
     #if 1
     UcBuf[1] = 0x00;
     CntWrt( UcBuf, 2 );
     #else
-	CntWrt( UcBuf, 1 ) ;				
+	CntWrt( UcBuf, 1 ) ;				// Execute
 	#endif
-	
+	/*HTC_END*/
 #endif
 	return(0);
 }
 
+//********************************************************************************
+// Function Name 	: Calibration ID write
+// Retun Value		: INT16 0:Ok, 1:CVER error, 5: WPB LOW ERROR
+// Argment Value	: NON
+// Explanation		: Calculation ID write to flash Function
+// History			: First edition 						
+//********************************************************************************
 signed short FlashWrite_CalibID( const unsigned int CalibId )
 {
 	signed short iRetVal;
 
-	
-	
-	
-	
-	
-	
+	//
+	// Flash update procedure
+	//
+	// Read calibration sector to buffer
+	// Back up read calibration sector to buffer
+	// Erase NVR
 	iRetVal = Calibration_VerifyUpdate_PreRead();
 
 	if( iRetVal != 0 ) return( iRetVal );
@@ -499,8 +550,18 @@ signed short FlashWrite_CalibID( const unsigned int CalibId )
 	return iRetVal;
 }
 
+//********************************************************************************
+// Function Name 	: FlashUpdateMain
+// Retun Value		: 0: PASS, 1: MAGIC CODE ERASED, 2: PMEM-DOWNLOAD ERROR 3: VERIFY ERROR
+//					: 4: ES type Error 6:TIMEOUT ERROR
+// Argment Value	: NON
+// Explanation		: Flash Write Hall Calibration Data Function
+// History			: First edition 
+//********************************************************************************
+//UINT8 htc_FlashUpdateMain( const UINT8* NVRUploadTable, const UINT32* MainUploadTable, const UINT8* CRCParity, const UINT8* MD5Parity , const UINT32 CalibId)
 unsigned char FlashUpdateMain( const unsigned char* NVRUploadTable, const unsigned long* MainUploadTable, const unsigned char* CRCParity, const unsigned char* MD5Parity, const unsigned int CalibId)
 {
+/*HTC_START*/
 	#if 0
 	UINT32 UlNum;
 	UINT32 UlReadVal; 
@@ -512,51 +573,60 @@ unsigned char FlashUpdateMain( const unsigned char* NVRUploadTable, const unsign
 	unsigned char  UcData[ 64 ] ;
 	unsigned char  UcCnt;
 #endif
+/*HTC_END*/
+//--------------------------------------------------------------------------------
+// 0. Start up to boot exection 
 pr_info("[OIS_Cali]%s:0. Start up to boot exection.\n", __func__);
 
-	
-	FlashResetRelease();				
-	
+//--------------------------------------------------------------------------------
+	// Release RESET
+	FlashResetRelease();				/* FlashRelease isn't wrote in downloadCode, so you have to re-configure. */
+	// Auto configuration start
 	FlashAutoConfig();
 
 	IORead32A( SYS_DSP_REMAP	, &UlReadVal ) ;
 	if( UlReadVal != 0) {
-		
-		IOWrite32A( FLASHROM_TPGS	, 0x73 ) ;					
-		IOWrite32A( FLASHROM_TPROG	, 0x43 ) ;					
+		// Flash access timing Setting
+		IOWrite32A( FLASHROM_TPGS	, 0x73 ) ;					// TPGS Flash spec.  min. 2.5usec max. 3.15uec
+		IOWrite32A( FLASHROM_TPROG	, 0x43 ) ;					// TPROG Flash spec.  min. 6usec max. 7.5usec
 
-		WPBCtrl(WPB_OFF) ;								
+		WPBCtrl(WPB_OFF) ;								// Disable write protect
 		if ( ReadWPB() != 1 )
 		{
-			WPBCtrl(WPB_ON) ;									
-			return ( 5 );										
+			WPBCtrl(WPB_ON) ;									// Enable write protect
+			return ( 5 );										// WPB LOW ERROR
 		}
 
-		
-		IOWrite32A( FLASHROM_ADR	, 0x00010001) ;				
-		IOWrite32A( FLASHROM_ACSCNT	, 0 ) ;						
-		IOWrite32A( FLASHROM_SEL	, 1 ) ;						
-		IOWrite32A( FLASHROM_WDAT	, 0 ) ;						
-		IOWrite32A( FLASHROM_CMD	, 2 ) ;						
-		
-		IOWrite32A( FLASHROM_WPB	, 0 ) ;						
-		WPBCtrl(WPB_ON) ;										
+		// Magic code erase
+//		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_WPB ) ;		// Disable write protect
+//		RamWrite32A( CMD_IO_DAT_ACCESS, 1 ) ;
+		IOWrite32A( FLASHROM_ADR	, 0x00010001) ;				// NVR SELECT
+		IOWrite32A( FLASHROM_ACSCNT	, 0 ) ;						// for 1 byte program
+		IOWrite32A( FLASHROM_SEL	, 1 ) ;						// Flash selector
+		IOWrite32A( FLASHROM_WDAT	, 0 ) ;						// write data '00' set
+		IOWrite32A( FLASHROM_CMD	, 2 ) ;						// Address 0x0001 1 byte Program
+		/*20usec wait*/
+		IOWrite32A( FLASHROM_WPB	, 0 ) ;						// Enable write protect
+		WPBCtrl(WPB_ON) ;										// Enable write protect
 
-		RamWrite32A(CMD_REBOOT , 0 ) ;							
+		RamWrite32A(CMD_REBOOT , 0 ) ;							// exit from boot
 		UcCnt = 0;
 		do{		
 			WitTim( 40 );		
-			
-			IORead32A( SYS_DSP_REMAP	, &UlReadVal ) ;	 	
-			if(++UcCnt >= 10 )		return ( 1 );				
+			/* In the state of reboot, you have to send continuously. */
+			IORead32A( SYS_DSP_REMAP	, &UlReadVal ) ;	 	// Read remap flag	0.35sec (by 400kz)
+			if(++UcCnt >= 10 )		return ( 1 );				// TimeOutError
 		}while(UlReadVal != 0);
 	}
+//--------------------------------------------------------------------------------
+// 1. PMEM code donload for continuously I2C translation 
 pr_info("[OIS_Cali]%s:1. PMEM code donload for continuously I2C translation.\n", __func__);
 
-	
+//--------------------------------------------------------------------------------
+	// AXC AXD check for FromCode
 	IORead32A( CVER_123	, &UlReadVal) ;
 
-#ifdef __OIS_TYPE_XC__					
+#ifdef __OIS_TYPE_XC__					// for LC898123XC	
 	if ( (unsigned char)UlReadVal== 0xB3 || (unsigned char)UlReadVal == 0xB5 )
 #else
 	if ( (unsigned char)UlReadVal== 0xB4 || (unsigned char)UlReadVal == 0xB6 )
@@ -567,35 +637,41 @@ pr_info("[OIS_Cali]%s:1. PMEM code donload for continuously I2C translation.\n",
 		return (4);
 	}
 
+//--------------------------------------------------------------------------------
+// 2. PMEM Execute & Full Erase 
 pr_info("[OIS_Cali]%s:2. PMEM Execute & Full Erase.\n", __func__);
 
-	WPBCtrl(WPB_OFF) ;				 						
+//--------------------------------------------------------------------------------
+	WPBCtrl(WPB_OFF) ;				 						// Disable write protect
 	if ( ReadWPB() != 1 )
 	{
-		WPBCtrl(WPB_ON) ;									
-		return ( 5 );										
+		WPBCtrl(WPB_ON) ;									// Enable write protect
+		return ( 5 );										// WPB LOW ERROR
 	}
 
-	
-	RamWrite32A( CMD_REMAP, 0 ) ;								
+	/* Remap Execution (average necessary time 40 msec ) */
+	RamWrite32A( CMD_REMAP, 0 ) ;								// Remap Command
 	
 	UcCnt = 0;
-	do{		
+	do{		// Max.100msec : 
 		WitTim( 40 );
-		CntRd( 0xE0, UcData, 1 ) ;						
+		CntRd( 0xE0, UcData, 1 ) ;						// 0.1sec (by 400kz)
 		if(++UcCnt >= 4 ){
-			
-			UcData[ 0 ] = 0xE0;		
+			/* Reboot without automatic Flash download */
+			UcData[ 0 ] = 0xE0;		// Reboot Commnand
 			UcData[ 1 ] = 0x01;
 			CntWrt( UcData, 2 ) ;
-			return ( 6 );		
+			return ( 6 );		// TimeOutError
 		}
 	}while(UcData[0] == 0);
+//--------------------------------------------------------------------------------
+// 3. Updata Main Code translation
 pr_info("[OIS_Cali]%s:3. Updata Main Code translation.\n", __func__);
 
-	
+//--------------------------------------------------------------------------------
+	/* Main translation to work Ram */
 	for( UlNum=0; UlNum< 4096 ; UlNum += 32 ){ 
-		UcData[ 0 ] = 0xE1;		
+		UcData[ 0 ] = 0xE1;		// Main Translation 0 Commnand
 		for(UcCnt = 0; UcCnt < 16; UcCnt++ ){
 			UcData[ (UcCnt * 3) + 1] = (unsigned char)(MainUploadTable[ UcCnt + UlNum ]  );
 			UcData[ (UcCnt * 3) + 2] = (unsigned char)(MainUploadTable[ UcCnt + UlNum ] >> 8 );
@@ -603,7 +679,7 @@ pr_info("[OIS_Cali]%s:3. Updata Main Code translation.\n", __func__);
 		}	
 		CntWrt( UcData, 49 ) ;
 
-		UcData[ 0 ] = 0xE2;		
+		UcData[ 0 ] = 0xE2;		// Main Translation 1 Commnand
 		for(UcCnt = 0; UcCnt < 16; UcCnt++ ){
 			UcData[ (UcCnt * 3) + 1] = (unsigned char)(MainUploadTable[ UcCnt + UlNum +16 ]  );
 			UcData[ (UcCnt * 3) + 2] = (unsigned char)(MainUploadTable[ UcCnt + UlNum +16 ] >> 8 );
@@ -611,43 +687,49 @@ pr_info("[OIS_Cali]%s:3. Updata Main Code translation.\n", __func__);
 		}	
 		CntWrt( UcData, 49 ) ;
 	}
-	
+	// Wait for last flash writing finalization
 	UcCnt = 0;
-	do{		
+	do{		// Max.2msec :
 		WitTim( 1 );
-		CntRd( 0xE2, UcData, 1 ) ;						
+		CntRd( 0xE2, UcData, 1 ) ;						// 0.1sec (by 400kz)
 		if(++UcCnt >= 3 ){
-			
-			UcData[ 0 ] = 0xE5;		
+			/* Reboot without automatic Flash download */
+			UcData[ 0 ] = 0xE5;		// Reboot Commnand
 			UcData[ 1 ] = 0x01;
 			CntWrt( UcData, 2 ) ;
-			return ( 6 );			
+			return ( 6 );			// TimeOutError
 		}
 	}while(UcData[0] != 0);
+//--------------------------------------------------------------------------------
+// 4. Update NVR Data translation
 pr_info("[OIS_Cali]%s:4. Update NVR Data translation.\n", __func__);
 
-	
-	UcData[ 0 ] = 0xE3;		
+//--------------------------------------------------------------------------------
+	/* NVR0 area translation to work Ram (average time 1~2 msec) */
+	UcData[ 0 ] = 0xE3;		// NVR0 Translation Commnand
 	for(UcCnt = 0; UcCnt < 32; UcCnt++ ){
 		UcData[ UcCnt+ 1] = NVRUploadTable[ UcCnt ] ;
 	}
 	CntWrt( UcData, 33 ) ;
 	UcCnt = 0;
-	do{		
+	do{		// Max.2msec :
 		WitTim( 1 );
-		CntRd( 0xE3, UcData, 1 ) ;						
+		CntRd( 0xE3, UcData, 1 ) ;						// 0.1sec (by 400kz)
 		if(++UcCnt >= 3 ){
-			
-			UcData[ 0 ] = 0x17;		
+			/* Reboot without automatic Flash download */
+			UcData[ 0 ] = 0x17;		// Reboot Commnand
 			UcData[ 1 ] = 0x01;
 			CntWrt( UcData, 2 ) ;
-			return ( 6 );			
+			return ( 6 );			// TimeOutError
 		}
 	}while(UcData[0] != 0);
+//--------------------------------------------------------------------------------
+// 5. Verify execute
 pr_info("[OIS_Cali]%s:5. Verify execute.\n", __func__);
 
-	
-	UcData[ 0 ] = 0xE4;		
+//--------------------------------------------------------------------------------
+	/* Verify Start  */
+	UcData[ 0 ] = 0xE4;		// Verify Start Command
 	UcData[ 1 ] = 0x01;
 	for(UcCnt = 0; UcCnt < 16 ; UcCnt++ ){
 		UcData[ UcCnt+2 ] = MD5Parity[ UcCnt ];
@@ -655,82 +737,99 @@ pr_info("[OIS_Cali]%s:5. Verify execute.\n", __func__);
 	CntWrt( UcData, 18 ) ;	
 
 	UcCnt = 0;
-	do{		
+	do{		// Max.100msec :
 		WitTim( 20 );
-		CntRd( 0xE4, UcData, 1 ) ;						
+		CntRd( 0xE4, UcData, 1 ) ;						// 0.1sec (by 400kz)
 		if(++UcCnt >= 8 )
 		{
-			
-			UcData[ 0 ] = 0xE5;		
+			/* Reboot without automatic Flash download */
+			UcData[ 0 ] = 0xE5;		// Reboot Commnand
 			UcData[ 1 ] = 0x01;
 			CntWrt( UcData, 2 ) ;
-			return ( 6 );			
+			return ( 6 );			// TimeOutError
 		}
 	}while(UcData[0] != 0);
+//--------------------------------------------------------------------------------
+// 6. Verify Check
 pr_info("[OIS_Cali]%s:6. Verify Check.\n", __func__);
 
-	WPBCtrl(WPB_ON) ;										
+//--------------------------------------------------------------------------------
+	WPBCtrl(WPB_ON) ;										// Enable write protect
 
-	
-    
+	/* Verify Result Read  */
+    /*HTC_START*/
     #if 0
-    
+    /*HTC_END*/
 	CntRd( 0xE5, UcData, VERIFY_SIZE_CRC + VERIFY_SIZE_MD5 ) ;
-    
+    /*HTC_START*/
     #else
     CntRd( 0xE5, UcData, VERIFY_SIZE_CRC ) ;
     #endif
-    
+    /*HTC_END*/
 	for(UcCnt = 0; UcCnt < VERIFY_SIZE_CRC; UcCnt++ ){
 		if(UcData[UcCnt] != CRCParity[UcCnt]){
-			
-			UcData[ 0 ] = 0xE5;		
+			/* Reboot without automatic Flash download */
+			UcData[ 0 ] = 0xE5;		// Reboot Commnand
 			UcData[ 1 ] = 0x01;
 			CntWrt( UcData, 2 ) ;
-			return( 3 );	
+			return( 3 );	// Fail
 		}
 	}
-    
+    /*HTC_START*/
 #if 0
-    
+    /*HTC_END*/
 	for(UcCnt = 0; UcCnt < VERIFY_SIZE_MD5; UcCnt++ ){
 		if(UcData[UcCnt+ VERIFY_SIZE_CRC] != MD5Parity[UcCnt]){
-			
-			UcData[ 0 ] = 0xE5;		
+			/* Reboot without automatic Flash download */
+			UcData[ 0 ] = 0xE5;		// Reboot Commnand
 			UcData[ 1 ] = 0x01;
 			CntWrt( UcData, 2 ) ;
-			return( 3 );	
+			return( 3 );	// Fail
 		}
 	}
-    
+    /*HTC_START*/
 #endif
-    
+    /*HTC_END*/
 
 
-	
-	UcData[ 0 ] = 0xE5;		
+	/* Reboot with automatic Flash download */
+	UcData[ 0 ] = 0xE5;		// Reboot Commnand
 	UcData[ 1 ] = 0x00;
 	CntWrt( UcData, 2 ) ;
+//--------------------------------------------------------------------------------
+// 7. Update NVR MD5
 pr_info("[OIS_Cali]%s:7. Update NVR MD5.\n", __func__);
 
+//--------------------------------------------------------------------------------
 	UcCnt = 0;
 	do{		
 		WitTim( 40 );		
-		
-		IORead32A( SYS_DSP_REMAP	, &UlReadVal ) ;	 	
-		if(++UcCnt >= 10 )		return ( 1 );				
+		/* In the state of reboot, you have to send continuously. */
+		IORead32A( SYS_DSP_REMAP	, &UlReadVal ) ;	 	// Read remap flag  0.35sec (by 400kz)
+		if(++UcCnt >= 10 )		return ( 1 );				// TimeOutError
 	}while(UlReadVal == 0);
+//--------------------------------------------------------------------------------
+// 8. Write calibration ID
+//--------------------------------------------------------------------------------
 	FlashWrite_CalibID( CalibId );
 
 	return ( FlashWrite_NVRVerify() );
 
 }
 
+//********************************************************************************
+// Function Name 	: FlashUpdate
+// Retun Value		: 0: PASS, 1: MAGIC CODE ERASED, 2: VERIFY ERROR 3: NVR VERIFY ERROR
+//					: 4: LSI ERROR, 5: WPB LOW ERROR
+// Argment Value	: NON
+// Explanation		: Flash Write Hall Calibration Data Function
+// History			: First edition 						
+//********************************************************************************
 #define REPEAT_NUM 1
 
 signed short FlashUpdateM(void)
 {
-	
+	/*HTC_START*/
 #if 0
 	UINT8 UcCnt;
 	UINT8 UcAns;
@@ -738,14 +837,14 @@ signed short FlashUpdateM(void)
 	unsigned char UcCnt;
 	unsigned char UcAns;
 #endif
-    
+    /*HTC_END*/
 
 	for(UcCnt = 0; UcCnt < REPEAT_NUM; UcCnt++ ){
 		UcAns = FlashUpdateMain( CcMagicCode_M, ClFromCode_M, CcCRC16Code_M, CcHashCode_M, CALID_M );
 		if( UcAns == 0 ){
 			break;
 		}else{
-			
+			/* WPB port control forcely low voltage & Flash circuit disable forcely*/
 			WPBCtrl(WPB_ON) ;
 			FlashReset();	
 			WitTim( 50 );
@@ -756,6 +855,7 @@ signed short FlashUpdateM(void)
 
 signed short FlashUpdateF(void)
 {
+/*HTC_START*/
 #if 0
 	UINT8 UcCnt;
 	UINT8 UcAns;
@@ -763,14 +863,14 @@ signed short FlashUpdateF(void)
 	unsigned char UcCnt;
 	unsigned char UcAns;
 #endif
-    
+    /*HTC_END*/
 
 	for(UcCnt = 0; UcCnt < REPEAT_NUM; UcCnt++ ){
 		UcAns = FlashUpdateMain( CcMagicCode_F, ClFromCode_F, CcCRC16Code_F, CcHashCode_F, CALID_F );
 		if( UcAns == 0 ){
 			break;
 		}else{
-			
+			/* WPB port control forcely low voltage & Flash circuit disable forcely*/
 			WPBCtrl(WPB_ON) ;
 			FlashReset();	
 			WitTim( 50 );
@@ -821,23 +921,34 @@ int htc_checkFWUpdate(struct msm_sensor_ctrl_t *s_ctrl)
     return rc;
 }
 
+//********************************************************************************
+// Function Name 	: Calibration_VerifyUpdate_PreRead
+// Retun Value		: INT16 0:Ok, 1:CVER error, 5: WPB LOW ERROR
+// Argment Value	: NON
+// Explanation		: Calculation for MD5 of Flash data Function
+// History			: First edition 						
+//********************************************************************************
 signed short Calibration_VerifyUpdate_PreRead( void )
 {
 	unsigned char UcCnt;
 	unsigned short UsNum;
 	unsigned int UlReadVal[4];
 
-	
-	FlashResetRelease();		
-	
+	// Release RESET
+	FlashResetRelease();		// Reset release
+	// Autoconfig
 	FlashAutoConfig();
-	
-	IOWrite32A( FLASHROM_TPGS, 118 );			
-	IOWrite32A( FLASHROM_TPROG , 70 );			
-	IOWrite32A( FLASHROM_TERASES , 92 );		
-	IOWrite32A( FLASHROM_ADR , 0x00010000 );	
-	IOWrite32A( FLASHROM_ACSCNT , (256 -1) );	
-	IOWrite32A( FLASHROM_CMD , 1 );		
+	// Flash access timing Setting
+	IOWrite32A( FLASHROM_TPGS, 118 );			// TPGS Flash spec.  min. 2.5usec max. 3.15uec
+	IOWrite32A( FLASHROM_TPROG , 70 );			// TPROG Flash spec.  min. 6usec max. 7.5usec
+	IOWrite32A( FLASHROM_TERASES , 92 );		// TERASES Flash spec.  Flash spec.  min. 4msec max. 5msec
+//--------------------------------------------------------------------------------
+// 0. Read All NVR ( Backup sequence )
+//--------------------------------------------------------------------------------
+	IOWrite32A( FLASHROM_ADR , 0x00010000 );	// Set NVR address
+//	IOWrite32A( FLASHROM_SEL , 0x07 /*All*/ );	// Flash selector
+	IOWrite32A( FLASHROM_ACSCNT , (256 -1) );	// for 256 byte read count
+	IOWrite32A( FLASHROM_CMD , 1 );		// Read Start
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_RDAT ) ;
 	for ( UsNum = 0; UsNum <= 0xFF; UsNum+=4 )
 	{
@@ -848,39 +959,63 @@ signed short Calibration_VerifyUpdate_PreRead( void )
 			NVR2_Backup[UsNum + UcCnt]   = (unsigned char)(UlReadVal[UcCnt]>>16);
 		}
 	}
-	
-	IOWrite32A( FLASHROM_WPB , 1 );							
-	WPBCtrl(WPB_OFF) ;										
-	if ( ReadWPB() != 1 ){									
-		WPBCtrl(WPB_ON) ;									
+//--------------------------------------------------------------------------------
+// 1. NVR Erase except NVR0
+//--------------------------------------------------------------------------------
+	// WP disable
+	IOWrite32A( FLASHROM_WPB , 1 );							// Disable write protect
+	WPBCtrl(WPB_OFF) ;										// Disable write protect
+	if ( ReadWPB() != 1 ){									// WPB LOW ERROR
+		WPBCtrl(WPB_ON) ;									// Enable write protect
 		FlashReset(); 
 		return ( 5 );
 	}
 
-	IOWrite32A( FLASHROM_ADR , 0x00010000 );				
-	IOWrite32A( FLASHROM_SEL , 0x06  );			
-	IOWrite32A( FLASHROM_CMD , 4 );							
-	
+	IOWrite32A( FLASHROM_ADR , 0x00010000 );				// Set NVR address
+	IOWrite32A( FLASHROM_SEL , 0x06 /*NVR1,2*/ );			// Flash selector
+	IOWrite32A( FLASHROM_CMD , 4 );							// Sector Erase Start	
+	/*5msec wait*/
 	return( 0 );
 }
 
+//********************************************************************************
+// Function Name 	: Reset FlashRelease
+// Retun Value		: NON
+// Argment Value	: NON
+// Explanation		: <Flash Memory> Flash memory Active
+// History			: First edition 						
+//********************************************************************************
 void FlashResetRelease(void)
 {
 	unsigned int UlReadVal;
-	
+	// Release RESET
 	IORead32A( SOFTRESET	, &UlReadVal ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, (UlReadVal | 0x00000010) ) ;	
+	RamWrite32A( CMD_IO_DAT_ACCESS, (UlReadVal | 0x00000010) ) ;	// Reset release
 }
 
+//********************************************************************************
+// Function Name 	: Flash auto configuration
+// Retun Value		: NON
+// Argment Value	: NON
+// Explanation		: <Flash Memory> Initial Setting for Program & Erase
+// History			: First edition 						
+//********************************************************************************
 void FlashAutoConfig( void )
 {
-	IOWrite32A( FLASHROM_WPB	, 1 );			
-	IOWrite32A( FLASHROM_SEL	, 7 );			
-	IOWrite32A( FLASHROM_ADR	, 0x00010100 );	
-	IOWrite32A( FLASHROM_ACSCNT	, 7 );			
-	IOWrite32A( FLASHROM_CMD	, 7 );			
+	IOWrite32A( FLASHROM_WPB	, 1 );			// Disable write protect
+	IOWrite32A( FLASHROM_SEL	, 7 );			// Disable write protect
+	IOWrite32A( FLASHROM_ADR	, 0x00010100 );	// FLA_NVR=1, A[8]=1, A[7..0]=0x00
+	IOWrite32A( FLASHROM_ACSCNT	, 7 );			// for 7 times repeat
+	IOWrite32A( FLASHROM_CMD	, 7 );			// Auto configuration
 }
 
+//********************************************************************************
+// Function Name 	: Calibration_VerifyUpdate
+// Retun Value		: INT16 0:Ok, 1:CVER error, 5: WPB LOW ERROR
+// Argment Value	: NON
+// Explanation		: Calculation for MD5 of Flash data Function
+// History			: First edition 						
+//********************************************************************************
 signed short Calibration_VerifyUpdate( void )
 {
 	unsigned char UcCnt;
@@ -889,12 +1024,15 @@ signed short Calibration_VerifyUpdate( void )
 	unsigned int UlReadVal[4];
     md5_context ctx;
 	CRC_Reg = 0x0000ffff;
-	
+//--------------------------------------------------------------------------------
+// 2. Update Calibration Code & Create Verify data
+//--------------------------------------------------------------------------------
+	// Update Verify Code	
 	for ( UsNum = 0; UsNum <= 0xFF; UsNum++ )	
 	{
-		
-		UcNvrData[0] = NVR0_Backup[ UsNum ];	
-		UcNvrData[1] = FLASH_SECTOR_BUFFER[ UsNum ];		
+		// LSB first 	
+		UcNvrData[0] = NVR0_Backup[ UsNum ];	// NVR0
+		UcNvrData[1] = FLASH_SECTOR_BUFFER[ UsNum ];		// NVR1	
 		CRC16_main( UcNvrData, 2 );
 	}
 	NVR2_Backup[ 0x22 ] = (unsigned char)(CRC_Reg>>8);
@@ -902,15 +1040,18 @@ signed short Calibration_VerifyUpdate( void )
 	md5_starts( &ctx );
 	for ( UsNum = 0; UsNum <= 0xFF; UsNum++ )	
 	{
-		
-		UcNvrData[0] = FLASH_SECTOR_BUFFER[ UsNum ];		
-		UcNvrData[1] = NVR0_Backup[ UsNum ];	
+		// MSB first 		
+		UcNvrData[0] = FLASH_SECTOR_BUFFER[ UsNum ];		// NVR1	
+		UcNvrData[1] = NVR0_Backup[ UsNum ];	// NVR0
 		md5_update( &ctx, UcNvrData, 2);
 	}
 	md5_finish( &ctx, &(NVR2_Backup[ 0x10 ]) );
-	
+//--------------------------------------------------------------------------------
+// 3. Write calibration & verify data to NVR
+//--------------------------------------------------------------------------------
+	// check whether sector erase function finished or not.
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_INT ) ;	
-	for ( UsNum  = 0; UsNum  < 10; UsNum ++ )						
+	for ( UsNum  = 0; UsNum  < 10; UsNum ++ )						// TimeOut 
 	{
 		RamRead32A(  CMD_IO_DAT_ACCESS, UlReadVal ) ;
 		if( !(UlReadVal[0] ==  0x80) ){
@@ -918,26 +1059,31 @@ signed short Calibration_VerifyUpdate( void )
 		}
 		WitTim( 2 );
 	}
-	IOWrite32A( FLASHROM_ACSCNT , 0 );						
-	IOWrite32A( FLASHROM_ADR , 0x00010000 );				
-	for ( UsNum = 0; UsNum <= 0x7F; UsNum++ )				
+//	IOWrite32A( FLASHROM_SEL , 0x06 /*NVR1,2*/ );			// Flash selector
+	IOWrite32A( FLASHROM_ACSCNT , 0 );						// should be set "0"
+	IOWrite32A( FLASHROM_ADR , 0x00010000 );				// Set NVR address
+	for ( UsNum = 0; UsNum <= 0x7F; UsNum++ )				// Max. 127times
 	{
 		IOWriteDouble32A( FLASHROM_WDAT, ((unsigned int)(NVR2_Backup[UsNum])<<16)+((unsigned int)(FLASH_SECTOR_BUFFER[UsNum])<<8),
 						  FLASHROM_CMD,   2 );	
-		
+		/*20usec wait*/
 	}
-	IOWrite32A( FLASHROM_ADR , 0x00010000 + 0x80 );			
-	for ( UsNum = 0; UsNum <= 0x7F; UsNum++ )				
+	IOWrite32A( FLASHROM_ADR , 0x00010000 + 0x80 );			// Set NVR address
+	for ( UsNum = 0; UsNum <= 0x7F; UsNum++ )				// Max. 127times
 	{
 		IOWriteDouble32A( FLASHROM_WDAT, ((unsigned int)(NVR2_Backup[UsNum+0x80])<<16)+((unsigned int)(FLASH_SECTOR_BUFFER[UsNum+0x80])<<8),
 					 	  FLASHROM_CMD , 2 );	
-		
+		/*20usec wait*/
 	}
-	IOWrite32A( FLASHROM_WPB, 0  );							
-	WPBCtrl(WPB_ON) ;										
-	IOWrite32A( FLASHROM_ADR, 0x00010000  );				
-	IOWrite32A( FLASHROM_ACSCNT, (256 -1)  );				
-	IOWrite32A( FLASHROM_CMD , 1  );						
+	IOWrite32A( FLASHROM_WPB, 0  );							// Enable write protect
+	WPBCtrl(WPB_ON) ;										// Enable write protect
+//--------------------------------------------------------------------------------
+// 4. Read Verify 
+//--------------------------------------------------------------------------------
+//	IOWrite32A( FLASHROM_SEL , 0x06 /*NVR1,2*/ );			// Flash selector
+	IOWrite32A( FLASHROM_ADR, 0x00010000  );				// Set NVR address
+	IOWrite32A( FLASHROM_ACSCNT, (256 -1)  );				// for 256 byte read count
+	IOWrite32A( FLASHROM_CMD , 1  );						// Read Start
 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_RDAT ) ;
 	for ( UsNum = 0; UsNum <= 0xFF; UsNum+=4 )
@@ -949,12 +1095,19 @@ signed short Calibration_VerifyUpdate( void )
 			if ( (unsigned char)(UlReadVal[UcCnt]  >>16 ) != NVR2_Backup[UsNum + UcCnt] )		 {	FlashReset();	return(-1); }
 		}
 	}
-	
+	// Set Flash RESET
 	FlashReset();
 		
 	return ( 0 );
 }
 
+//********************************************************************************
+// Function Name 	: [Extra E0 Command] IOWrite32A
+// Retun Value		: None
+// Argment Value	: IOadrs, IOdata
+// Explanation		: Write data to IO area Command
+// History			: First edition 						
+//********************************************************************************
 void IOWrite32A( unsigned int IOadrs, unsigned int IOdata )
 {
 #ifdef __EXTRA_E0_COMMAND__
@@ -974,12 +1127,26 @@ void IOWrite32A( unsigned int IOadrs, unsigned int IOdata )
 #endif	
 };
 
+//********************************************************************************
+// Function Name 	: [Extra E0 Command] IOWrite32A
+// Retun Value		: None
+// Argment Value	: IOadrs, IOdata
+// Explanation		: Write data to IO area Command
+// History			: First edition 						
+//********************************************************************************
 void IORead32A( unsigned int IOadrs, unsigned int *IOdata )
 {
 	RamWrite32A( CMD_IO_ADR_ACCESS, IOadrs ) ;
 	RamRead32A ( CMD_IO_DAT_ACCESS, IOdata ) ;
 };
 
+//********************************************************************************
+// Function Name 	: [Extra E0 Command] IORead4times32A
+// Retun Value		: 4 read data
+// Argment Value	: None
+// Explanation		: Read From IO area Command
+// History			: First edition 						
+//********************************************************************************
 void IORead4times32A( unsigned int* Dat )
 {
 #ifdef __EXTRA_E0_COMMAND__
@@ -1000,6 +1167,14 @@ void IORead4times32A( unsigned int* Dat )
 #endif
 }
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* function name    : CCITT_CRC16                                                        */
+/* input parameter  :                                                                    */
+/* output parameter :                                                                    */
+/* comment          : CCITT CRC-16(FAX)                                                  */
+/*                    CRC‰‰ŽZ‚ÍAŒë‚èŒŸo”\—Í‚Í‘å‚«‚¢‚ªAƒVƒŠƒAƒ‹ˆ—‚Ì‚½‚ß•‰‰×‚ªd‚¢    */
+/*                                                                            2015.08.25 */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 void CRC16_main( unsigned char *p, int Num )
 {
 	unsigned int tmp0, tmp5, tmp12;
@@ -1007,10 +1182,10 @@ void CRC16_main( unsigned char *p, int Num )
 	int i = 0, j = 0;
 
 	for(i=0 ; i<Num ; i++) {
-		temp = (unsigned int)*p++;		
+		temp = (unsigned int)*p++;		// ƒf[ƒ^‚ðÝ’è
 
 		for(j=0 ; j<8 ; j++) {
-			data = temp & 0x00000001;	
+			data = temp & 0x00000001;	// 1bit(LSB)‚ð’Šo
 			temp = temp >> 1;
 
             tmp0 = ((CRC_Reg >> 15) ^ data) & 0x00000001;
@@ -1022,6 +1197,13 @@ void CRC16_main( unsigned char *p, int Num )
 	}
 }
 
+//********************************************************************************
+// Function Name 	: [Extra E0 Command] IOWriteDouble32A
+// Retun Value		: None
+// Argment Value	: IOadrs1, IOdata1, IOadrs2, IOdata2
+// Explanation		: Write data to IO area Command
+// History			: First edition 						
+//********************************************************************************
 void IOWriteDouble32A( unsigned int IOadrs1, unsigned int IOdata1, unsigned int IOadrs2, unsigned int IOdata2 )
 {
 #ifdef __EXTRA_E0_COMMAND__
@@ -1044,12 +1226,19 @@ void IOWriteDouble32A( unsigned int IOadrs1, unsigned int IOdata1, unsigned int 
 	CntWrt( UcBuf, 15 ) ;
 #else
 	RamWrite32A( CMD_IO_ADR_ACCESS, IOadrs1 ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, IOdata1 ) ;					
+	RamWrite32A( CMD_IO_DAT_ACCESS, IOdata1 ) ;					// TPGS Flash spec.  min. 2.5usec max. 3.15uec
 	RamWrite32A( CMD_IO_ADR_ACCESS, IOadrs2 ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, IOdata2 ) ;					
+	RamWrite32A( CMD_IO_DAT_ACCESS, IOdata2 ) ;					// TPGS Flash spec.  min. 2.5usec max. 3.15uec
 #endif	
 };
 
+//********************************************************************************
+// Function Name 	: FlashNVR_ReadData_ByteA
+// Retun Value		: NON
+// Argment Value	: NON
+// Explanation		: <Flash Memory> Read Data
+// History			: First edition 						
+//********************************************************************************
 void FlashNVR_ReadData_ByteA( unsigned short SetAddress, unsigned char * ReadPtr, unsigned short Num )
 {
 	FlashNVR_ReadData_Byte( MakeNVRSelIdx(SetAddress), (unsigned char)(SetAddress & 0xFF), ReadPtr, Num ) ;
@@ -1057,23 +1246,32 @@ void FlashNVR_ReadData_ByteA( unsigned short SetAddress, unsigned char * ReadPtr
 
 unsigned short MakeNVRSelIdx( unsigned short UsAddress )
 {
-	
-	
-	
+	// 0x0000 ~ 0x00FF -> 0
+	// 0x0100 ~ 0x01FF -> 1
+	// 0x0200 ~ 0x02FF -> 2
 	return ((UsAddress >> 8) & 0x03);
 }
 
+//********************************************************************************
+// Function Name 	: WPB level read
+// Retun Value		: 0: WPB active error , 1: WPB active
+// Argment Value	: NON
+// Explanation		: Read WPB level
+// History			: First edition 						
+//********************************************************************************
 unsigned char ReadWPB( void )
 
 {
-#ifdef __OIS_TYPE_XC__					
+#ifdef __OIS_TYPE_XC__					// for LC898123XC	
 	return ( 1 ) ;
 #else		
+/*HTC_START*/
 #if 0
 	UINT32	UlReadVal, UlCnt=0;
 #else
     unsigned int UlReadVal, UlCnt=0;
 #endif
+/*HTC_END*/
 	do{
         IORead32A( IOPLEVR  , &UlReadVal ) ;
         pr_info("%s:UlReadVal = %u UlCnt = %u \n", __func__, UlReadVal, UlCnt);
@@ -1093,6 +1291,7 @@ void WitTim( unsigned short	UsWitTim )
 
 int RamWrite32A( unsigned short RamAddr, unsigned int RamData )
 {
+//Add 32 bit I2C writing function
 	int rc = 0;
 	uint8_t data[4] = {0,0,0,0};
 	struct msm_sensor_ctrl_t *s_ctrl = g_s_ctrl;
@@ -1111,7 +1310,9 @@ int RamWrite32A( unsigned short RamAddr, unsigned int RamData )
 }
 
 int RamRead32A( unsigned short RamAddr, unsigned int * ReadData )
+//void RamRead32A( unsigned short RamAddr, void * ReadData )
 {
+//Add 32 bit I2C writing function   
 	int rc = 0;
 	uint8_t buf[4] = {0,0,0,0};
 	struct msm_sensor_ctrl_t *s_ctrl = g_s_ctrl;
@@ -1160,17 +1361,17 @@ int CntRd( unsigned int addr, unsigned char * PcSetDat, unsigned short UsDatNum 
 
 unsigned short MakeNVRSel( unsigned short UsAddress )
 {
-        
-        
-        
+        // 0x0000 ~ 0x00FF -> SEL 1
+        // 0x0100 ~ 0x01FF -> SEL 2
+        // 0x0200 ~ 0x02FF -> SEL 4
         return 1 << ((UsAddress >> 8) & 0x03);
 }
  
 unsigned int MakeNVRDat( unsigned short UsAddress, unsigned char UcData )
 {
-        
-        
-        
+        // 0x0000 ~ 0x00FF -> 00 00 00 xx
+        // 0x0100 ~ 0x01FF -> 00 00 xx 00
+        // 0x0200 ~ 0x02FF -> 00 xx 00 00
         return (unsigned int)UcData << (((UsAddress >> 8) & 0x03) * 8);
 }
  
@@ -1184,7 +1385,7 @@ void WPBCtrl( unsigned char UcCtrl )
     int rc = 0;
     pr_info("[OIS_Cali]%s:E\n", __func__);
         if (UcCtrl == 0)
-        {       
+        {       // Write Protect ON
             rc = gpio_request_one(g_GYRO_info->flash_rw, 0, "flash_rw");
             pr_info("[OIS_Cali]%s : Write Protect ON  flash_rw = %d\n", __func__, g_GYRO_info->flash_rw);
             if (rc < 0)
@@ -1200,7 +1401,7 @@ void WPBCtrl( unsigned char UcCtrl )
 
             pr_info("[OIS_Cali]%s:Write Protect ON \n", __func__);
         } else {
-            
+            // Write Protect OFF
             rc = gpio_request_one(g_GYRO_info->flash_rw, 0, "flash_rw");
                 pr_info("[OIS_Cali]%s:Write Protect OFF  flash_rw = %d\n", __func__,g_GYRO_info->flash_rw);
             if (rc < 0)
@@ -1223,53 +1424,67 @@ void WPBCtrl( unsigned char UcCtrl )
 
 
 
+//********************************************************************************
+//
+//		<< LC898123 Evaluation Soft >>
+//	    Program Name	: FlsCmd.c
+//		Design			: K.abe
+//		History			: First edition						
+//********************************************************************************
 
 
+//********************************************************************************
+// Function Name 	: Initial Setting
+// Retun Value		: NON
+// Argment Value	: NON
+// Explanation		: <Flash Memory> Initial Setting for Program & Erase
+// History			: First edition 						
+//********************************************************************************
 
 void FlashInitialSetting( char val )
 {
 	unsigned int UlReadVal = 0;
 	int i;
 
-	
+	// If CVER is 123*XD, skip this function
 	RamWrite32A( CMD_IO_ADR_ACCESS, CVER_123 ) ;
 	RamRead32A(  CMD_IO_DAT_ACCESS, &UlReadVal ) ;
 	if( UlReadVal > 0xB4 ) {
 		return ;
 	}
 
-	
+	// Release RESET
 	RamWrite32A( CMD_IO_ADR_ACCESS, SOFTRESET );
 	RamRead32A ( CMD_IO_DAT_ACCESS, &UlReadVal );
-	UlReadVal |= 0x00000010;									
+	UlReadVal |= 0x00000010;									// Reset release
 	
 	RamWrite32A( CMD_IO_DAT_ACCESS, UlReadVal );
 
-	
+	// val not = 0 extend initialize
 	if( val ) {
 		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_TPGS ) ;
-		RamWrite32A( CMD_IO_DAT_ACCESS, 118 ) ;					
+		RamWrite32A( CMD_IO_DAT_ACCESS, 118 ) ;					// TPGS Flash spec.  min. 2.5usec max. 3.15uec
 
 		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_TPROG ) ;
-		RamWrite32A( CMD_IO_DAT_ACCESS, 70 ) ;					
+		RamWrite32A( CMD_IO_DAT_ACCESS, 70 ) ;					// TPROG Flash spec.  min. 6usec max. 7.5usec
 
 		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_TERASES ) ;
-		RamWrite32A( CMD_IO_DAT_ACCESS, 92 ) ;					
+		RamWrite32A( CMD_IO_DAT_ACCESS, 92 ) ;					// TERASES Flash spec.  Flash spec.  min. 4msec max. 5msec
 
 		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_TERASEC ) ;
-		RamWrite32A( CMD_IO_DAT_ACCESS, 115 ) ;					
+		RamWrite32A( CMD_IO_DAT_ACCESS, 115 ) ;					// TERASEC Flash spec.  min. 40msec max. 50msec
 
 		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;
 		RamWrite32A( CMD_IO_DAT_ACCESS, 7 ) ;
 
-		
+		//set Configuration Initialize
 		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;
-		RamWrite32A( CMD_IO_DAT_ACCESS, 0x00000000	  ) ;		
-		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ACSCNT ) ;		
+		RamWrite32A( CMD_IO_DAT_ACCESS, 0x00000000	  ) ;		// FLA_NVR=1, A[8]=1, A[7..0]=0x00
+		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ACSCNT ) ;		// 1 byte access
 		RamWrite32A( CMD_IO_DAT_ACCESS, 0 ) ;
-		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_WPB ) ;		
+		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_WPB ) ;		// Disable write protect
 		RamWrite32A( CMD_IO_DAT_ACCESS, 1 ) ;
-		WPBCtrl(WPB_OFF) ;										
+		WPBCtrl(WPB_OFF) ;										// Disable write protect
 
 		for( i = 0; i < 8; i++ )
 		{
@@ -1277,80 +1492,104 @@ void FlashInitialSetting( char val )
 			RamWrite32A( CMD_IO_DAT_ACCESS, 0xFFFFFFFF ) ; 
 
 			RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_CMD ) ;
-			RamWrite32A( CMD_IO_DAT_ACCESS, 3) ;  				
+			RamWrite32A( CMD_IO_DAT_ACCESS, 3) ;  				// Setconfig
 		}
 
-		
+		// set auto configuration
 		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;
-		RamWrite32A( CMD_IO_DAT_ACCESS, 0x00010100	  ) ;		
+		RamWrite32A( CMD_IO_DAT_ACCESS, 0x00010100	  ) ;		// FLA_NVR=1, A[8]=1, A[7..0]=0x00
 		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ACSCNT ) ;
 		RamWrite32A( CMD_IO_DAT_ACCESS, 7 ) ;
 
 		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_CMD ) ;
-		RamWrite32A( CMD_IO_DAT_ACCESS, 7 ) ;  					
+		RamWrite32A( CMD_IO_DAT_ACCESS, 7 ) ;  					// Auto configuration
 
-		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;		
+		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;		// Flash selector
 		RamWrite32A( CMD_IO_DAT_ACCESS, 0 ) ;
 
-		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_WPB ) ;		
+		RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_WPB ) ;		// Enable write protect
 		RamWrite32A( CMD_IO_DAT_ACCESS, 0 ) ;
-		WPBCtrl(WPB_ON) ;										
+		WPBCtrl(WPB_ON) ;										// Enable write protect
 	}
 }
 
 
+//********************************************************************************
+// Function Name 	: Reset Flash
+// Retun Value		: NON
+// Argment Value	: NON
+// Explanation		: <Flash Memory> Reset flash memory
+// History			: First edition 						
+//********************************************************************************
 
 void FlashReset(void)
 {
 	unsigned int UlReadVal;
 
-	
+	// Set RESET
 	IORead32A( SOFTRESET	, &UlReadVal ) ;
 	RamWrite32A( CMD_IO_DAT_ACCESS, (UlReadVal & (~0x00000010)) ) ;
 }
 
 
+//********************************************************************************
+// Function Name 	: FlashNVRSectorErase_Byte
+// Retun Value		: Address : 0 ~ 767 (Byte)  3 sesion
+// Argment Value	: NON
+// Explanation		: <Flash Memory> Sector Erase
+// History			: First edition
+//********************************************************************************
 signed short FlashNVRSectorErase_Byte( unsigned char SetAddress )
 {
 	unsigned char UcCnt;
 	unsigned int UlReadVal = 0;
 
-	FlashInitialSetting(1);										
+	FlashInitialSetting(1);										// ***** FLASH RELEASE *****
 
-	
-	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;			
+	// NVR Set
+	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;			// Set NVR address
 	RamWrite32A( CMD_IO_DAT_ACCESS, 0x00010000	  ) ;
-	
-	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;			
+	// Sel Set
+	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;			// Flash selector
 	RamWrite32A( CMD_IO_DAT_ACCESS, MakeNVRSel( SetAddress ) ) ;
 
-	WPBCtrl(WPB_OFF) ;											
-	
-	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_WPB ) ;			
+	WPBCtrl(WPB_OFF) ;											// Disable write protect
+	// WP disable
+	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_WPB ) ;			// Disable write protect
 	RamWrite32A( CMD_IO_DAT_ACCESS, 1 ) ;
 	
-	
+	// Execute
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_CMD ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, 4 ) ;						
+	RamWrite32A( CMD_IO_DAT_ACCESS, 4 ) ;						// Sector Erase Start
 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_INT ) ;	
-	for ( UcCnt = 0; UcCnt < 100; UcCnt++ )						
+	for ( UcCnt = 0; UcCnt < 100; UcCnt++ )						// TimeOut 
 	{
 		RamRead32A(  CMD_IO_DAT_ACCESS, &UlReadVal ) ;
 		if( !(UlReadVal ==  0x80) ){
 			break;
 		}
 	}
-	
-	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_WPB ) ;			
+	// WriteProtect Enable
+	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_WPB ) ;			// Enable write protect
 	RamWrite32A( CMD_IO_DAT_ACCESS,0 ) ;
-	WPBCtrl(WPB_ON) ;											
+	WPBCtrl(WPB_ON) ;											// Enable write protect
 
-	FlashReset();												
+	FlashReset();												// ***** FLASH RESET *****
 	return ( 0 );
 }
 
 
+//********************************************************************************
+// Function Name 	: FlashNVR_ReadData_Byte
+// Retun Value		: NON
+// Argment Value	: Sel : selector 0 origin)
+//					: SetAddress : address(0x00 ~ 0xFF)
+//					: ReadPtr : char pointer
+//					: Num : length for read
+// Explanation		: <Flash Memory> Read Data
+// History			: First edition 						
+//********************************************************************************
 void FlashNVR_ReadData_Byte( unsigned char Sel, unsigned char SetAddress, unsigned char * ReadPtr, unsigned short Num )
 {
 	unsigned short UsNum;
@@ -1360,20 +1599,20 @@ void FlashNVR_ReadData_Byte( unsigned char Sel, unsigned char SetAddress, unsign
 	if( Num == 0 || Num > 256 ) return; 
 	if( SetAddress + Num > 256 ) return; 
 
-	
+	// Release RESET
 	FlashResetRelease();
-	
+	// Auto configuration start
 	FlashAutoConfig();
 
-	
-	IOWrite32A( FLASHROM_ACSCNT	,  Num -1 ) ;			
-	
-	IOWrite32A( FLASHROM_SEL	, (1<<Sel) ) ;			
+	// Count Set
+	IOWrite32A( FLASHROM_ACSCNT	,  Num -1 ) ;			// for 1 byte read count
+	// Sel Set
+	IOWrite32A( FLASHROM_SEL	, (1<<Sel) ) ;			// Flash selector
 
-	
-	IOWrite32A( FLASHROM_ADR	, 0x00010000 +  SetAddress ) ;		
-	
-	IOWrite32A( FLASHROM_CMD	, 1 ) ;					
+	// NVR Addres Set
+	IOWrite32A( FLASHROM_ADR	, 0x00010000 +  SetAddress ) ;		// Set NVR address
+	// Read Start
+	IOWrite32A( FLASHROM_CMD	, 1 ) ;					// Read Start		
 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_RDAT ) ;
 	for ( UsNum = 0; UsNum < Num; UsNum++ )
@@ -1382,10 +1621,18 @@ void FlashNVR_ReadData_Byte( unsigned char Sel, unsigned char SetAddress, unsign
 		ReadPtr[ UsNum ] = (unsigned char)(UlReadVal>>(Sel*8) );
 	}
 
-	FlashReset();												
+	FlashReset();												// ***** FLASH RESET *****
 }
 
 #ifdef __CRC_VERIFY__
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* function name    : CCITT_CRC16                                                        */
+/* input parameter  :                                                                    */
+/* output parameter :                                                                    */
+/* comment          : CCITT CRC-16(FAX)                                                  */
+/*                    CRCZÍAëèo\ÍÍå«¢ªAVAÌ½ß×ªd¢    */
+/*                                                                            2015.08.25 */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 unsigned int CRC_Reg = 0x0000ffff;
 void CRC16_main( unsigned char *p, int Num )
 {
@@ -1393,10 +1640,10 @@ void CRC16_main( unsigned char *p, int Num )
 	unsigned int temp, data;
 
 	for(int i=0 ; i<Num ; i++) {
-		temp = (unsigned int)*p++;		
+		temp = (unsigned int)*p++;		// f[^ðÝè
 
 		for(int j=0 ; j<8 ; j++) {
-			data = temp & 0x00000001;	
+			data = temp & 0x00000001;	// 1bit(LSB)ðo
 			temp = temp >> 1;
 
             tmp0 = ((CRC_Reg >> 15) ^ data) & 0x00000001;
@@ -1408,8 +1655,16 @@ void CRC16_main( unsigned char *p, int Num )
 	}
 }
 
+//********************************************************************************
+// Function Name 	: FlashMainCrc
+// Retun Value		: NON
+// Argment Value	: UINT16 * pCRC
+// Explanation		: Calculate the Main array's CRC16
+// History			: First edition 						
+//********************************************************************************
 void FlashMainCrc( unsigned char * pCRC )
 {
+/*HTC_START*/
 #if 0
 	UINT32 UlNum;
 	UINT32 UlReadVal;
@@ -1419,9 +1674,10 @@ void FlashMainCrc( unsigned char * pCRC )
 	unsigned int UlReadVal;
 	unsigned char UcFlaData[3];
 #endif
-    
+    /*HTC_END*/
 
 	CRC_Reg = 0x0000ffff;
+// Main Area Read 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;
 	RamWrite32A( CMD_IO_DAT_ACCESS, 7 ) ;
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;
@@ -1429,12 +1685,12 @@ void FlashMainCrc( unsigned char * pCRC )
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ACSCNT	 ) ;
 	RamWrite32A( CMD_IO_DAT_ACCESS, 4096 - 1 ) ;
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_CMD ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, 1) ;  					
+	RamWrite32A( CMD_IO_DAT_ACCESS, 1) ;  					// Read Start
 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_RDAT ) ;
 	for (UlNum= 0 ; UlNum< 4096 ; UlNum++)
 	{
-		
+		// LSB first 
 		RamRead32A( CMD_IO_DAT_ACCESS , &UlReadVal ) ;
 		UcFlaData[0] = UlReadVal & 0xFF;
 		UcFlaData[1] = (UlReadVal >> 8) & 0xFF;
@@ -1446,8 +1702,16 @@ void FlashMainCrc( unsigned char * pCRC )
 
 }
 
+//********************************************************************************
+// Function Name 	: FlashNvrCrc
+// Retun Value		: NON
+// Argment Value	: UINT16 * pCRC
+// Explanation		: Calculate the NVR's CRC16
+// History			: First edition 						
+//********************************************************************************
 void FlashNvrCrc( unsigned char * pCRC )
 {
+/*HTC_START*/
 #if 0
 	UINT32 UlNum;
 	UINT32 UlReadVal;	
@@ -1457,24 +1721,26 @@ void FlashNvrCrc( unsigned char * pCRC )
 	unsigned int UlReadVal;   
 	unsigned char UcNvrData[2];
 #endif
+/*HTC_END*/
 
 	CRC_Reg = 0x0000ffff;
-	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;			
-	RamWrite32A( CMD_IO_DAT_ACCESS, 3 ) ;						
-	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;			
+// NVR0,1 Read
+	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;			// Flash selector
+	RamWrite32A( CMD_IO_DAT_ACCESS, 3 ) ;						// NVR1_1 + NVR1_2
+	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;			// Set address
 	RamWrite32A( CMD_IO_DAT_ACCESS, 0x00010000 ) ;
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ACSCNT ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, 256 - 1 ) ;					
+	RamWrite32A( CMD_IO_DAT_ACCESS, 256 - 1 ) ;					// for 256 bytes read count
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_CMD ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, 1 ) ;  						
+	RamWrite32A( CMD_IO_DAT_ACCESS, 1 ) ;  						// Read Start
 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_RDAT ) ;
 	for ( UlNum = 0; UlNum < 256; UlNum++ )
 	{
-		
+		// LSB first 	
 		RamRead32A( CMD_IO_DAT_ACCESS, &UlReadVal ) ;
-		UcNvrData[0] = UlReadVal & 0xFF;				
-		UcNvrData[1] = (UlReadVal >> 8) & 0xFF;			
+		UcNvrData[0] = UlReadVal & 0xFF;				// NVR1_1
+		UcNvrData[1] = (UlReadVal >> 8) & 0xFF;			// NVR1_2
 		CRC16_main( UcNvrData, 2 );
 	}
 	pCRC[0] = (UINT8)(CRC_Reg>>8);
@@ -1482,6 +1748,13 @@ void FlashNvrCrc( unsigned char * pCRC )
 
 }
 #else
+//********************************************************************************
+// Function Name 	: FlashMainMD5
+// Retun Value		: NON
+// Argment Value	: UINT8 * md5[16]
+// Explanation		: Calculation for MD5 of Flash data Function
+// History			: First edition 						
+//********************************************************************************
 void FlashMainMd5( unsigned char * pMD5 )
 {
 	unsigned int UlNum;
@@ -1492,6 +1765,7 @@ void FlashMainMd5( unsigned char * pMD5 )
 
 	md5_starts( &ctx );
 
+// Main Area Read 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;
 	RamWrite32A( CMD_IO_DAT_ACCESS, 7 ) ;
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;
@@ -1499,12 +1773,12 @@ void FlashMainMd5( unsigned char * pMD5 )
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ACSCNT	 ) ;
 	RamWrite32A( CMD_IO_DAT_ACCESS, 4096 - 1 ) ;
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_CMD ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, 1) ;  					
+	RamWrite32A( CMD_IO_DAT_ACCESS, 1) ;  					// Read Start
 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_RDAT ) ;		
 	for (UlNum= 0 ; UlNum< 4096 ; UlNum++)
 	{
-		
+		// MSB first 	
 		RamRead32A( CMD_IO_DAT_ACCESS , &UlReadVal ) ;
 		UcFlaData[0] = (UlReadVal >> 16) & 0xFF;
 		UcFlaData[1] = (UlReadVal >> 8) & 0xFF;
@@ -1515,6 +1789,13 @@ void FlashMainMd5( unsigned char * pMD5 )
 
 }
 
+//********************************************************************************
+// Function Name 	: FlashNvrMD5
+// Retun Value		: NON
+// Argment Value	: UINT8 * md5[16]
+// Explanation		: Calculation for MD5 of Flash data Function
+// History			: First edition 						
+//********************************************************************************
 void FlashNvrMd5( unsigned char * pMD5 )
 {
 	unsigned char UcNvrData[2];
@@ -1524,22 +1805,23 @@ void FlashNvrMd5( unsigned char * pMD5 )
 
 	md5_starts( &ctx );
 
-	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;			
-	RamWrite32A( CMD_IO_DAT_ACCESS, 3 ) ;						
-	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;			
+// NVR0,1 Read
+	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_SEL ) ;			// Flash selector
+	RamWrite32A( CMD_IO_DAT_ACCESS, 3 ) ;						// NVR1_1 + NVR1_2
+	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ADR ) ;			// Set address
 	RamWrite32A( CMD_IO_DAT_ACCESS, 0x00010000 ) ;
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_ACSCNT ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, 256 - 1 ) ;					
+	RamWrite32A( CMD_IO_DAT_ACCESS, 256 - 1 ) ;					// for 256 bytes read count
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_CMD ) ;
-	RamWrite32A( CMD_IO_DAT_ACCESS, 1 ) ;  						
+	RamWrite32A( CMD_IO_DAT_ACCESS, 1 ) ;  						// Read Start
 
 	RamWrite32A( CMD_IO_ADR_ACCESS, FLASHROM_RDAT ) ;
 	for ( UlNum = 0; UlNum < 256; UlNum++ )
 	{
-		
+		// MSB first 		
 		RamRead32A( CMD_IO_DAT_ACCESS, &UlReadVal ) ;
-		UcNvrData[0] = (UlReadVal >> 8) & 0xFF;			
-		UcNvrData[1] = UlReadVal & 0xFF;				
+		UcNvrData[0] = (UlReadVal >> 8) & 0xFF;			// NVR1_2
+		UcNvrData[1] = UlReadVal & 0xFF;				// NVR1_1
 		md5_update( &ctx, (unsigned char *)UcNvrData, 2 );
 	}
 	md5_finish( &ctx, pMD5 );
@@ -1548,8 +1830,22 @@ void FlashNvrMd5( unsigned char * pMD5 )
 #endif
 
 
+//********************************************************************************
+//
+//		<< LC898123 Evaluation Soft >>
+//	    Program Name	: OisCmd.c
+//		Design			: Y.Shigoeka
+//		History			: First edition						
+//********************************************************************************
 
 
+//********************************************************************************
+// Function Name 	: OscStb
+// Retun Value		: NON
+// Argment Value	: Command Parameter
+// Explanation		: Osc Standby Function
+// History			: First edition 						
+//********************************************************************************
 void	OscStb( void )
 {
 	RamWrite32A( CMD_IO_ADR_ACCESS , STBOSCPLL ) ;

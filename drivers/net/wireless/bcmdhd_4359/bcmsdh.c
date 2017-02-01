@@ -28,7 +28,11 @@
  * $Id: bcmsdh.c 514727 2014-11-12 03:02:48Z $
  */
 
+/**
+ * @file bcmsdh.c
+ */
 
+/* ****************** BCMSDH Interface Functions *************************** */
 
 #include <typedefs.h>
 #include <bcmdevs.h>
@@ -38,14 +42,15 @@
 #include <siutils.h>
 #include <osl.h>
 
-#include <bcmsdh.h>	
-#include <bcmsdbus.h>	
-#include <sbsdio.h>	
-#include <sdio.h>	
+#include <bcmsdh.h>	/* BRCM API for SDIO clients (such as wl, dhd) */
+#include <bcmsdbus.h>	/* common SDIO/controller interface */
+#include <sbsdio.h>	/* SDIO device core hardware definitions. */
+#include <sdio.h>	/* SDIO Device and Protocol Specs */
 
 #define SDIOH_API_ACCESS_RETRY_LIMIT	2
 const uint bcmsdh_msglevel = BCMSDH_ERROR_VAL;
 
+/* local copy of bcm sd handler */
 bcmsdh_info_t * l_bcmsdh = NULL;
 
 #if 0 && (NDISVER < 0x0630)
@@ -63,6 +68,15 @@ bcmsdh_enable_hw_oob_intr(bcmsdh_info_t *sdh, bool enable)
 }
 #endif
 
+/* Attach BCMSDH layer to SDIO Host Controller Driver
+ *
+ * @param osh OSL Handle.
+ * @param cfghdl Configuration Handle.
+ * @param regsva Virtual address of controller registers.
+ * @param irq Interrupt number of SDIO controller.
+ *
+ * @return bcmsdh_info_t Handle to BCMSDH context.
+ */
 bcmsdh_info_t *
 bcmsdh_attach(osl_t *osh, void *sdioh, ulong *regsva)
 {
@@ -78,10 +92,10 @@ bcmsdh_attach(osl_t *osh, void *sdioh, ulong *regsva)
 	bcmsdh->init_success = TRUE;
 	*regsva = SI_ENUM_BASE;
 
-	
+	/* Report the BAR, to fix if needed */
 	bcmsdh->sbwad = SI_ENUM_BASE;
 
-	
+	/* save the handler locally */
 	l_bcmsdh = bcmsdh;
 
 	return bcmsdh;
@@ -189,10 +203,18 @@ bcmsdh_devremove_reg(void *sdh, bcmsdh_cb_fn_t fn, void *argh)
 {
 	ASSERT(sdh);
 
-	
+	/* don't support yet */
 	return BCME_UNSUPPORTED;
 }
 
+/**
+ * Read from SDIO Configuration Space
+ * @param sdh SDIO Host context.
+ * @param func_num Function number to read from.
+ * @param addr Address to read from.
+ * @param err Error return.
+ * @return value read from SDIO configuration space.
+ */
 uint8
 bcmsdh_cfg_read(void *sdh, uint fnc_num, uint32 addr, int *err)
 {
@@ -210,7 +232,7 @@ bcmsdh_cfg_read(void *sdh, uint fnc_num, uint32 addr, int *err)
 
 #ifdef SDIOH_API_ACCESS_RETRY_LIMIT
 	do {
-		if (retry)	
+		if (retry)	/* wait for 1 ms till bus get settled down */
 			OSL_DELAY(1000);
 #endif
 	status = sdioh_cfg_read(bcmsdh->sdioh, fnc_num, addr, (uint8 *)&data);
@@ -242,7 +264,7 @@ bcmsdh_cfg_write(void *sdh, uint fnc_num, uint32 addr, uint8 data, int *err)
 
 #ifdef SDIOH_API_ACCESS_RETRY_LIMIT
 	do {
-		if (retry)	
+		if (retry)	/* wait for 1 ms till bus get settled down */
 			OSL_DELAY(1000);
 #endif
 	status = sdioh_cfg_write(bcmsdh->sdioh, fnc_num, addr, (uint8 *)&data);
@@ -323,7 +345,7 @@ bcmsdh_cis_read(void *sdh, uint func, uint8 *cis, uint length)
 	status = sdioh_cis_read(bcmsdh->sdioh, func, cis, length);
 
 	if (ascii) {
-		
+		/* Move binary bits to tmp and format them into the provided buffer. */
 		if ((tmp_buf = (uint8 *)MALLOC(bcmsdh->osh, length)) == NULL) {
 			BCMSDH_ERROR(("%s: out of memory\n", __FUNCTION__));
 			return BCME_NOMEM;
@@ -362,7 +384,7 @@ bcmsdhsdio_set_sbaddr_window(void *sdh, uint32 address, bool force_set)
 		if (!err)
 			bcmsdh->sbwad = bar0;
 		else
-			
+			/* invalidate cached window var */
 			bcmsdh->sbwad = 0;
 
 	}
@@ -398,7 +420,7 @@ bcmsdh_reg_read(void *sdh, uint32 addr, uint size)
 
 	BCMSDH_INFO(("uint32data = 0x%x\n", word));
 
-	
+	/* if ok, return appropriately masked word */
 	if (SDIOH_API_SUCCESS(status)) {
 		switch (size) {
 			case sizeof(uint8):
@@ -413,7 +435,7 @@ bcmsdh_reg_read(void *sdh, uint32 addr, uint size)
 		}
 	}
 
-	
+	/* otherwise, bad sdio access or invalid size */
 	BCMSDH_ERROR(("%s: error reading addr 0x%04x size %d\n", __FUNCTION__, addr, size));
 	return 0xFFFFFFFF;
 }
@@ -474,7 +496,7 @@ bcmsdh_recv_buf(void *sdh, uint32 addr, uint fn, uint flags,
 	BCMSDH_INFO(("%s:fun = %d, addr = 0x%x, size = %d\n",
 	             __FUNCTION__, fn, addr, nbytes));
 
-	
+	/* Async not implemented yet */
 	ASSERT(!(flags & SDIO_REQ_ASYNC));
 	if (flags & SDIO_REQ_ASYNC)
 		return BCME_UNSUPPORTED;
@@ -512,7 +534,7 @@ bcmsdh_send_buf(void *sdh, uint32 addr, uint fn, uint flags,
 	BCMSDH_INFO(("%s:fun = %d, addr = 0x%x, size = %d\n",
 	            __FUNCTION__, fn, addr, nbytes));
 
-	
+	/* Async not implemented yet */
 	ASSERT(!(flags & SDIO_REQ_ASYNC));
 	if (flags & SDIO_REQ_ASYNC)
 		return BCME_UNSUPPORTED;
@@ -619,6 +641,7 @@ void *bcmsdh_get_sdioh(bcmsdh_info_t *sdh)
 	return sdh->sdioh;
 }
 
+/* Function to pass device-status bits to DHD. */
 uint32
 bcmsdh_get_dstatus(void *sdh)
 {

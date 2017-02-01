@@ -106,8 +106,14 @@ static void i2c_msm_dbg_dump_diag(struct i2c_msm_ctrl *ctrl,
 	}
 
 	if ((xfer->err == I2C_MSM_ERR_NACK) && (xfer->msgs->addr == ctrl->rsrcs.nack_as_normal)) {
+		/*dev_info(ctrl->dev,
+			"%s: msgs(n:%d cur:%d %s) bc(rx:%zu tx:%zu) mode:%s slv_addr:0x%0x MSTR_STS:0x%08x OPER:0x%08x\n",
+			str, xfer->msg_cnt, xfer->cur_buf.msg_idx,
+			xfer->cur_buf.is_rx ? "rx" : "tx", xfer->rx_cnt, xfer->tx_cnt,
+			i2c_msm_mode_str_tbl[xfer->mode_id], xfer->msgs->addr,
+			status, qup_op);*/
 	} else {
-		
+		/* dump xfer details */
 		dev_err(ctrl->dev,
 			"%s: msgs(n:%d cur:%d %s) bc(rx:%zu tx:%zu) mode:%s slv_addr:0x%0x MSTR_STS:0x%08x OPER:0x%08x\n",
 			str, xfer->msg_cnt, xfer->cur_buf.msg_idx,

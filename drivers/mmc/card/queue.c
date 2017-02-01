@@ -32,6 +32,10 @@
  */
 #define DEFAULT_NUM_REQS_TO_START_PACK 17
 
+/*
+  * This global sg point is for keep memory for SD card.
+  * To avoid out of memory problem.
+  */
 struct scatterlist	*cur_sg = NULL;
 struct scatterlist	*prev_sg = NULL;
 

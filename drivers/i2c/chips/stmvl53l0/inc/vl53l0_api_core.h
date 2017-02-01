@@ -97,4 +97,4 @@ uint16_t VL53L0_encode_timeout(uint32_t timeout_macro_clks);
 }
 #endif
 
-#endif 
+#endif /* _VL53L0_API_CORE_H_ */

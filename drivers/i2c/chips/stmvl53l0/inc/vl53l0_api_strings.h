@@ -68,7 +68,7 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 	#define  VL53L0_STRING_DEVICE_INFO_NAME_ES1                         ""
 	#define  VL53L0_STRING_DEVICE_INFO_TYPE                             ""
 
-	
+	/* PAL ERROR strings */
 	#define  VL53L0_STRING_ERROR_NONE                                   ""
 	#define  VL53L0_STRING_ERROR_CALIBRATION_WARNING                    ""
 	#define  VL53L0_STRING_ERROR_MIN_CLIPPED                            ""
@@ -91,7 +91,7 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 
 
 
-	
+	/* Range Status */
 	#define  VL53L0_STRING_RANGESTATUS_NONE                             ""
 	#define  VL53L0_STRING_RANGESTATUS_RANGEVALID                       ""
 	#define  VL53L0_STRING_RANGESTATUS_SIGMA                            ""
@@ -101,7 +101,7 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 	#define  VL53L0_STRING_RANGESTATUS_HW                               ""
 
 
-	
+	/* Range Status */
 	#define  VL53L0_STRING_STATE_POWERDOWN                              ""
 	#define  VL53L0_STRING_STATE_WAIT_STATICINIT                        ""
 	#define  VL53L0_STRING_STATE_STANDBY                                ""
@@ -111,7 +111,7 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 	#define  VL53L0_STRING_STATE_ERROR                                  ""
 
 
-	
+	/* Device Specific */
 	#define  VL53L0_STRING_DEVICEERROR_NONE                             ""
 	#define  VL53L0_STRING_DEVICEERROR_VCSELCONTINUITYTESTFAILURE       ""
 	#define  VL53L0_STRING_DEVICEERROR_VCSELWATCHDOGTESTFAILURE         ""
@@ -129,13 +129,13 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 	#define  VL53L0_STRING_DEVICEERROR_RANGEIGNORETHRESHOLD             ""
 	#define  VL53L0_STRING_DEVICEERROR_UNKNOWN                          ""
 
-	
+	/* Check Enable */
 	#define  VL53L0_STRING_CHECKENABLE_SIGMA_FINAL_RANGE                ""
 	#define  VL53L0_STRING_CHECKENABLE_SIGNAL_RATE_FINAL_RANGE          ""
 	#define  VL53L0_STRING_CHECKENABLE_SIGNAL_REF_CLIP                  ""
 	#define  VL53L0_STRING_CHECKENABLE_RANGE_IGNORE_THRESHOLD           ""
 
-	
+	/* Sequence Step */
 	#define  VL53L0_STRING_SEQUENCESTEP_TCC                             ""
 	#define  VL53L0_STRING_SEQUENCESTEP_DSS                             ""
 	#define  VL53L0_STRING_SEQUENCESTEP_MSRC                            ""
@@ -149,7 +149,7 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 	#define  VL53L0_STRING_DEVICE_INFO_NAME_ES1      "VL53L0 ES1 or later"
 	#define  VL53L0_STRING_DEVICE_INFO_TYPE          "VL53L0"
 
-	
+	/* PAL ERROR strings */
 	#define  VL53L0_STRING_ERROR_NONE \
 			"No Error"
 	#define  VL53L0_STRING_ERROR_CALIBRATION_WARNING \
@@ -190,7 +190,7 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 
 
 
-	
+	/* Range Status */
 	#define  VL53L0_STRING_RANGESTATUS_NONE                 "No Update"
 	#define  VL53L0_STRING_RANGESTATUS_RANGEVALID           "Range Valid"
 	#define  VL53L0_STRING_RANGESTATUS_SIGMA                "Sigma Fail"
@@ -200,7 +200,7 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 	#define  VL53L0_STRING_RANGESTATUS_HW                   "Hardware Fail"
 
 
-	
+	/* Range Status */
 	#define  VL53L0_STRING_STATE_POWERDOWN               "POWERDOWN State"
 	#define  VL53L0_STRING_STATE_WAIT_STATICINIT \
 			"Wait for staticinit State"
@@ -211,7 +211,7 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 	#define  VL53L0_STRING_STATE_ERROR                   "ERROR State"
 
 
-	
+	/* Device Specific */
 	#define  VL53L0_STRING_DEVICEERROR_NONE                   "No Update"
 	#define  VL53L0_STRING_DEVICEERROR_VCSELCONTINUITYTESTFAILURE \
 			"VCSEL Continuity Test Failure"
@@ -244,7 +244,7 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 	#define  VL53L0_STRING_DEVICEERROR_UNKNOWN \
 			"Unknown error code"
 
-	
+	/* Check Enable */
 	#define  VL53L0_STRING_CHECKENABLE_SIGMA_FINAL_RANGE \
 			"SIGMA FINAL RANGE"
 	#define  VL53L0_STRING_CHECKENABLE_SIGNAL_RATE_FINAL_RANGE \
@@ -254,13 +254,13 @@ VL53L0_Error VL53L0_get_limit_check_info(VL53L0_DEV Dev, uint16_t LimitCheckId,
 	#define  VL53L0_STRING_CHECKENABLE_RANGE_IGNORE_THRESHOLD \
 			"RANGE IGNORE THRESHOLD"
 
-	
+	/* Sequence Step */
 	#define  VL53L0_STRING_SEQUENCESTEP_TCC                   "TCC"
 	#define  VL53L0_STRING_SEQUENCESTEP_DSS                   "DSS"
 	#define  VL53L0_STRING_SEQUENCESTEP_MSRC                  "MSRC"
 	#define  VL53L0_STRING_SEQUENCESTEP_PRE_RANGE             "PRE RANGE"
 	#define  VL53L0_STRING_SEQUENCESTEP_FINAL_RANGE           "FINAL RANGE"
-#endif 
+#endif /* USE_EMPTY_STRING */
 
 
 #ifdef __cplusplus

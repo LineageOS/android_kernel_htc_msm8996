@@ -41,11 +41,11 @@ enum wl_vendor_subcmd {
 
 
 struct bcm_nlmsg_hdr {
-	uint cmd;	
-	int len;	
-	uint offset;	
-	uint set;	
-	uint magic;	
+	uint cmd;	/* common ioctl definition */
+	int len;	/* expected return buffer length */
+	uint offset;	/* user buffer offset */
+	uint set;	/* get or set request optional */
+	uint magic;	/* magic number for verification */
 };
 
 enum bcmnl_attrs {
@@ -59,10 +59,10 @@ enum bcmnl_attrs {
 };
 
 struct nl_prv_data {
-	int err;			
-	void *data;			
-	uint len;			
-	struct bcm_nlmsg_hdr *nlioc;	
+	int err;			/* return result */
+	void *data;			/* ioctl return buffer pointer */
+	uint len;			/* ioctl return buffer length */
+	struct bcm_nlmsg_hdr *nlioc;	/* bcm_nlmsg_hdr header pointer */
 };
 
-#endif 
+#endif /* _brcm_nl80211_h_ */

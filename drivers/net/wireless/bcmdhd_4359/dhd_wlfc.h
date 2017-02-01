@@ -32,6 +32,7 @@
 #include <dhd_qmon.h>
 #endif
 
+/* #define OOO_DEBUG */
 
 #define KERNEL_THREAD_RETURN_TYPE int
 
@@ -43,8 +44,9 @@ typedef bool (*f_processpkt_t)(void* p, void* arg);
 #define WLFC_NO_TRAFFIC	-1
 #define WLFC_MULTI_TRAFFIC 0
 
-#define BUS_RETRIES 1	
+#define BUS_RETRIES 1	/* # of retries before aborting a bus tx operation */
 
+/** 16 bits will provide an absolute max of 65536 slots */
 #define WLFC_HANGER_MAXITEMS 3072
 
 #define WLFC_HANGER_ITEM_STATE_FREE			1
@@ -58,14 +60,14 @@ typedef bool (*f_processpkt_t)(void* p, void* arg);
 	(WLFC_HANGER_PKT_STATE_TXSTATUS | WLFC_HANGER_PKT_STATE_BUSRETURNED)
 
 typedef enum {
-	Q_TYPE_PSQ, 
-	Q_TYPE_AFQ  
+	Q_TYPE_PSQ, /**< Power Save Queue, contains both delayed and suppressed packets */
+	Q_TYPE_AFQ  /**< At Firmware Queue */
 } q_type_t;
 
 typedef enum ewlfc_packet_state {
-	eWLFC_PKTTYPE_NEW,        
-	eWLFC_PKTTYPE_DELAYED,    
-	eWLFC_PKTTYPE_SUPPRESSED, 
+	eWLFC_PKTTYPE_NEW,        /**< unused in the code (Jan 2015) */
+	eWLFC_PKTTYPE_DELAYED,    /**< packet did not enter wlfc yet */
+	eWLFC_PKTTYPE_SUPPRESSED, /**< packet entered wlfc and was suppressed by the dongle */
 	eWLFC_PKTTYPE_MAX
 } ewlfc_packet_state_t;
 
@@ -79,7 +81,7 @@ typedef enum ewlfc_mac_entry_action {
 typedef struct wlfc_hanger_item {
 	uint8	state;
 	uint8   gen;
-	uint8	pkt_state;     
+	uint8	pkt_state;     /**< bitmask containing eg WLFC_HANGER_PKT_STATE_TXCOMPLETE */
 	uint8	pkt_txstatus;
 	uint32	identifier;
 	void*	pkt;
@@ -89,6 +91,7 @@ typedef struct wlfc_hanger_item {
 	struct wlfc_hanger_item *next;
 } wlfc_hanger_item_t;
 
+/** hanger contains packets that have been posted by the dhd to the dongle and are expected back */
 typedef struct wlfc_hanger {
 	int max_items;
 	uint32 pushed;
@@ -103,10 +106,10 @@ typedef struct wlfc_hanger {
 #define WLFC_HANGER_SIZE(n)	((sizeof(wlfc_hanger_t) - \
 	sizeof(wlfc_hanger_item_t)) + ((n)*sizeof(wlfc_hanger_item_t)))
 
-#define WLFC_STATE_OPEN		1	
-#define WLFC_STATE_CLOSE	2	
+#define WLFC_STATE_OPEN		1	/**< remote MAC is able to receive packets */
+#define WLFC_STATE_CLOSE	2	/**< remote MAC is in power save mode */
 
-#define WLFC_PSQ_PREC_COUNT		((AC_COUNT + 1) * 2) 
+#define WLFC_PSQ_PREC_COUNT		((AC_COUNT + 1) * 2) /**< 2 for each AC traffic and bc/mc */
 #define WLFC_AFQ_PREC_COUNT		(AC_COUNT + 1)
 
 #define WLFC_PSQ_LEN			2048
@@ -123,41 +126,42 @@ typedef struct wlfc_hanger {
 
 #define WLFC_LOG_BUF_SIZE		(1024*1024)
 
+/** Properties related to a remote MAC entity */
 typedef struct wlfc_mac_descriptor {
-	uint8 occupied;         
+	uint8 occupied;         /**< if 0, this descriptor is unused and thus can be (re)used */
 	uint8 interface_id;
-	uint8 iftype;           
-	uint8 state;            
-	uint8 ac_bitmap;        
+	uint8 iftype;           /**< eg WLC_E_IF_ROLE_STA */
+	uint8 state;            /**< eg WLFC_STATE_OPEN */
+	uint8 ac_bitmap;        /**< automatic power save delivery (APSD) */
 	uint8 requested_credit;
-	uint8 requested_packet; 
+	uint8 requested_packet; /**< unit: [number of packets] */
 	uint8 ea[ETHER_ADDR_LEN];
 
-	
+	/** maintain (MAC,AC) based seq count for packets going to the device. As well as bc/mc. */
 	uint8 seq[AC_COUNT + 1];
-	uint8 generation;       
-	struct pktq	psq;    
-	
+	uint8 generation;       /**< toggles between 0 and 1 */
+	struct pktq	psq;    /**< contains both 'delayed' and 'suppressed' packets */
+	/** packets at firmware queue */
 	struct pktq	afq;
-	
+	/** The AC pending bitmap that was reported to the fw at last change */
 	uint8 traffic_lastreported_bmp;
-	
+	/** The new AC pending bitmap */
 	uint8 traffic_pending_bmp;
-	
+	/** 1= send on next opportunity */
 	uint8 send_tim_signal;
-	uint8 mac_handle;          
-	
+	uint8 mac_handle;          /**< mac handles are assigned by the dongle */
+	/** Number of packets at dongle for this entry. */
 	int transit_count;
-	
+	/** Number of suppression to wait before evict from delayQ */
 	int suppr_transit_count;
-	
+	/** pkt sent to bus but no bus TX complete yet */
 	int onbus_pkts_count;
-	
+	/** flag. TRUE when remote MAC is in suppressed state */
 	uint8 suppressed;
 
 #ifdef QMONITOR
 	dhd_qmon_t qmon;
-#endif 
+#endif /* QMONITOR */
 
 #ifdef PROP_TXSTATUS_DEBUG
 	uint32 dstncredit_sent_packets;
@@ -169,6 +173,7 @@ typedef struct wlfc_mac_descriptor {
 	struct wlfc_mac_descriptor* next;
 } wlfc_mac_descriptor_t;
 
+/** A 'commit' is the hand over of a packet from the host OS layer to the layer below (eg DBUS) */
 typedef struct dhd_wlfc_commit_info {
 	uint8					needs_hdr;
 	uint8					ac_fifo_credit_spent;
@@ -214,12 +219,12 @@ typedef struct athost_wl_stat_counters {
 	uint32	wlc_tossed_pkts;
 	uint32	dhd_hdrpulls;
 	uint32	generic_error;
-	
+	/* an extra one for bc/mc traffic */
 	uint32	send_pkts[AC_COUNT + 1];
 	uint32	drop_pkts[WLFC_PSQ_PREC_COUNT];
 	uint32	ooo_pkts[AC_COUNT + 1];
 #ifdef PROP_TXSTATUS_DEBUG
-	
+	/** all pkt2bus -> txstatus latency accumulated */
 	uint32	latency_sample_count;
 	uint32	total_status_latency;
 	uint32	latency_most_recent;
@@ -254,106 +259,133 @@ typedef struct athost_wl_stat_counters {
 #define WLFC_FCMODE_EXPLICIT_CREDIT		2
 #define WLFC_ONLY_AMPDU_HOSTREORDER		3
 
+/** Reserved credits ratio when borrowed by hihger priority */
 #define WLFC_BORROW_LIMIT_RATIO		4
 
+/** How long to defer borrowing in milliseconds */
 #define WLFC_BORROW_DEFER_PERIOD_MS 100
 
+/** How long to defer flow control in milliseconds */
 #define WLFC_FC_DEFER_PERIOD_MS 200
 
+/** How long to detect occurance per AC in miliseconds */
 #define WLFC_RX_DETECTION_THRESHOLD_MS	100
 
+/** Mask to represent available ACs (note: BC/MC is ignored) */
 #define WLFC_AC_MASK 0xF
 
+/** flow control specific information, only 1 instance during driver lifetime */
 typedef struct athost_wl_status_info {
 	uint8	last_seqid_to_wlc;
 
-	
+	/** OSL handle */
 	osl_t *osh;
-	
+	/** dhd public struct pointer */
 	void *dhdp;
 
 	f_commitpkt_t fcommit;
 	void* commit_ctx;
 
-	
+	/** statistics */
 	athost_wl_stat_counters_t stats;
 
-	
+	/** incremented on eg receiving a credit map event from the dongle */
 	int		Init_FIFO_credit[AC_COUNT + 2];
-	
+	/** the additional ones are for bc/mc and ATIM FIFO */
 	int		FIFO_credit[AC_COUNT + 2];
-	
+	/** Credit borrow counts for each FIFO from each of the other FIFOs */
 	int		credits_borrowed[AC_COUNT + 2][AC_COUNT + 2];
 
-	
+	/** packet hanger and MAC->handle lookup table */
 	void *hanger;
 
 	struct {
-		
+		/** table for individual nodes */
 		wlfc_mac_descriptor_t	nodes[WLFC_MAC_DESC_TABLE_SIZE];
-		
+		/** table for interfaces */
 		wlfc_mac_descriptor_t	interfaces[WLFC_MAX_IFNUM];
-		
-		
+		/* OS may send packets to unknown (unassociated) destinations */
+		/** A place holder for bc/mc and packets to unknown destinations */
 		wlfc_mac_descriptor_t	other;
 	} destination_entries;
 
-	wlfc_mac_descriptor_t *active_entry_head; 
+	wlfc_mac_descriptor_t *active_entry_head; /**< a chain of MAC descriptors */
 	int active_entry_count;
 
 	wlfc_mac_descriptor_t *requested_entry[WLFC_MAC_DESC_TABLE_SIZE];
 	int requested_entry_count;
 
-	
+	/* pkt counts for each interface and ac */
 	int	pkt_cnt_in_q[WLFC_MAX_IFNUM][AC_COUNT+1];
 	int	pkt_cnt_per_ac[AC_COUNT+1];
 	int	pkt_cnt_in_drv[WLFC_MAX_IFNUM][AC_COUNT+1];
 	int	pkt_cnt_in_psq;
-	uint8	allow_fc;              
+	uint8	allow_fc;              /**< Boolean */
 	uint32  fc_defer_timestamp;
 	uint32	rx_timestamp[AC_COUNT+1];
 
-	
+	/** ON/OFF state for flow control to the host network interface */
 	uint8	hostif_flow_state[WLFC_MAX_IFNUM];
 	uint8	host_ifidx;
 
-	
+	/** to flow control an OS interface */
 	uint8	toggle_host_if;
 
-	
+	/** To borrow credits */
 	uint8   allow_credit_borrow;
 
-	
+	/** ac number for the first single ac traffic */
 	uint8	single_ac;
 
-	
+	/** Timestamp for the first single ac traffic */
 	uint32  single_ac_timestamp;
 
 	bool	bcmc_credit_supported;
 
 } athost_wl_status_info_t;
 
+/** Please be mindful that total pkttag space is 32 octets only */
 typedef struct dhd_pkttag {
 
 #ifdef BCM_OBJECT_TRACE
-	
+	/* if use this field, keep it at the first 4 bytes */
 	uint32 sn;
-#endif 
+#endif /* BCM_OBJECT_TRACE */
 
+	/**
+	b[15]  - 1 = wlfc packet
+	b[14:13]  - encryption exemption
+	b[12 ] - 1 = event channel
+	b[11 ] - 1 = this packet was sent in response to one time packet request,
+	do not increment credit on status for this one. [WLFC_CTL_TYPE_MAC_REQUEST_PACKET].
+	b[10 ] - 1 = signal-only-packet to firmware [i.e. nothing to piggyback on]
+	b[9  ] - 1 = packet is host->firmware (transmit direction)
+	       - 0 = packet received from firmware (firmware->host)
+	b[8  ] - 1 = packet was sent due to credit_request (pspoll),
+	             packet does not count against FIFO credit.
+	       - 0 = normal transaction, packet counts against FIFO credit
+	b[7  ] - 1 = AP, 0 = STA
+	b[6:4] - AC FIFO number
+	b[3:0] - interface index
+	*/
 	uint16	if_flags;
 
+	/**
+	 * destination MAC address for this packet so that not every module needs to open the packet
+	 * to find this
+	 */
 	uint8	dstn_ether[ETHER_ADDR_LEN];
 
-	
+	/** This 32-bit goes from host to device for every packet. */
 	uint32	htod_tag;
 
-	
+	/** This 16-bit is original seq number for every suppress packet. */
 	uint16	htod_seq;
 
-	
+	/** This address is mac entry for every packet. */
 	void *entry;
 
-	
+	/** bus specific stuff */
 	union {
 		struct {
 			void *stuff;
@@ -483,8 +515,9 @@ typedef struct dhd_pkttag {
 #ifdef BCM_OBJECT_TRACE
 #define DHD_PKTTAG_SET_SN(tag, val)		((dhd_pkttag_t*)(tag))->sn = (val)
 #define DHD_PKTTAG_SN(tag)			(((dhd_pkttag_t*)(tag))->sn)
-#endif 
+#endif /* BCM_OBJECT_TRACE */
 
+/* public functions */
 int dhd_wlfc_parse_header_info(dhd_pub_t *dhd, void* pktbuf, int tlv_hdr_len,
 	uchar *reorder_info_buf, uint *reorder_info_len);
 KERNEL_THREAD_RETURN_TYPE dhd_wlfc_transfer_packets(void *data);
@@ -495,7 +528,7 @@ int dhd_wlfc_init(dhd_pub_t *dhd);
 #ifdef SUPPORT_P2P_GO_PS
 int dhd_wlfc_suspend(dhd_pub_t *dhd);
 int dhd_wlfc_resume(dhd_pub_t *dhd);
-#endif 
+#endif /* SUPPORT_P2P_GO_PS */
 int dhd_wlfc_hostreorder_init(dhd_pub_t *dhd);
 int dhd_wlfc_cleanup_txq(dhd_pub_t *dhd, f_processpkt_t fn, void *arg);
 int dhd_wlfc_cleanup(dhd_pub_t *dhd, f_processpkt_t fn, void* arg);
@@ -524,4 +557,4 @@ int dhd_wlfc_set_txstatus_ignore(dhd_pub_t *dhd, int val);
 int dhd_wlfc_get_rxpkt_chk(dhd_pub_t *dhd, int *val);
 int dhd_wlfc_set_rxpkt_chk(dhd_pub_t *dhd, int val);
 
-#endif 
+#endif /* __wlfc_host_driver_definitions_h__ */

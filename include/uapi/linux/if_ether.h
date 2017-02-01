@@ -33,7 +33,9 @@
 #define ETH_ZLEN	60		/* Min. octets in frame sans FCS */
 #define ETH_DATA_LEN	1500		/* Max. octets in payload	 */
 #define ETH_FRAME_LEN	1514		/* Max. octets in frame sans FCS */
-#define ETH_FRAME_LEN_MAX	9014
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+#define ETH_FRAME_LEN_MAX	9014	/* For CDC/NCM */
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 #define ETH_FCS_LEN	4		/* Octets in the FCS		 */
 
 /*

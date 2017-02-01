@@ -30,7 +30,7 @@
 #ifndef _802_11r_H_
 #define _802_11r_H_
 
-#define FBT_R0KH_ID_LEN 49 
+#define FBT_R0KH_ID_LEN 49 /* includes null termination */
 #define FBT_REASSOC_TIME_DEF	1000
 
 #define DOT11_FBT_SUBELEM_ID_R1KH_ID		1
@@ -38,4 +38,4 @@
 #define DOT11_FBT_SUBELEM_ID_R0KH_ID		3
 #define DOT11_FBT_SUBELEM_ID_IGTK		4
 
-#endif	
+#endif	/* #ifndef _802_11r_H_ */

@@ -2393,7 +2393,7 @@ static int htc_mdss_dsi_parse_brt_bl_table(struct device_node *np,
 	if (!data || len % 2) {
 		pr_debug("%s: read %s failed\n", __func__, name);
 	} else {
-		
+		/* Separate the bl and brt table */
 		len /= 2;
 
 		if (brt_bl_table->size || brt_bl_table->brt_data || brt_bl_table->bl_data) {
@@ -2654,16 +2654,16 @@ static int mdss_panel_parse_dt(struct device_node *np,
 			MSM_DBA_CHIP_NAME_MAX_LEN);
 	}
 
-	
-	
+	/*HTC:ADD*/
+	/* Suported brightness transfer for Backlight 1.0*/
 	pinfo->brt_bl_table.size = 0;
 	htc_mdss_dsi_parse_brt_bl_table(np, pinfo, "htc,brt-bl-table");
 
-	
+	/* Suported camera on BL control */
 	rc = of_property_read_u32(np, "htc,mdss-camera-blk", &tmp);
 	pinfo->camera_blk = (!rc ? tmp : MDSS_BL_SETTING_DEF);
 
-	
+	/* Suported CABC mode switch control */
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->cabc_off_cmds,
 		"htc,cabc-off-cmds", "qcom,mdss-dsi-default-command-state");
 
@@ -2697,7 +2697,7 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->color_srgb_cmds,
 			"htc,color-srgb-cmds", "qcom,mdss-dsi-default-command-state");
 
-	
+	/* Suported brust mode switch control */
 	rc = of_property_read_u32(np, "htc,burst-on-level", &tmp);
 	ctrl_pdata->burst_on_level = (!rc ? tmp : 0);
 

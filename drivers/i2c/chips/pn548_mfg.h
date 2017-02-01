@@ -123,13 +123,13 @@ static control_msg_pack nfc_standby_enble_script[] = {
 		{ 0 },
 	},
 	{
-		
+		/*Enable Standby mode*/
 		{ 4, 0x2F, 0x00, 0x01, 0x01 },
 		{ 1, 0x00 },
 		{ 0 },
 	},
 	{
-		
+		/*Set the Internal VEN to VEN = 0 state*/
 		{ 8, 0x20, 0x02, 0x05, 0x01, 0xA0, 0x07, 0x01, 0x02 },
 		{ 1, 0x00 },
 		{ 0 },
@@ -157,7 +157,7 @@ static control_msg_pack nfc_reader_script[] ={
 		{ 2, 0x00, 0x00 },
 		{ 0 },
 	},
-	{   
+	{   /*NXP_CORE_CONF_EXTN*/
 		{ 0x0A,
         0x20, 0x02, 0x07, 0x01, 
         0xA0, 0x0E, 0x03, 0x56, 0x24, 0x0A
@@ -180,6 +180,11 @@ static control_msg_pack nfc_reader_script[] ={
 		{ 0 },
 		{ 0 },
 	},
+	/*{
+		{ 13, 0x20, 0x02, 0x0A, 0x01, 0xA0, 0x4E, 0x06, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
+		{ 2, 0x00, 0x00 },
+		{ 0 },
+	},*/
 	{
 		{ 7, 0x21, 0x00, 0x04, 0x01, 0x04, 0x01, 0x02 },
 		{ 1, 0x00 },
@@ -204,7 +209,7 @@ static control_msg_pack nfc_off_mode_charging_enble_script[] = {
 		{ 0 },
 	},
 	{
-		
+		/*NFCEE_MODE_SET*/
 		{ 5, 0x22, 0x01, 0x02, 0x02, 0x01},
 		{ 1, 0x00 },
 		{ 0 },
@@ -222,5 +227,6 @@ static control_msg_pack nfc_off_mode_charging_enble_script[] = {
 };
  
 #if FTM_NFC_CPLC
-#endif 
+// removed
+#endif //FTM_NFC_CPLC
 

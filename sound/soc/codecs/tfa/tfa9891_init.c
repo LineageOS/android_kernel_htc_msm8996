@@ -28,20 +28,23 @@ static enum Tfa98xx_Error tfa9891_specific(Tfa98xx_handle_t handle)
         if (!tfa98xx_handle_is_open(handle))
                 return Tfa98xx_Error_NotOpen;
 
-	
-	
-	tfa98xx_write_register16(handle, 0x09, 0x025d); 
-	tfa98xx_write_register16(handle, 0x10, 0x0018); 
-	tfa98xx_write_register16(handle, 0x22, 0x0003); 
-	tfa98xx_write_register16(handle, 0x25, 0x0001); 
-	tfa98xx_write_register16(handle, 0x46, 0x0000); 
-	tfa98xx_write_register16(handle, 0x55, 0x3ffb); 
-	
+	/* ----- generated code start ----- */
+	/* -----  version 18.0 ----- */
+	tfa98xx_write_register16(handle, 0x09, 0x025d); //POR=0x024d
+	tfa98xx_write_register16(handle, 0x10, 0x0018); //POR=0x0024
+	tfa98xx_write_register16(handle, 0x22, 0x0003); //POR=0x0023
+	tfa98xx_write_register16(handle, 0x25, 0x0001); //POR=0x0000
+	tfa98xx_write_register16(handle, 0x46, 0x0000); //POR=0x4000
+	tfa98xx_write_register16(handle, 0x55, 0x3ffb); //POR=0x7fff
+	/* ----- generated code end   ----- */
 
         return error;
 }
 
 
+/*
+ * register device specifics functions
+ */
 void tfa9891_ops(struct tfa_device_ops *ops) {
 	ops->tfa_init=tfa9891_specific;
 

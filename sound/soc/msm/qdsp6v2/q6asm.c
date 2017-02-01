@@ -131,6 +131,7 @@ static int out_cold_index;
 static char *out_buffer;
 static char *in_buffer;
 
+//HTC_AUD_START
 int q6asm_enable_effect(struct audio_client *ac, uint32_t module_id,
 			uint32_t param_id, uint32_t payload_size,
 			void *payload)
@@ -179,6 +180,7 @@ fail_cmd:
 		kfree(q6_cmd);
 	return rc;
 }
+//HTC_AUD_END
 
 
 static int audio_output_latency_dbgfs_open(struct inode *inode,
@@ -2538,11 +2540,13 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 	     (open.postprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_HPX_PLUS)))
 		open.postprocopo_id = ASM_STREAM_POSTPROCOPO_ID_NONE;
 
+//HTC_AUD_START
 	if ((ac->io_mode & COMPRESSED_IO) || (ac->io_mode & COMPRESSED_STREAM_IO)) {
 		open.postprocopo_id = ac->topology;
 	}
+//HTC_AUD_END
 
-	
+	/* For DTS EAGLE only, force 24 bit */
 	if ((open.postprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_DTS_HPX) ||
 	     (open.postprocopo_id == ASM_STREAM_POSTPROC_TOPO_ID_HPX_PLUS))
 		open.bits_per_sample = 24;
@@ -5764,7 +5768,7 @@ int q6asm_set_multich_gain(struct audio_client *ac, uint32_t channels,
 	memset(&multich_gain, 0, sizeof(multich_gain));
 	sz = sizeof(struct asm_volume_ctrl_multichannel_gain);
 	q6asm_add_hdr_async(ac, &multich_gain.hdr, sz, TRUE);
-	atomic_set(&ac->cmd_state, -1);
+	atomic_set(&ac->cmd_state, -1);//HTC_AUDIO
 	multich_gain.hdr.opcode = ASM_STREAM_CMD_SET_PP_PARAMS_V2;
 	multich_gain.param.data_payload_addr_lsw = 0;
 	multich_gain.param.data_payload_addr_msw = 0;
@@ -5802,7 +5806,7 @@ int q6asm_set_multich_gain(struct audio_client *ac, uint32_t channels,
 	}
 
 	rc = wait_event_timeout(ac->cmd_wait,
-			(atomic_read(&ac->cmd_state) >= 0), 5*HZ);
+			(atomic_read(&ac->cmd_state) >= 0), 5*HZ);//HTC_AUDIO
 	if (!rc) {
 		pr_err("%s: timeout, set-params paramid[0x%x]\n", __func__,
 				multich_gain.data.param_id);
@@ -7169,33 +7173,33 @@ static int __q6asm_cmd(struct audio_client *ac, int cmd, uint32_t stream_id)
 			__func__, hdr.token, stream_id, ac->session);
 	switch (cmd) {
 	case CMD_PAUSE:
-		pr_info("%s:q6asm CMD_PAUSE session %d\n", __func__,ac->session); 
+		pr_info("%s:q6asm CMD_PAUSE session %d\n", __func__,ac->session); //HTC_AUDIO
 		hdr.opcode = ASM_SESSION_CMD_PAUSE;
 		state = &ac->cmd_state;
 		break;
 	case CMD_SUSPEND:
-		pr_info("%s:q6asm CMD_SUSPEND session %d\n", __func__,ac->session); 
+		pr_info("%s:q6asm CMD_SUSPEND session %d\n", __func__,ac->session); //HTC_AUDIO
 		hdr.opcode = ASM_SESSION_CMD_SUSPEND;
 		state = &ac->cmd_state;
 		break;
 	case CMD_FLUSH:
-		pr_info("%s:q6asm CMD_FLUSH session %d\n", __func__,ac->session); 
+		pr_info("%s:q6asm CMD_FLUSH session %d\n", __func__,ac->session); //HTC_AUDIO
 		hdr.opcode = ASM_STREAM_CMD_FLUSH;
 		state = &ac->cmd_state;
 		break;
 	case CMD_OUT_FLUSH:
-		pr_info("%s: CMD_OUT_FLUSH\n", __func__); 
+		pr_info("%s: CMD_OUT_FLUSH\n", __func__); //HTC_AUDIO
 		hdr.opcode = ASM_STREAM_CMD_FLUSH_READBUFS;
 		state = &ac->cmd_state;
 		break;
 	case CMD_EOS:
-		pr_info("%s:q6asm session %d send EOS \n", __func__,ac->session); 
+		pr_info("%s:q6asm session %d send EOS \n", __func__,ac->session); //HTC_AUDIO
 		hdr.opcode = ASM_DATA_CMD_EOS;
 		atomic_set(&ac->cmd_state, 0);
 		state = &ac->cmd_state;
 		break;
 	case CMD_CLOSE:
-		pr_info("%s:q6asm close session %d\n", __func__,ac->session); 
+		pr_info("%s:q6asm close session %d\n", __func__,ac->session); //HTC_AUDIO
 		hdr.opcode = ASM_STREAM_CMD_CLOSE;
 		state = &ac->cmd_state;
 		break;
@@ -7296,15 +7300,15 @@ static int __q6asm_cmd_nowait(struct audio_client *ac, int cmd,
 			__func__, hdr.token, stream_id, ac->session);
 	switch (cmd) {
 	case CMD_PAUSE:
-		pr_info("%s: CMD_PAUSE\n", __func__); 
+		pr_info("%s: CMD_PAUSE\n", __func__); //HTC_AUDIO
 		hdr.opcode = ASM_SESSION_CMD_PAUSE;
 		break;
 	case CMD_EOS:
-		pr_info("%s: CMD_EOS\n", __func__); 
+		pr_info("%s: CMD_EOS\n", __func__); //HTC_AUDIO
 		hdr.opcode = ASM_DATA_CMD_EOS;
 		break;
 	case CMD_CLOSE:
-		pr_info("%s: CMD_CLOSE\n", __func__); 
+		pr_info("%s: CMD_CLOSE\n", __func__); //HTC_AUDIO
 		hdr.opcode = ASM_STREAM_CMD_CLOSE;
 		break;
 	default:

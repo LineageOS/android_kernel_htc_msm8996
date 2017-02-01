@@ -36,6 +36,11 @@ static atomic_t restart_counter = ATOMIC_INIT(0);
 static void *restart_reason;
 static unsigned rst_msg_size;
 
+/*
+   This function should not be called outsite
+   to ensure that others do no change restart reason.
+   Use mode & cmd to set reason & msg in arch_reset().
+*/
 static inline void set_restart_msg(const char *msg)
 {
 	if (msg) {
@@ -54,6 +59,11 @@ unsigned get_restart_reason(void)
 }
 EXPORT_SYMBOL(get_restart_reason);
 
+/*
+   This function should not be called outside
+   to ensure that others do not change restart reason.
+   Use mode & cmd to set reason & msg in arch_reset().
+*/
 static inline void set_restart_reason(unsigned int reason)
 {
 	pr_info("%s: set restart reason = %08x\r\n", __func__, reason);
@@ -64,6 +74,9 @@ static inline void set_restart_reason(unsigned int reason)
 static int panic_restart_action(struct notifier_block *this, unsigned long event, void *ptr)
 {
 	char kernel_panic_msg[MAX_SZ_DIAG_ERR_MSG] = "Kernel Panic";
+	/* ptr is a buffer declared in panic function. It's never be NULL.
+	   Reserve one space for trailing zero.
+	*/
 	if (ptr)
 		snprintf(kernel_panic_msg, rst_msg_size - 1, "KP: %s", (char *)ptr);
 	set_restart_to_ramdump(kernel_panic_msg);
@@ -77,7 +90,7 @@ static struct notifier_block panic_blk = {
 
 int set_restart_action(unsigned int reason, const char *msg)
 {
-	
+	/* only allow write msg before entering arch_rest */
 	if (atomic_read(&restart_counter) != 0) {
 		pr_warn("%s: someone call this function before\r\n", __func__);
 		return 1;
@@ -100,7 +113,7 @@ int set_restart_to_oem(unsigned int code, const char *msg)
 	else
 		strncpy(oem_msg, msg, (strlen(msg) >= rst_msg_size) ? (rst_msg_size - 1): strlen(msg));
 
-	
+	/* oem-93, 94, 95, 96, 97, 98, 99 are RIL fatal */
 	if ((code >= 0x93) && (code <= 0x98))
 		code = 0x99;
 

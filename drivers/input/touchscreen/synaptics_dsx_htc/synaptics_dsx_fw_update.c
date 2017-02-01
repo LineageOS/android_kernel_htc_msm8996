@@ -355,36 +355,36 @@ struct f34_v7_query_0 {
 struct f34_v7_query_1_7 {
 	union {
 		struct {
-			
+			/* query 1 */
 			unsigned char bl_minor_revision;
 			unsigned char bl_major_revision;
 
-			
+			/* query 2 */
 			unsigned char bl_fw_id_7_0;
 			unsigned char bl_fw_id_15_8;
 			unsigned char bl_fw_id_23_16;
 			unsigned char bl_fw_id_31_24;
 
-			
+			/* query 3 */
 			unsigned char minimum_write_size;
 			unsigned char block_size_7_0;
 			unsigned char block_size_15_8;
 			unsigned char flash_page_size_7_0;
 			unsigned char flash_page_size_15_8;
 
-			
+			/* query 4 */
 			unsigned char adjustable_partition_area_size_7_0;
 			unsigned char adjustable_partition_area_size_15_8;
 
-			
+			/* query 5 */
 			unsigned char flash_config_length_7_0;
 			unsigned char flash_config_length_15_8;
 
-			
+			/* query 6 */
 			unsigned char payload_length_7_0;
 			unsigned char payload_length_15_8;
 
-			
+			/* query 7 */
 			unsigned char f34_query7_b0:1;
 			unsigned char has_bootloader:1;
 			unsigned char has_device_config:1;
@@ -509,7 +509,7 @@ struct image_header_10 {
 };
 
 struct image_header_05_06 {
-	
+	/* 0x00 - 0x0f */
 	unsigned char checksum[4];
 	unsigned char reserved_04;
 	unsigned char reserved_05;
@@ -521,19 +521,19 @@ struct image_header_05_06 {
 	unsigned char header_version;
 	unsigned char firmware_size[4];
 	unsigned char config_size[4];
-	
+	/* 0x10 - 0x1f */
 	unsigned char product_id[PRODUCT_ID_SIZE];
 	unsigned char package_id[2];
 	unsigned char package_id_revision[2];
 	unsigned char product_info[PRODUCT_INFO_SIZE];
-	
+	/* 0x20 - 0x2f */
 	unsigned char bootloader_addr[4];
 	unsigned char bootloader_size[4];
 	unsigned char ui_addr[4];
 	unsigned char ui_size[4];
-	
+	/* 0x30 - 0x3f */
 	unsigned char ds_id[16];
-	
+	/* 0x40 - 0x4f */
 	union {
 		struct {
 			unsigned char cstmr_product_id[PRODUCT_ID_SIZE];
@@ -545,7 +545,7 @@ struct image_header_05_06 {
 			unsigned char reserved_48_4f[8];
 		};
 	};
-	
+	/* 0x50 - 0x53 */
 	unsigned char firmware_id[4];
 };
 
@@ -729,6 +729,15 @@ static int fwu_allocate_read_config_buf(unsigned int count)
 
 	return 0;
 }
+/*
+static unsigned int be_to_uint(const unsigned char *ptr)
+{
+	return (unsigned int)ptr[3] +
+			(unsigned int)ptr[2] * 0x100 +
+			(unsigned int)ptr[1] * 0x10000 +
+			(unsigned int)ptr[0] * 0x1000000;
+}
+*/
 static void fwu_compare_partition_tables(void)
 {
 	if (fwu->phyaddr.ui_firmware != fwu->img.phyaddr.ui_firmware) {
@@ -909,11 +918,11 @@ static void fwu_parse_image_header_10(void)
 
 	fwu->img.checksum = le_to_uint(header->checksum);
 
-	
+	/* address of top level container */
 	offset = le_to_uint(header->top_level_container_start_addr);
 	descriptor = (struct container_descriptor *)(image + offset);
 
-	
+	/* address of top level container content */
 	offset = le_to_uint(descriptor->content_address);
 	num_of_containers = le_to_uint(descriptor->content_length) / 4;
 
@@ -2233,19 +2242,19 @@ static enum flash_area fwu_go_nogo(void)
 		goto exit;
 	}
 
-	
+	/* Update both UI and config if device is in bootloader mode */
 	if (fwu->in_bl_mode) {
 		flash_area = UI_FIRMWARE;
 		goto exit;
 	}
 
-	
+	/* Get device firmware ID */
 	device_fw_id = rmi4_data->firmware_id;
 	dev_info(rmi4_data->pdev->dev.parent,
 			"%s: Device firmware ID = %d\n",
 			__func__, device_fw_id);
 
-	
+	/* Get image firmware ID */
 	retval = fwu_get_image_firmware_id(&image_fw_id);
 	if (retval < 0) {
 		flash_area = UI_NONE;
@@ -2266,7 +2275,7 @@ static enum flash_area fwu_go_nogo(void)
 		goto exit;
 	}
 
-	
+	/* Get device config ID */
 	retval = fwu_get_device_config_id();
 	if (retval < 0) {
 		dev_err(rmi4_data->pdev->dev.parent,
@@ -2303,6 +2312,15 @@ static enum flash_area fwu_go_nogo(void)
 			__func__,
 			str_buf);
 
+	/*for (ii = 0; ii < config_id_size; ii++) {
+		if (fwu->img.ui_config.data[ii] > fwu->config_id[ii]) {
+			flash_area = UI_CONFIG;
+			goto exit;
+		} else if (fwu->img.ui_config.data[ii] < fwu->config_id[ii]) {
+			flash_area = NONE;
+			goto exit;
+		}
+	}*/
 
 	flash_area = UI_NONE;
 
@@ -2466,6 +2484,9 @@ static int fwu_enter_flash_prog(void)
 	if (fwu->in_bl_mode)
 		return 0;
 
+//	retval = rmi4_data->irq_enable(rmi4_data, false, true);
+//	if (retval < 0)
+//		return retval;
 
 	msleep(INT_DISABLE_WAIT_MS);
 
@@ -3949,7 +3970,7 @@ int synaptics_config_updater(struct synaptics_dsx_board_data *bdata)
 	else
 		config_id_size = V5V6_CONFIG_ID_SIZE;
 
-	
+	/* Get device config ID */
 	retval = synaptics_rmi4_reg_read(rmi4_data,
 				fwu->f34_fd.ctrl_base_addr,
 				config_id,
@@ -4052,7 +4073,7 @@ int synaptics_config_updater(struct synaptics_dsx_board_data *bdata)
 
 	config_data = cfg_table[i].config;
 
-	
+	/* Get image config ID */
 	memset(str_buf, 0, sizeof(str_buf));
 	for (ii = 0; ii < config_id_size; ii++) {
 		snprintf(tmp_buf, 3, "%02x", config_data[ii]);
@@ -4322,9 +4343,10 @@ static ssize_t fwu_sysfs_do_reflash_store(struct device *dev,
 		goto exit;
 	}
 
-	
-	
-	
+	//if (!fwu->ext_data_source) {
+	//	retval = -EINVAL;
+	//	goto reflash_store_exit;
+	//} else
 		fwu->image = fwu->ext_data_source;
 
 	if (input & LOCKDOWN) {
@@ -4626,7 +4648,7 @@ static int check_img_version(const struct firmware *fw, int *tagLen, unsigned in
 		}
 		if (strstr(tag, fw_ver) != NULL) {
 			pr_info("%s: Update Bypass\n", __func__);
-			return 0; 
+			return 0; /* bypass */
 		}
 	}
 
@@ -4839,7 +4861,7 @@ static void synaptics_rmi4_fwu_reset(struct synaptics_rmi4_data *rmi4_data)
 {
 	int retval;
 
-	pr_info("%s\n", __func__); 
+	pr_info("%s\n", __func__); //TEST
 	if (!fwu) {
 		synaptics_rmi4_fwu_init(rmi4_data);
 		return;

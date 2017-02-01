@@ -64,7 +64,7 @@
 #define CALIBRATION_DATA_PATH "/calibration_data"
 #define SENSOR_FLASH_DATA "gyro_flash"
 
-#define OFFSET_CALI_TARGET_DISTANCE   100 
+#define OFFSET_CALI_TARGET_DISTANCE   100 // Target: 100 mm
 #define RANGE_MEASUREMENT_TIMES        10
 #define RANGE_MEASUREMENT_RETRY_TIMES  13
 #define RANGE_MEASUREMENT_OVERFLOW     8100
@@ -73,7 +73,7 @@
 #define POLLING_DELAY_MAX 1000
 #define REPORT_EVENT_COMMON_LEN 5
 
-#define LASER_USE_INTERRUPT_MODE 1  
+#define LASER_USE_INTERRUPT_MODE 1  // Mark this for polling mode
 
 #define WITH_POWER_OFF 0
 #define WITH_POWER_ON  1
@@ -139,6 +139,7 @@ struct laser_device_data {
 struct laser_device_data *laser_data;
 static struct i2c_client *g_pstLaser_I2Cclient = NULL;
 VL53L0_Dev_t MyDevice;
+// For laser IC init
 u32 g_refSpadCount = 0;
 u8 g_isApertureSpads = 0;
 u8 g_vhvSettings = 0;
@@ -330,7 +331,7 @@ int Laser_poweron_by_camera(void)
 	}
 	msleep(2);
 
-	
+	// data initialization / device initializtion
 	Status = VL53L0_DataInit(&MyDevice);
 	Status |= VL53L0_StaticInit(&MyDevice);
 	if (Status != VL53L0_ERROR_NONE) {
@@ -345,14 +346,14 @@ int Laser_poweron_by_camera(void)
 		I("lsr_on_cam: v13\n");
 #endif
 		if (g_refSpadCount == 0 && g_isApertureSpads == 0) {
-			
+			// Do only ONE time since this function takes too much time
 			Status = VL53L0_PerformRefSpadManagement(&MyDevice, &SpadCount, &IsAperture);
 			if (Status != VL53L0_ERROR_NONE) {
 				E("%s: VL53L0_PerformRefSpadManagement failed with Status = %d\n", __func__, Status);
 				return Status;
 			}
 			I("lsr_on_cam: P'S Spd = %d, Apt = %d\n", SpadCount, IsAperture);
-			
+			// Update to global variables
 			g_refSpadCount = SpadCount;
 			g_isApertureSpads = IsAperture;
 		} else {
@@ -367,16 +368,16 @@ int Laser_poweron_by_camera(void)
 	}
 #endif
 
-	
+	// Device initialization for API 1.1.16
 	if (g_vhvSettings == 0 && g_phaseCal == 0) {
-		
+		// Do only ONE time since this function takes too much time
 		Status = VL53L0_PerformRefCalibration(&MyDevice, &VhvSettings, &PhaseCal);
 		if (Status != VL53L0_ERROR_NONE) {
 			E("%s: VL53L0_PerformRefCalibration failed with Status = %d\n", __func__, Status);
 			return Status;
 		}
 		I("lsr_on_cam: P'S Vhv = %d, Phs = %d\n", VhvSettings, PhaseCal);
-		
+		// Update to global variables
 		g_vhvSettings = VhvSettings;
 		g_phaseCal = PhaseCal;
 	} else {
@@ -421,7 +422,7 @@ static int Laser_poweron(void)
 	}
 	msleep(2);
 
-	
+	// data initialization / device initializtion
 	Status = VL53L0_DataInit(&MyDevice);
 	Status |= VL53L0_StaticInit(&MyDevice);
 	if (Status != VL53L0_ERROR_NONE) {
@@ -436,14 +437,14 @@ static int Laser_poweron(void)
 		I("lsr_on: v13\n");
 #endif
 		if (g_refSpadCount == 0 && g_isApertureSpads == 0) {
-			
+			// Do only ONE time since this function takes too much time
 			Status = VL53L0_PerformRefSpadManagement(&MyDevice, &SpadCount, &IsAperture);
 			if (Status != VL53L0_ERROR_NONE) {
 				E("%s: VL53L0_PerformRefSpadManagement failed with Status = %d\n", __func__, Status);
 				return Status;
 			}
 			I("lsr_on: P'S Spd = %d, Apt = %d\n", SpadCount, IsAperture);
-			
+			// Update to global variables
 			g_refSpadCount = SpadCount;
 			g_isApertureSpads = IsAperture;
 		} else {
@@ -458,16 +459,16 @@ static int Laser_poweron(void)
 	}
 #endif
 
-	
+	// Device initialization for API 1.1.16
 	if (g_vhvSettings == 0 && g_phaseCal == 0) {
-		
+		// Do only ONE time since this function takes too much time
 		Status = VL53L0_PerformRefCalibration(&MyDevice, &VhvSettings, &PhaseCal);
 		if (Status != VL53L0_ERROR_NONE) {
 			E("%s: VL53L0_PerformRefCalibration failed with Status = %d\n", __func__, Status);
 			return Status;
 		}
 		I("lsr_on: P'S Vhv = %d, Phs = %d\n", VhvSettings, PhaseCal);
-		
+		// Update to global variables
 		g_vhvSettings = VhvSettings;
 		g_phaseCal = PhaseCal;
 	} else {
@@ -479,7 +480,7 @@ static int Laser_poweron(void)
 		}
 	}
 
-	
+	// Set calibration data to register
 	if (laser_data->offset_kvalue != 0) {
 		Status = VL53L0_SetOffsetCalibrationDataMicroMeter(&MyDevice, (laser_data->offset_kvalue*1000));
 		if (Status != VL53L0_ERROR_NONE) {
@@ -495,7 +496,7 @@ static int Laser_poweron(void)
 		}
 	}
 
-	
+	// Enable xtalk compensation
 	Status = VL53L0_SetXTalkCompensationEnable(&MyDevice, 1);
 	if (Status != VL53L0_ERROR_NONE) {
 		E("%s: Failed to enable xtalk compensation\n", __func__);
@@ -572,7 +573,7 @@ static int Laser_poweroff(uint8_t type)
 #ifdef LASER_USE_INTERRUPT_MODE
 	VL53L0_Error Status = VL53L0_ERROR_NONE;
 
-	
+	// call from camera native layer
 	if (laser_data->enabled) {
 		I("lsr_off: stp meas\n");
 		disable_irq(laser_data->IRQ);
@@ -625,18 +626,22 @@ static void Laser_check_hw_workaround(void) {
 
         cmdline = kstrdup(saved_command_line, GFP_KERNEL);
         if (cmdline) {
-                
+                //I("Laser_check_hw_workaround: Get cmdline success\n");
 		for (target=0; target<NUM_OF_TARGET_HW_WORKAROUND; target++) {
+                        /*I("Laser_check_hw_workaround: check table[%d] %s %d %d\n",target,
+						hw_workaround_table[target].header,
+						hw_workaround_table[target].lower_limit,
+						hw_workaround_table[target].upper_limit);*/
 			temp_cmdline = NULL;
 			temp_cmdline = strstr(cmdline, hw_workaround_table[target].header);
 
                 	if(temp_cmdline == NULL) {
-                        	
+                        	//I("Laser_check_hw_workaround: No target S/N found\n");
         	        } else {
                         	temp_cmdline += strlen(hw_workaround_table[target].header);
                         	temp_cmdline[5] = '\0';
 				sn = toNumber(temp_cmdline);
-				
+				//I("Laser_check_hw_workaround: %s-> %d\n", temp_cmdline, sn);
 
 				if((sn >= hw_workaround_table[target].lower_limit) &&
 				   (sn <= hw_workaround_table[target].upper_limit)) {
@@ -690,7 +695,7 @@ static int Laser_pinctrl_init(void)
 static int laser_send_event(struct laser_device_data *laser_data, u8 id, u32 *data,
 			    s64 timestamp)
 {
-	u8 event[21];
+	u8 event[21];/* Sensor HAL uses fixed 21 bytes */
 	u16 range[2];
 	u32 rate[2];
 	u8 status;
@@ -748,6 +753,10 @@ static void report_laser(struct laser_device_data *laser_data)
 	if (laser_data->enabled) {
 		Status = VL53L0_PerformSingleRangingMeasurement(&MyDevice, &RangingMeasurementData);
 		if (Status == VL53L0_ERROR_NONE) {
+			/*I("RangeMilliMeter = %d,  SignalRateRtnMegaCps = 0x%x,  RangeStatus = %d\n",
+				RangingMeasurementData.RangeMilliMeter,
+				RangingMeasurementData.SignalRateRtnMegaCps,
+				RangingMeasurementData.RangeStatus);*/
 
 			data[0] = RangingMeasurementData.RangeMilliMeter;
 			data[1] = RangingMeasurementData.RangeDMaxMilliMeter;
@@ -770,7 +779,7 @@ static void report_laser(struct laser_device_data *laser_data)
 			Status = VL53L0_SetDeviceMode(&MyDevice, VL53L0_DEVICEMODE_CONTINUOUS_RANGING);
 		}
 
-		
+		// start ranging
 		if (Status == VL53L0_ERROR_NONE) {
 			Status = VL53L0_StartMeasurement(&MyDevice);
 		}
@@ -810,6 +819,10 @@ static irqreturn_t laser_irq_handler(int irq, void *handle)
 			data[3] = RangingMeasurementData.AmbientRateRtnMegaCps;
 			data[4] = RangeStatus_determination(RangingMeasurementData.RangeStatus);
 
+			/*I("RangeMilliMeter = %d,  SignalRateRtnMegaCps = 0x%x,  RangeStatus = %d\n",
+				RangingMeasurementData.RangeMilliMeter,
+				RangingMeasurementData.SignalRateRtnMegaCps,
+				data[4]); */
 
 			laser_send_event(laser_data, LASER_RANGE_DATA, data, 0);
 
@@ -824,6 +837,7 @@ static irqreturn_t laser_irq_handler(int irq, void *handle)
 	return IRQ_HANDLED;
 }
 
+/*=======iio device reg=========*/
 static void iio_trigger_work(struct irq_work *work)
 {
 	struct laser_device_data *laser_data = container_of(
@@ -993,8 +1007,8 @@ static int laser_read_raw(struct iio_dev *indio_dev,
 		ret = IIO_VAL_INT;
 		break;
 	case IIO_CHAN_INFO_SCALE:
-		
-		
+		/* Gain : counts / uT = 1000 [nT] */
+		/* Scaling factor : 1000000 / Gain = 1000 */
 		*val = 0;
 		*val2 = 1000;
 		ret = IIO_VAL_INT_PLUS_MICRO;
@@ -1019,7 +1033,7 @@ static int laser_read_raw(struct iio_dev *indio_dev,
 			.endianness = IIO_BE,	\
 		}, \
 }
-	
+	/*.scan_type = IIO_ST('u', 32, 32, 0) */
 
 static const struct iio_chan_spec laser_channels[] = {
 	LASER_CHANNEL(LASER_SCAN_ID),
@@ -1179,7 +1193,7 @@ static int Laser_offset_calibrate(int32_t *offset)
 	{
 		Status = VL53L0_PerformOffsetCalibration(&MyDevice, (OFFSET_CALI_TARGET_DISTANCE << 16), offset);
 		if (Status == VL53L0_ERROR_NONE) {
-			
+			// Update to offset_kvalue
 			*offset = *offset / 1000;
 			laser_data->offset_kvalue = *offset;
 			return 0;
@@ -1210,7 +1224,7 @@ static int Laser_xtalk_calibrate(FixPoint1616_t *XTalkCompensationRateMegaCps)
 			if (Status == VL53L0_ERROR_NONE)
 			{
 				I("%s: Xtalk calibration finished. XTalkCompensationRateMegaCps = 0x%X with distance = %d mm\n", __func__, *XTalkCompensationRateMegaCps, (laser_data->cali_distance>>16));
-				
+				// Update to xtalk_kvalue
 				laser_data->xtalk_kvalue = *XTalkCompensationRateMegaCps;
 				return 0;
 			}
@@ -1280,7 +1294,7 @@ static int Laser_parse_dt(struct device *dev, struct laser_device_data *pdata)
 	else
 		I("%s: laser_irq_gpio = %d\n", __func__, pdata->laser_irq_gpio);
 
-	
+	// get calibration data
 	sensor_offset = of_find_node_by_path(CALIBRATION_DATA_PATH);
 	if (sensor_offset) {
 		sensor_cali_data = (char *)
@@ -1350,6 +1364,8 @@ static ssize_t laser_hwid_show(struct device *dev, struct device_attribute *attr
 	ret = Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_MODEL_ID, &model_id);
 	ret += Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_REVISION_ID, &revisin_id);
 	ret += Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_REVISION_ID, &module_id);
+//	ret += Laser_RegReadWord(VL53L0_REG_RNGA_TIMEOUT_MSB, &rangeA_timeout);
+//	ret += Laser_RegReadWord(VL53L0_REG_RNGB1_TIMEOUT_MSB, &rangeB1_timeout);
 
 	if (ret == 0)
 		return scnprintf(buf, PAGE_SIZE, "0x%X 0x%X 0x%X 0x%X 0x%X\n", model_id, revisin_id, module_id, rangeA_timeout, rangeB1_timeout);
@@ -1449,7 +1465,7 @@ static ssize_t laser_offset_store(struct device *dev, struct device_attribute *a
 	if(Status == VL53L0_ERROR_NONE)
 	{
 		I("%s: Set offset = %d mm\n", __func__, value);
-		
+		// Update to offset_kvalue
 		laser_data->offset_kvalue = value;
 	}
 	else
@@ -1493,7 +1509,7 @@ static ssize_t laser_xtalk_store(struct device *dev, struct device_attribute *at
 	if(Status == VL53L0_ERROR_NONE)
 	{
 		I("%s: Set xtalk = %lu\n", __func__, value);
-		
+		// Update to xtalk_kvalue
 		laser_data->xtalk_kvalue = value;
 	}
 	else
@@ -1627,7 +1643,7 @@ static long Laser_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				}
 			}
 
-			
+			// Return avg, data
 			I("Sum of measurement data = (0x%X , 0x%X)", RangeSum, RateSum);
 			RangingMeasurementData.RangeMilliMeter = RangeSum / RANGE_MEASUREMENT_TIMES;
 			RangingMeasurementData.SignalRateRtnMegaCps = RateSum / RANGE_MEASUREMENT_TIMES;
@@ -1680,7 +1696,7 @@ static long Laser_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -1;
 			}
 
-			
+			// read out xtalk value and return
 			Status = VL53L0_GetXTalkCompensationRateMegaCps(&MyDevice, &XTalkCompensationRateMegaCps);
 			if (Status != VL53L0_ERROR_NONE)
 			{
@@ -1829,7 +1845,7 @@ static int Laser_probe(struct i2c_client *client, const struct i2c_device_id *id
 
 	laser_data->laser_wq = create_singlethread_workqueue("htc_laser");
 
-	
+	// parse device tree
 	if (client->dev.of_node) {
 		Laser_parse_dt(&client->dev, laser_data);
 	}
@@ -1877,12 +1893,15 @@ static int Laser_probe(struct i2c_client *client, const struct i2c_device_id *id
 	atomic_set(&laser_data->delay, 200);
 
 #if LASER_STMVL53L0_HW_WORKAROUND
+	/* This hw_workaround is default on for devices before PVT,
+	 * but some exception needs to be excluded by checking S/N
+	 * exception list provided by H/W Camera. */
 	if(g_hw_workaround) Laser_check_hw_workaround();
 #endif
-	
+	// gpio pin init
 	Laser_pinctrl_init();
 
-	
+	// Request IRQ
 	if (gpio_is_valid(laser_data->laser_irq_gpio)) {
 		err = gpio_request(laser_data->laser_irq_gpio, "laser_int");
 		if (err) {
@@ -1901,12 +1920,12 @@ static int Laser_probe(struct i2c_client *client, const struct i2c_device_id *id
 
         disable_irq(laser_data->IRQ);
 
-	
+	// Make sure that camio_1v8 is disable
 	err = regulator_disable(laser_data->camio_1v8);
         if (err)
                 E("%s: Failed to disable CAMIO_1v8.\n", __func__);
 
-	
+	// read out model ID for check
 	err = Laser_poweron_without_init();
 	if (!err) {
 		Laser_RegReadByte(VL53L0_REG_IDENTIFICATION_MODEL_ID, &model_id);

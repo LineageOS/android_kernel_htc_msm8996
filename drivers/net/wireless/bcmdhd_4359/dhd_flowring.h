@@ -33,12 +33,17 @@
  */
 
 
+/****************
+ * Common types *
+ */
 
 #ifndef _dhd_flowrings_h_
 #define _dhd_flowrings_h_
 
+/* Max pkts held in a flow ring's backup queue */
 #define FLOW_RING_QUEUE_THRESHOLD       (2048)
 
+/* Number of H2D common rings */
 #define FLOW_RING_COMMON                BCMPCIE_H2D_COMMON_MSGRINGS
 
 #define FLOWID_INVALID                  (ID16_INVALID)
@@ -56,6 +61,7 @@
 #define DHD_FLOW_PRIO_AC_MAP		0
 #define DHD_FLOW_PRIO_TID_MAP		1
 
+/* Pkttag not compatible with PROP_TXSTATUS or WLFC */
 typedef struct dhd_pkttag_fr {
 	uint16  flowid;
 	uint16  ifid;
@@ -77,6 +83,7 @@ typedef struct dhd_pkttag_fr {
 #define DHD_PKTTAG_PA(tag)                  ((tag)->physaddr)
 #define DHD_PKTTAG_PA_LEN(tag)              ((tag)->pa_len)
 
+/* Hashing a MacAddress for lkup into a per interface flow hash table */
 #define DHD_FLOWRING_HASH_SIZE    256
 #define	DHD_FLOWRING_HASHINDEX(ea, prio) \
 	       ((((uint8 *)(ea))[3] ^ ((uint8 *)(ea))[4] ^ ((uint8 *)(ea))[5] ^ ((uint8)(prio))) \
@@ -91,20 +98,27 @@ typedef struct dhd_pkttag_fr {
 
 struct flow_queue;
 
+/* Flow Ring Queue Enqueue overflow callback */
 typedef int (*flow_queue_cb_t)(struct flow_queue * queue, void * pkt);
 
+/**
+ * Each flow ring has an associated (tx flow controlled) queue. 802.3 packets are transferred
+ * between queue and ring. A packet from the host stack is first added to the queue, and in a later
+ * stage transferred to the flow ring. Packets in the queue are dhd owned, whereas packets in the
+ * flow ring are device owned.
+ */
 typedef struct flow_queue {
-	dll_t  list;                
-	void * head;                
-	void * tail;                
-	uint16 len;                 
-	uint16 max;                 
-	uint32 threshold;           
-	void * clen_ptr;            
-	uint32 failures;            
-	flow_queue_cb_t cb;         
-	uint32 l2threshold;         
-	void * l2clen_ptr;          
+	dll_t  list;                /* manage a flowring queue in a double linked list */
+	void * head;                /* first packet in the queue */
+	void * tail;                /* last packet in the queue */
+	uint16 len;                 /* number of packets in the queue */
+	uint16 max;                 /* maximum or min budget (used in cumm) */
+	uint32 threshold;           /* parent's cummulative length threshold */
+	void * clen_ptr;            /* parent's cummulative length counter */
+	uint32 failures;            /* enqueue failures due to queue overflow */
+	flow_queue_cb_t cb;         /* callback invoked on threshold crossing */
+	uint32 l2threshold;         /* grandparent's (level 2) cummulative length threshold */
+	void * l2clen_ptr;          /* grandparent's (level 2) cummulative length counter */
 } flow_queue_t;
 
 #define DHD_FLOW_QUEUE_LEN(queue)       ((int)(queue)->len)
@@ -123,24 +137,32 @@ typedef struct flow_queue {
 #define DHD_FLOW_QUEUE_SET_MAX(queue, budget) \
 	((queue)->max) = ((budget) - 1)
 
+/* Queue's cummulative threshold. */
 #define DHD_FLOW_QUEUE_SET_THRESHOLD(queue, cumm_threshold) \
 	((queue)->threshold) = ((cumm_threshold) - 1)
 
+/* Queue's cummulative length object accessor. */
 #define DHD_FLOW_QUEUE_CLEN_PTR(queue)  ((queue)->clen_ptr)
 
+/* Set a queue's cumm_len point to a parent's cumm_ctr_t cummulative length */
 #define DHD_FLOW_QUEUE_SET_CLEN(queue, parent_clen_ptr)  \
 	((queue)->clen_ptr) = (void *)(parent_clen_ptr)
 
+/* Queue's level 2 cummulative threshold. */
 #define DHD_FLOW_QUEUE_SET_L2THRESHOLD(queue, l2cumm_threshold) \
 	((queue)->l2threshold) = ((l2cumm_threshold) - 1)
 
+/* Queue's level 2 cummulative length object accessor. */
 #define DHD_FLOW_QUEUE_L2CLEN_PTR(queue)  ((queue)->l2clen_ptr)
 
+/* Set a queue's level 2 cumm_len point to a grandparent's cumm_ctr_t cummulative length */
 #define DHD_FLOW_QUEUE_SET_L2CLEN(queue, grandparent_clen_ptr)  \
 	((queue)->l2clen_ptr) = (void *)(grandparent_clen_ptr)
 
+/*  see wlfc_proto.h for tx status details */
 #define DHD_FLOWRING_MAXSTATUS_MSGS	5
 #define DHD_FLOWRING_TXSTATUS_CNT_UPDATE(bus, flowid, txstatus)
+/** each flow ring is dedicated to a tid/sa/da combination */
 typedef struct flow_info {
 	uint8		tid;
 	uint8		ifindex;
@@ -148,15 +170,20 @@ typedef struct flow_info {
 	char		da[ETHER_ADDR_LEN];
 } flow_info_t;
 
+/** a flow ring is used for outbound (towards antenna) 802.3 packets */
 typedef struct flow_ring_node {
-	dll_t		list;  
-	flow_queue_t	queue; 
+	dll_t		list;  /* manage a constructed flowring in a dll, must be at first place */
+	flow_queue_t	queue; /* queues packets before they enter the flow ring, flow control */
 	bool		active;
 	uint8		status;
+	/*
+	 * flowid: unique ID of a flow ring, which can either be unicast or broadcast/multicast. For
+	 * unicast flow rings, the flow id accelerates ARM 802.3->802.11 header translation.
+	 */
 	uint16		flowid;
 	flow_info_t	flow_info;
 	void		*prot_info;
-	void		*lock; 
+	void		*lock; /* lock for flowring access protection */
 } flow_ring_node_t;
 
 typedef flow_ring_node_t flow_ring_table_t;
@@ -169,8 +196,8 @@ typedef struct flow_hash_info {
 
 typedef struct if_flow_lkup {
 	bool		status;
-	uint8		role; 
-	flow_hash_info_t *fl_hash[DHD_FLOWRING_HASH_SIZE]; 
+	uint8		role; /* Interface role: STA/AP */
+	flow_hash_info_t *fl_hash[DHD_FLOWRING_HASH_SIZE]; /* Lkup Hash table */
 } if_flow_lkup_t;
 
 static INLINE flow_ring_node_t *
@@ -179,7 +206,9 @@ dhd_constlist_to_flowring(dll_t *item)
 	return ((flow_ring_node_t *)item);
 }
 
+/* Exported API */
 
+/* Flow ring's queue management functions */
 extern flow_ring_node_t * dhd_flow_ring_node(dhd_pub_t *dhdp, uint16 flowid);
 extern flow_queue_t * dhd_flow_queue(dhd_pub_t *dhdp, uint16 flowid);
 
@@ -210,13 +239,15 @@ extern void dhd_flow_rings_pending_cleanup(dhd_pub_t *dhdp);
 extern void dhd_flow_rings_delete_for_peer(dhd_pub_t *dhdp, uint8 ifindex,
                 char *addr);
 
+/* Handle Interface ADD, DEL operations */
 extern void dhd_update_interface_flow_info(dhd_pub_t *dhdp, uint8 ifindex,
                 uint8 op, uint8 role);
 
+/* Handle a STA interface link status update */
 extern int dhd_update_interface_link_status(dhd_pub_t *dhdp, uint8 ifindex,
                 uint8 status);
 extern int dhd_flow_prio_map(dhd_pub_t *dhd, uint8 *map, bool set);
 extern int dhd_update_flow_prio_map(dhd_pub_t *dhdp, uint8 map);
 
 extern uint8 dhd_flow_rings_ifindex2role(dhd_pub_t *dhdp, uint8 ifindex);
-#endif 
+#endif /* _dhd_flowrings_h_ */

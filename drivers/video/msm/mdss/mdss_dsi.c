@@ -328,6 +328,12 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 		return ret;
 	}
 
+	/*
+	 * If continuous splash screen feature is enabled, then we need to
+	 * request all the GPIOs that have already been configured in the
+	 * bootloader. This needs to be done irresepective of whether
+	 * the lp11_init flag is set or not.
+	 */
 	if (pdata->panel_info.cont_splash_enabled ||
 		!pdata->panel_info.mipi.lp11_init) {
 		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
@@ -342,6 +348,9 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 	return ret;
 }
 
+/*
+ * HTC: Enable/Disable external VDDIO LDO by GPIO
+ */
 static int mdss_dsi_vddio_gpio_enable(struct mdss_dsi_ctrl_pdata *ctrl_pdata, int enable)
 {
 	if (mdss_dsi_is_hw_config_split(ctrl_pdata->shared_data)) {
@@ -399,13 +408,13 @@ static void mdss_dsi_vddio_switch(struct mdss_dsi_ctrl_pdata *ctrl_pdata, int en
 	if (enable) {
 		if (mdss_dsi_vddio_gpio_enable(ctrl_pdata, 1))
 			msleep(100);
-		
+		/* enable LPM and disable pull down */
 		ret = regulator_enable(ctrl_pdata->vddio_reg);
 		regulator_set_optimum_mode(in_vreg[vddio].vreg,
 			in_vreg[vddio].disable_load);
 		regulator_disable(in_vreg[vddio].vreg);
 	} else {
-		
+		/* disable LPM and enable pull down */
 		need_sleep = !regulator_is_enabled(in_vreg[vddio].vreg);
 		regulator_disable(ctrl_pdata->vddio_reg);
 		ret = regulator_set_optimum_mode(in_vreg[vddio].vreg, in_vreg[vddio].enable_load);
@@ -462,7 +471,7 @@ static int mdss_dsi_panel_power_off_hx8396c2(struct mdss_panel_data *pdata)
 
 	if (ctrl_pdata->vddio_switch) {
 		mdss_dsi_vddio_gpio_enable(ctrl_pdata, 0);
-		
+		/* disable LPM and enable pull down */
 		ret = regulator_disable(ctrl_pdata->vddio_reg);
 		if (!regulator_is_enabled(ctrl_pdata->vddio_reg))
 			usleep_range(10000, 10000);
@@ -507,12 +516,12 @@ static int mdss_dsi_panel_power_on_hx8396c2(struct mdss_panel_data *pdata)
 		 __func__, ctrl_pdata->ndx, ctrl_pdata->vddio_switch);
 
 	if (ctrl_pdata->vddio_switch) {
-		
+		/* enable LPM and disable pull down */
 		ret = regulator_enable(ctrl_pdata->vddio_reg);
 		mdss_dsi_vddio_gpio_enable(ctrl_pdata, 1);
 		usleep_range(1000, 1100);
 
-		
+		/* switch enabled, so skip the first regulator vddio */
 		ret = msm_dss_enable_vreg(
 			&(ctrl_pdata->panel_power_data.vreg_config[1]),
 			ctrl_pdata->panel_power_data.num_vreg-1, 1);
@@ -527,6 +536,12 @@ static int mdss_dsi_panel_power_on_hx8396c2(struct mdss_panel_data *pdata)
 			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
 		return ret;
 	}
+	/*
+	 * If continuous splash screen feature is enabled, then we need to
+	 * request all the GPIOs that have already been configured in the
+	 * bootloader. This needs to be done irresepective of whether
+	 * the lp11_init flag is set or not.
+	 */
 	if (pdata->panel_info.cont_splash_enabled ||
 		!pdata->panel_info.mipi.lp11_init) {
 		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
@@ -1736,7 +1751,7 @@ static int mdss_dsi_unblank(struct mdss_panel_data *pdata)
 		mipi->vsync_enable && mipi->hw_vsync_mode) {
 		mdss_dsi_set_tear_on(ctrl_pdata);
 #if 0
-		
+		/* VSYNC_GPIO irq was managed by mdss_dsi_status */
 		if (mdss_dsi_is_te_based_esd(ctrl_pdata))
 			enable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
 #endif
@@ -1810,7 +1825,7 @@ static int mdss_dsi_blank(struct mdss_panel_data *pdata, int power_state)
 	if ((pdata->panel_info.type == MIPI_CMD_PANEL) &&
 		mipi->vsync_enable && mipi->hw_vsync_mode) {
 #if 0
-		
+		/* VSYNC_GPIO irq was managed by mdss_dsi_status */
 		if (mdss_dsi_is_te_based_esd(ctrl_pdata)) {
 			disable_irq(gpio_to_irq(
 				ctrl_pdata->disp_te_gpio));

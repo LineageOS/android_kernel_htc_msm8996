@@ -328,6 +328,7 @@ TRACE_EVENT(vfs_unlink_done,
 
 	TP_printk("(%s) [%s]", __get_str(name), __entry->comm)
 );
-#endif 
+#endif /* if !defined(_TRACE_MMCIO_H) || defined(TRACE_HEADER_MULTI_READ) */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

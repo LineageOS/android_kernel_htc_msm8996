@@ -115,7 +115,7 @@ enum {
 	POWER_SUPPLY_HTCCHG_EXT_ICL_SET_LOW = 7,
 	POWER_SUPPLY_HTCCHG_EXT_ICL_SET_HIGH = 8,
 };
-#endif 
+#endif //CONFIG_HTC_BATT_PCN0016
 
 enum power_supply_property {
 	/* Properties of type `int' */
@@ -239,12 +239,12 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_BATTERY_TYPE,
 #ifdef CONFIG_HTC_BATT
 	POWER_SUPPLY_PROP_SYSTEM_SOC,
-#endif 
+#endif //CONFIG_HTC_BATT
 #ifdef CONFIG_HTC_BATT_PCN0016
 	POWER_SUPPLY_PROP_HTCCHG_EXT,
 	POWER_SUPPLY_PROP_HTCCHG_ICL,
 	POWER_SUPPLY_PROP_HTCCHG_FCC,
-#endif 
+#endif //CONFIG_HTC_BATT_PCN0016
 };
 
 enum power_supply_type {

@@ -32,6 +32,7 @@
 #ifndef _phyioctl_defs_h_
 #define _phyioctl_defs_h_
 
+/* Debug message levels */
 #define PHYHAL_ERROR		0x0001
 #define PHYHAL_TRACE		0x0002
 #define PHYHAL_INFORM		0x0004
@@ -49,4 +50,4 @@
 
 #define PHYHAL_TIMESTAMP	0x8000
 
-#endif 
+#endif /* _phyioctl_defs_h_ */

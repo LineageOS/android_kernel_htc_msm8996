@@ -36,7 +36,9 @@
 #include "msm-compr-q6-v2.h"
 #include "msm-pcm-routing-v2.h"
 #include <sound/tlv.h>
+//HTC_AUD_START
 #include <sound/htc_acoustic_alsa.h>
+//HTC_AUD_END
 
 #define COMPRE_CAPTURE_NUM_PERIODS	16
 /* Allocate the worst case frame size for compressed audio */
@@ -397,11 +399,13 @@ static int msm_compr_playback_prepare(struct snd_pcm_substream *substream)
 	if (runtime->format == SNDRV_PCM_FORMAT_S24_LE)
 		bits_per_sample = 24;
 
+//HTC_AUD_START
 	if (htc_acoustic_query_feature(HTC_AUD_24BIT) && compr->codec != FORMAT_FLAC) {
 		pr_info("%s: enable 24 bit Audio in POPP\n",
 			__func__);
 		bits_per_sample = 24;
 	}
+//HTC_AUD_END
 
 	ret = q6asm_open_write_v2(prtd->audio_client,
 			compr->codec, bits_per_sample);
@@ -1032,7 +1036,7 @@ static int msm_compr_ioctl_shared(struct snd_pcm_substream *substream,
 				&compr->info.codec_param.codec.options.ddp;
 			uint32_t params_length = 0;
 			memset(params_value, 0, MAX_AC3_PARAM_SIZE);
-			
+			/* check integer overflow */
 			if (ddp->params_length > UINT_MAX/sizeof(int)) {
 				pr_err("%s: Integer overflow ddp->params_length %d\n",
 				__func__, ddp->params_length);
@@ -1073,7 +1077,7 @@ static int msm_compr_ioctl_shared(struct snd_pcm_substream *substream,
 				&compr->info.codec_param.codec.options.ddp;
 			uint32_t params_length = 0;
 			memset(params_value, 0, MAX_AC3_PARAM_SIZE);
-			
+			/* check integer overflow */
 			if (ddp->params_length > UINT_MAX/sizeof(int)) {
 				pr_err("%s: Integer overflow ddp->params_length %d\n",
 				__func__, ddp->params_length);

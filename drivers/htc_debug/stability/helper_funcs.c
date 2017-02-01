@@ -14,7 +14,7 @@
 	early_param(__param, htc_##__func##_init); \
 	unsigned int __func(void) \
 	{ \
-		 \
+		/* FIXME: timing issue */ \
 		return __func##__value; \
 	} \
 	EXPORT_SYMBOL(__func); \

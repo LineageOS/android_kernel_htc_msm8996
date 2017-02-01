@@ -11,10 +11,12 @@ typedef struct TfaIrqName {
 
 #include "tfa1_tfafieldnames.h"
 #include "tfa2_tfafieldnames_N1C.h"
+/* diffs for specific devices */
 #include "tfa9887_tfafieldnames.h"
 #include "tfa9890_tfafieldnames.h"
 #include "tfa9891_tfafieldnames.h"
 
+/* missing 'common' defs break the build but unused in TFA1 context */
 #define TFA1_BF_AMPINSEL -1
 #define TFA1_BF_MANSCONF -1
 #define TFA1_BF_MANCOLD  -1
@@ -32,19 +34,25 @@ typedef struct TfaIrqName {
 #define TFA1_BF_ACKDMG	 -1
 #define TFA1_BF_SSRIGHTE -1
 #define TFA1_BF_SSLEFTE	 -1
-#define TFA1_BF_SWPROFIL 0x8045    
-#define TFA1_BF_SWVSTEP  0x80a5    
+#define TFA1_BF_SWPROFIL 0x8045    /*!< profile save   */
+#define TFA1_BF_SWVSTEP  0x80a5    /*!< vstep save  */
 
+/* missing 'common' defs break the build but unused in TFA2 context */
 #define TFA2_BF_CFSM	-1
 
 
-#define MTPKEY2  	MTPK		
-#define MTP0     	MTPOTC 	
-#define MTP_CONTROL CIMTP	
+/* MTP access uses registers
+ *  defs are derived from corresponding bitfield names as used in the BF macros
+ */
+#define MTPKEY2  	MTPK		/* unlock key2 MTPK */
+#define MTP0     	MTPOTC 	/* MTP data */
+#define MTP_CONTROL CIMTP	/* copy i2c to mtp */
 
+/* interrupt enable register uses HW name in TFA2 */
 #define TFA2_BF_INTENVDDS TFA2_BF_IEVDDS
 
 
+/* interrupt bit field names of TFA2 and TFA1 do not match */
 #define TFA1_BF_IEACS TFA1_BF_INTENACS
 #define TFA1_BF_IPOACS TFA1_BF_INTPOLACS
 #define TFA1_BF_ISTACS TFA1_BF_INTOACS
@@ -55,6 +63,7 @@ typedef struct TfaIrqName {
 #define TFA1_BF_ISTNOCLK TFA1_BF_INTONOCLK
 #define TFA1_BF_IPONOCLK TFA1_BF_INTPOLNOCLK
 
+/* interrupt bit fields not available on TFA1 */
 #define TFA1_BF_IECLKOOR -1
 #define TFA1_BF_ISTCLKOOR -1
 #define TFA1_BF_IEMWSRC -1

@@ -30,11 +30,21 @@
 
 extern int mmc_get_ext_csd(struct mmc_card *card, u8 **new_ext_csd);
 
+/**
+ * struct mmc_ffu_pages - pages allocated by 'alloc_pages()'.
+ * @page: first page in the allocation
+ * @order: order of the number of pages allocated
+ */
 struct mmc_ffu_pages {
 	struct page *page;
 	unsigned int order;
 };
 
+/**
+ * struct mmc_ffu_mem - allocated memory.
+ * @arr: array of allocations
+ * @cnt: number of allocations
+ */
 struct mmc_ffu_mem {
 	struct mmc_ffu_pages *arr;
 	unsigned int cnt;
@@ -51,6 +61,9 @@ struct mmc_ffu_area {
 	struct sg_table sgtable;
 };
 
+/*
+ * Map memory into a scatterlist.
+ */
 static unsigned int mmc_ffu_map_sg(struct mmc_ffu_mem *mem, int size,
 	struct scatterlist *sglist)
 {
@@ -87,6 +100,9 @@ static void mmc_ffu_free_mem(struct mmc_ffu_mem *mem)
 	kfree(mem->arr);
 }
 
+/*
+ * Cleanup struct mmc_ffu_area.
+ */
 static int mmc_ffu_area_cleanup(struct mmc_ffu_area *area)
 {
 	sg_free_table(&area->sgtable);
@@ -94,6 +110,12 @@ static int mmc_ffu_area_cleanup(struct mmc_ffu_area *area)
 	return 0;
 }
 
+/*
+ * Allocate a lot of memory, preferably max_sz but at least min_sz. In case
+ * there isn't much memory do not exceed 1/16th total low mem pages. Also do
+ * not exceed a maximum number of segments and try not to make segments much
+ * bigger than maximum segment size.
+ */
 static int mmc_ffu_alloc_mem(struct mmc_ffu_area *area, unsigned long min_sz)
 {
 	unsigned long max_page_cnt = DIV_ROUND_UP(area->max_tfr, PAGE_SIZE);
@@ -101,6 +123,8 @@ static int mmc_ffu_alloc_mem(struct mmc_ffu_area *area, unsigned long min_sz)
 	unsigned long max_seg_page_cnt =
 		DIV_ROUND_UP(area->max_seg_sz, PAGE_SIZE);
 	unsigned long page_cnt = 0;
+	/* we divide by 16 to ensure we will not allocate a big amount
+	 * of unnecessary pages */
 	unsigned long limit = nr_free_buffer_pages() >> 4;
 
 	gfp_t flags = GFP_KERNEL | GFP_DMA | __GFP_NOWARN | __GFP_NORETRY;
@@ -154,6 +178,10 @@ out_free:
 	return -ENOMEM;
 }
 
+/*
+ * Initialize an area for data transfers.
+ * Copy the data to the allocated pages.
+ */
 static int mmc_ffu_area_init(struct mmc_ffu_area *area, struct mmc_card *card,
 	const u8 *data)
 {
@@ -227,6 +255,8 @@ exit:
 	return rc;
 }
 
+/* Flush all scheduled work from the MMC work queue.
+ * and initialize the MMC device */
 static int mmc_ffu_restart(struct mmc_card *card)
 {
 	struct mmc_host *host = card->host;
@@ -279,9 +309,9 @@ static int mmc_ffu_install(struct mmc_card *card, u8 *ext_csd)
 	int err;
 	u32 timeout;
 
-	
+	/* check mode operation */
 	if (!card->ext_csd.ffu_mode_op) {
-		
+		/* host switch back to work in normal MMC Read/Write commands */
 		err = mmc_ffu_switch_mode(card, MMC_FFU_MODE_NORMAL);
 		if (err) {
 			pr_err("FFU: %s: switch to normal mode error %d:\n",
@@ -289,7 +319,7 @@ static int mmc_ffu_install(struct mmc_card *card, u8 *ext_csd)
 			return err;
 		}
 
-		
+		/* restart the eMMC */
 		err = mmc_ffu_restart(card);
 		if (err) {
 			pr_err("FFU: %s: install error %d:\n",
@@ -305,10 +335,10 @@ static int mmc_ffu_install(struct mmc_card *card, u8 *ext_csd)
 				mmc_hostname(card->host));
 		}
 
-		
+		/* timeout is at millisecond resolution */
 		timeout = DIV_ROUND_UP((100 * (1 << timeout)), 1000);
 
-		
+		/* set ext_csd to install mode */
 		err = mmc_ffu_switch_mode(card, MMC_FFU_INSTALL_SET);
 		if (err) {
 			pr_err("FFU: %s: error %d setting install mode\n",
@@ -317,7 +347,7 @@ static int mmc_ffu_install(struct mmc_card *card, u8 *ext_csd)
 		}
 	}
 
-	
+	/* read ext_csd */
 	err = mmc_get_ext_csd(card, &ext_csd);
 	if (err) {
 		pr_err("FFU: %s: error %d sending ext_csd\n",
@@ -325,7 +355,7 @@ static int mmc_ffu_install(struct mmc_card *card, u8 *ext_csd)
 		return err;
 	}
 
-	
+	/* return status */
 	err = ext_csd[EXT_CSD_FFU_STATUS];
 	if (err) {
 		pr_err("FFU: %s: error %d FFU install:\n",
@@ -351,7 +381,7 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 		return -EINVAL;
 	}
 
-	
+	/* setup FW data buffer */
 	err = request_firmware(&fw, name, &card->dev);
 	if (err) {
 		pr_err("FFU: %s: Firmware request failed %d\n",
@@ -366,7 +396,7 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 
 	mmc_get_card(card);
 
-	
+	/* trigger flushing*/
 	err = mmc_flush_cache(card);
 	if (err) {
 		pr_err("FFU: %s: error %d flushing data\n",
@@ -374,7 +404,7 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 		goto exit;
 	}
 
-	
+	/* Read the EXT_CSD */
 	err = mmc_get_ext_csd(card, &ext_csd);
 	if (err) {
 		pr_err("FFU: %s: error %d sending ext_csd\n",
@@ -382,13 +412,13 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 		goto exit;
 	}
 
-	
+	/* set CMD ARG */
 	arg = ext_csd[EXT_CSD_FFU_ARG] |
 		ext_csd[EXT_CSD_FFU_ARG + 1] << 8 |
 		ext_csd[EXT_CSD_FFU_ARG + 2] << 16 |
 		ext_csd[EXT_CSD_FFU_ARG + 3] << 24;
 
-	
+	/* set device to FFU mode */
 	err = mmc_ffu_switch_mode(card, MMC_FFU_MODE_SET);
 	if (err) {
 		pr_err("FFU: %s: error %d FFU is not supported\n",
@@ -402,9 +432,9 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 			mmc_hostname(card->host), err);
 		goto exit;
 	}
-	
+	/* payload  will be checked only in op_mode supported */
 	if (card->ext_csd.ffu_mode_op) {
-		
+		/* Read the EXT_CSD */
 		err = mmc_get_ext_csd(card, &ext_csd);
 		if (err) {
 			pr_err("FFU: %s: error %d sending ext_csd\n",
@@ -412,12 +442,14 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 			goto exit;
 		}
 
-		
+		/* check that the eMMC has received the payload */
 		fw_prog_bytes = ext_csd[EXT_CSD_NUM_OF_FW_SEC_PROG] |
 			ext_csd[EXT_CSD_NUM_OF_FW_SEC_PROG + 1] << 8 |
 			ext_csd[EXT_CSD_NUM_OF_FW_SEC_PROG + 2] << 16 |
 			ext_csd[EXT_CSD_NUM_OF_FW_SEC_PROG + 3] << 24;
 
+		/* convert sectors to bytes: multiply by -512B or 4KB as
+		   required by the card */
 		 fw_prog_bytes *=
 			block_size << (ext_csd[EXT_CSD_DATA_SECTOR_SIZE] * 3);
 		if (fw_prog_bytes != fw->size) {
@@ -438,6 +470,8 @@ int mmc_ffu_invoke(struct mmc_card *card, const char *name)
 
 exit:
 	if (err != 0) {
+	   /* host switch back to work in normal MMC
+	    * Read/Write commands */
 		mmc_ffu_switch_mode(card, MMC_FFU_MODE_NORMAL);
 	}
 	release_firmware(fw);

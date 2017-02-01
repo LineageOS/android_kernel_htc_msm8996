@@ -86,7 +86,7 @@ module_param(mtp_tx_req_len, uint, S_IRUGO | S_IWUSR);
 
 unsigned int mtp_tx_reqs = MTP_TX_REQ_MAX;
 module_param(mtp_tx_reqs, uint, S_IRUGO | S_IWUSR);
-static int htc_mtp_open_state;
+static int htc_mtp_open_state;/*++ 2015/12/14, USB Team, PCN00047 ++*/
 
 static const char mtp_shortname[] = DRIVER_NAME "_usb";
 
@@ -242,25 +242,25 @@ static struct usb_ss_ep_comp_descriptor mtp_superspeed_intr_comp_desc = {
 	.wBytesPerInterval =	cpu_to_le16(INTR_BUFFER_SIZE),
 };
 
-struct usb_descriptor_header *fs_mtp_descs[] = { 
+struct usb_descriptor_header *fs_mtp_descs[] = { /*++ 2015/07/08 USB Team, PCN00011 ++*/
 	(struct usb_descriptor_header *) &mtp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_fullspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_fullspeed_out_desc,
 	(struct usb_descriptor_header *) &mtp_intr_desc,
 	NULL,
 };
-EXPORT_SYMBOL(fs_mtp_descs); 
+EXPORT_SYMBOL(fs_mtp_descs); /*++ 2015/07/08 USB Team, PCN00011 ++*/
 
-struct usb_descriptor_header *hs_mtp_descs[] = { 
+struct usb_descriptor_header *hs_mtp_descs[] = { /*++ 2015/07/08 USB Team, PCN00011 ++*/
 	(struct usb_descriptor_header *) &mtp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_highspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_highspeed_out_desc,
 	(struct usb_descriptor_header *) &mtp_intr_desc,
 	NULL,
 };
-EXPORT_SYMBOL(hs_mtp_descs); 
+EXPORT_SYMBOL(hs_mtp_descs); /*++ 2015/07/08 USB Team, PCN00011 ++*/
 
-struct usb_descriptor_header *ss_mtp_descs[] = { 
+struct usb_descriptor_header *ss_mtp_descs[] = { /*++ 2015/07/08 USB Team, PCN00011 ++*/
 	(struct usb_descriptor_header *) &mtp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_superspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_superspeed_in_comp_desc,
@@ -270,7 +270,7 @@ struct usb_descriptor_header *ss_mtp_descs[] = {
 	(struct usb_descriptor_header *) &mtp_superspeed_intr_comp_desc,
 	NULL,
 };
-EXPORT_SYMBOL(ss_mtp_descs); 
+EXPORT_SYMBOL(ss_mtp_descs); /*++ 2015/07/08 USB Team, PCN00011 ++*/
 
 static struct usb_descriptor_header *fs_ptp_descs[] = {
 	(struct usb_descriptor_header *) &ptp_interface_desc,
@@ -986,12 +986,14 @@ static void receive_file_work(struct work_struct *data)
 			/* wait for our last read to complete */
 			ret = wait_event_interruptible(dev->read_wq,
 				dev->rx_done || dev->state != STATE_BUSY);
-			
+			/*++ 2015/11/24, USB Team, PCN00041 ++*/
 			if (dev->state == STATE_CANCELED
 					|| dev->state == STATE_OFFLINE
 					|| dev->state == STATE_ERROR) {
 				if (dev->state == STATE_OFFLINE)
 					r = -EIO;
+				/* Solved unplug cable but no error code to notify mtp
+				server to return error in doSendObject. */
 				else if (dev->state == STATE_ERROR)
 					r = -EIO;
 				else
@@ -1000,6 +1002,7 @@ static void receive_file_work(struct work_struct *data)
 					usb_ep_dequeue(dev->ep_out, read_req);
 				break;
 			}
+			/*-- 2015/11/24, USB Team, PCN00041 --*/
 			/* Check if we aligned the size due to MTU constraint */
 			if (count < read_req->length)
 				read_req->actual = (read_req->actual > count ?
@@ -1249,7 +1252,7 @@ fail:
 static int mtp_open(struct inode *ip, struct file *fp)
 {
 	printk(KERN_INFO "mtp_open\n");
-	htc_mtp_open_state = 1;
+	htc_mtp_open_state = 1;/*++ 2015/12/14, USB Team, PCN00047 ++*/
 	if (mtp_lock(&_mtp_dev->open_excl)) {
 		pr_err("%s mtp_release not called returning EBUSY\n", __func__);
 		return -EBUSY;
@@ -1267,7 +1270,7 @@ static int mtp_release(struct inode *ip, struct file *fp)
 {
 	printk(KERN_INFO "mtp_release\n");
 
-	htc_mtp_open_state = 0;
+	htc_mtp_open_state = 0;/*++ 2015/12/14, USB Team, PCN00047 ++*/
 	mtp_unlock(&_mtp_dev->open_excl);
 	return 0;
 }
@@ -1551,7 +1554,11 @@ static int mtp_bind_config(struct usb_configuration *c, bool ptp_config)
 	dev->cdev = c->cdev;
 	dev->function.name = DRIVER_NAME;
 	dev->function.strings = mtp_strings;
+/*++ 2015/07/08 USB Team, PCN00011 ++*/
 #if 1
+	/* Always report ptp descirptor to Host
+	 * Only change to mtp descriptor on MAC
+	 */
 	dev->function.fs_descriptors = fs_ptp_descs;
 	dev->function.hs_descriptors = hs_ptp_descs;
 	if (gadget_is_superspeed(c->cdev->gadget))
@@ -1569,6 +1576,7 @@ static int mtp_bind_config(struct usb_configuration *c, bool ptp_config)
 			dev->function.ss_descriptors = ss_mtp_descs;
 	}
 #endif
+/*-- 2015/07/08 USB Team, PCN00011 --*/
 	dev->function.bind = mtp_function_bind;
 	dev->function.unbind = mtp_function_unbind;
 	dev->function.set_alt = mtp_function_set_alt;
@@ -1722,7 +1730,7 @@ static int __mtp_setup(struct mtp_instance *fi_mtp)
 	INIT_WORK(&dev->receive_file_work, receive_file_work);
 
 	_mtp_dev = dev;
-	htc_mtp_open_state = 0;
+	htc_mtp_open_state = 0;/*++ 2015/12/14, USB Team, PCN00047 ++*/
 
 	ret = misc_register(&mtp_device);
 	if (ret)

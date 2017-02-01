@@ -75,5 +75,5 @@ void dhd_blog(char *cp, int size)
 
 		sock_release(_udpSocket);
 	}
-#endif 
+#endif /* #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25)) */
 }

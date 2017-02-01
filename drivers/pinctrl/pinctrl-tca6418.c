@@ -49,7 +49,7 @@
 	((uint8_t) (pin > 7 ? pin % 8 : 7 - (pin % 8)))
 
 struct devref {
-	atomic_t count; 
+	atomic_t count; /* -1: disabled, 0: unused, 1+: inuse */
 	struct device_node *pnode;
 	struct i2c_client *client;
 	struct devref *next;
@@ -118,8 +118,14 @@ static void unregister_devref(struct devref *dref)
 	while (atomic_cmpxchg(&dref->count, 0, -1))
 		schedule_timeout(msecs_to_jiffies(200));
 
+	/* The devref shall be re-used next time the same i2c client
+	 * is probed, so not going to free it nor remove it from list.
+	 */
 }
 
+/*
+ * tca6418: Accessing GPIO registers
+ */
 static int tca6418_writeb(struct i2c_client *client, uint8_t addr, uint8_t *buf)
 {
 	int ret;
@@ -350,7 +356,7 @@ static int tca6418_pinconf_cfg_set_pin(struct tca6418_data *pdata,
 		if (ret)
 			break;
 		arg = 0;
-		
+		/* no-break: all output request implies input disable */
 	case PIN_CONFIG_INPUT_ENABLE:
 		ret = tca6418_reg_bitop(pdata,
 				TCA6418E_REGBASE_OUTPUT_ENABLE, pin, arg ? 0 : 1);
@@ -598,7 +604,7 @@ static int tca6418_i2c_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	
+	/* Validation */
 	if (client->dev.of_node != of_find_node_by_phandle(
 				be32_to_cpup(of_get_property(pnode, "i2c-client", NULL)))) {
 		dev_err(&client->dev, "Couldn't get a paired i2c-client\n");
@@ -640,7 +646,7 @@ static const struct of_device_id tca6418_i2c_match_table[] = {
 };
 #else
 #define tca6418_i2c_match_table NULL
-#endif 
+#endif /* CONFIG_OF */
 
 static struct i2c_driver tca6418_i2c_driver = {
 	.driver = {

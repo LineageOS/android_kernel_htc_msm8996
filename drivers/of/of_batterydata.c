@@ -337,7 +337,7 @@ struct device_node *of_batterydata_get_best_profile(
 
 	htc_batt_id_ohm = ret.intval;
 
-	
+	//cur_node = batterydata_container_node;
 
 	for_each_child_of_node(batterydata_container_node, cur_node) {
 		rc = of_property_read_u32(cur_node, "htc,id_raw_min", &id_raw_min);
@@ -458,7 +458,7 @@ struct device_node *of_batterydata_get_best_profile(
 
 	return best_node;
 }
-#endif 
+#endif //CONFIG_HTC_BATT_PCN0003
 int of_batterydata_read_data(struct device_node *batterydata_container_node,
 				struct bms_battery_data *batt_data,
 				int batt_id_uv)

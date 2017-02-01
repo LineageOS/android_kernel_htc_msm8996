@@ -50,6 +50,7 @@ enum print_reason {
 	PR_DUMP		= BIT(3),
 };
 
+/* Mask/Bit helpers */
 #define _HTCCHG_MASK(BITS, POS) \
 	((unsigned char)(((1 << (BITS)) - 1) << (POS)))
 #define HTCCHG_MASK(LEFT_BIT_POS, RIGHT_BIT_POS) \
@@ -80,7 +81,7 @@ static char* config_name[] = {
 
 struct htcchg_chip {
 	struct device			*dev;
-	
+	/* configuration parameters */
 	bool			htcchg_ext_mode;
 	int				charge_enabled;
 	int				charge_disallowed;
@@ -89,14 +90,14 @@ struct htcchg_chip {
 	int				watchdog_timer;
 	int				temp_level;
 
-	
+	/* gpios */
 	int				chg_enable_gpio;
 	int				chg_ready_gpio;
 	int				adc_sw_sel_gpio;
 	struct pinctrl			*pinctrl;
 	struct pinctrl_state		*gpio_state_init;
 
-	
+	/* vadcs */
 	struct qpnp_vadc_chip		*vadc_usb_in_isen;
 	unsigned int				vadc_usb_in_isen_channel;
 	struct qpnp_vadc_chip		*vadc_vbusdet;
@@ -107,7 +108,7 @@ struct htcchg_chip {
 	unsigned int				iusb_rsen;
 	unsigned int				iusb_multiplier;
 
-	
+	/* psy */
 	struct power_supply		htcchg_psy;
 	bool						psy_registered;
 	struct power_supply		*bms_psy;
@@ -117,13 +118,13 @@ struct htcchg_chip {
 	const char				*battery_psy_name;
 	const char				*usb_psy_name;
 
-	
+	/* workers */
 	struct delayed_work		chg_check_work;
 
-	
+	/* mutex */
 	struct mutex				access_lock;
 
-	
+	/* Daemon configuration */
 	struct htcchg_config		config;
 
 };
@@ -239,7 +240,7 @@ static int htcchg_get_soc_from_fg(struct htcchg_chip *chip)
 			return soc;
 		}
 	}
-#endif 
+#endif //CONFIG_HTC_BATT || CONFIG_HTC_BATT_8960
 	return -EINVAL;
 }
 
@@ -497,7 +498,7 @@ static int htcchg_en_control(struct htcchg_chip *chip, int enable)
 			cancel_delayed_work(&chip->chg_check_work);
 
 		if(enable) {
-			
+			/* Start worker to check safety */
 			schedule_delayed_work(&chip->chg_check_work, msecs_to_jiffies(CHG_READY_CHECK_PERIOD_MS));
 			chip->watchdog_timer -= CHG_READY_CHECK_PERIOD_MS;
 		}
@@ -773,7 +774,7 @@ static void htcchg_check_worker(struct work_struct *work)
 			} else {
 				if (chip->chg_ready_gpio > 0 && gpio_is_valid(chip->chg_ready_gpio)) {
 					if( iusb < 1800) {
-						
+						/* Keep track until iUSB stable */
 						gpio_direction_output(chip->chg_ready_gpio, 0);
 						schedule_delayed_work(&chip->chg_check_work, msecs_to_jiffies(CHG_READY_CHECK_PERIOD_MS));
 						chip->watchdog_timer -= CHG_READY_CHECK_PERIOD_MS;
@@ -804,19 +805,19 @@ static int htcchg_parse_dt(struct htcchg_chip *chip)
 		dev_err(chip->dev, "device tree info. missing\n");
 		return -EINVAL;
 	}
-	
+	/* read the bms power supply name */
 	rc = of_property_read_string(node, "qcom,bms-psy-name",
 						&chip->bms_psy_name);
 	if (rc)
 		chip->bms_psy_name = "bms";
 
-	
+	/* read the battery power supply name */
 	rc = of_property_read_string(node, "qcom,battery-psy-name",
 						&chip->battery_psy_name);
 	if (rc)
 		chip->battery_psy_name = "battery";
 
-	
+	/* read the usb power supply name */
 	rc = of_property_read_string(node, "qcom,usb-psy-name",
 						&chip->usb_psy_name);
 	if (rc)
@@ -904,7 +905,7 @@ int htcchg_pinctrl_control(struct htcchg_chip *chip)
 {
        int ret = 0;
 
-       
+       /* Get pinctrl if target uses pinctrl */
        chip->pinctrl = devm_pinctrl_get(chip->dev);
        if (IS_ERR_OR_NULL(chip->pinctrl)) {
                pr_err("Target does not use pinctrl\n");

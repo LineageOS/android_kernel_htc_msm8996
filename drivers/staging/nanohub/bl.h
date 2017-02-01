@@ -62,6 +62,11 @@ uint8_t nanohub_bl_lock(struct nanohub_data *);
 uint8_t nanohub_bl_unlock(struct nanohub_data *);
 uint8_t nanohub_bl_update_finished(struct nanohub_data *);
 
+/*
+ * Bootloader commands
+ * _NS versions are no-stretch. (Only valid on I2C)
+ * will return CMD_BUSY instead of stretching the clock
+ */
 
 #define CMD_GET				0x00
 #define CMD_GET_VERSION			0x01

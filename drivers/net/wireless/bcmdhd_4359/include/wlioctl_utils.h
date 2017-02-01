@@ -39,14 +39,15 @@ extern cca_congest_channel_req_t * cca_per_chan_summary(cca_congest_channel_req_
 
 extern int cca_analyze(cca_congest_channel_req_t *input[], int num_chans,
 	uint flags, chanspec_t *answer);
-#endif 
+#endif /* BCMDRIVER */
 
 extern int wl_cntbuf_to_xtlv_format(void *ctx, void *cntbuf,
 	int buflen, uint32 corerev);
 
+/* Get data pointer of wlc layer counters tuple from xtlv formatted counters IOVar buffer. */
 #define GET_WLCCNT_FROM_CNTBUF(cntbuf)						\
 		bcm_get_data_from_xtlv_buf(((wl_cnt_info_t *)cntbuf)->data,	\
 		((wl_cnt_info_t *)cntbuf)->datalen, WL_CNT_XTLV_WLC,		\
 		NULL, BCM_XTLV_OPTION_ALIGN32)
 
-#endif 
+#endif /* _wlioctl_utils_h_ */

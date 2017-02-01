@@ -32,7 +32,7 @@
 
 #ifdef __cplusplus
 extern "C" {
-#endif 
+#endif /* __cplusplus */
 
 
 #define WL_RATESET_SZ_DSSS		4
@@ -46,12 +46,13 @@ extern "C" {
 #define WL_RATESET_SZ_HT_MCS	8
 #endif
 
-#define WL_RATESET_SZ_HT_IOCTL	8	
+#define WL_RATESET_SZ_HT_IOCTL	8	/* MAC histogram, compatibility with wl utility */
 
 #define WL_TX_CHAINS_MAX		4
 
-#define WL_RATE_DISABLED		(-128) 
+#define WL_RATE_DISABLED		(-128) /* Power value corresponding to unsupported rate */
 
+/* Transmit channel bandwidths */
 typedef enum wl_tx_bw {
 	WL_TX_BW_20,
 	WL_TX_BW_40,
@@ -75,6 +76,10 @@ typedef enum wl_tx_bw {
 } wl_tx_bw_t;
 
 
+/*
+ * Transmit modes.
+ * Not all modes are listed here, only those required for disambiguation. e.g. SPEXP is not listed
+ */
 typedef enum wl_tx_mode {
 	WL_TX_MODE_NONE,
 	WL_TX_MODE_STBC,
@@ -84,6 +89,7 @@ typedef enum wl_tx_mode {
 } wl_tx_mode_t;
 
 
+/* Number of transmit chains */
 typedef enum wl_tx_chains {
 	WL_TX_CHAINS_1 = 1,
 	WL_TX_CHAINS_2,
@@ -92,6 +98,7 @@ typedef enum wl_tx_chains {
 } wl_tx_chains_t;
 
 
+/* Number of transmit streams */
 typedef enum wl_tx_nss {
 	WL_TX_NSS_1 = 1,
 	WL_TX_NSS_2,
@@ -100,10 +107,15 @@ typedef enum wl_tx_nss {
 } wl_tx_nss_t;
 
 
+/* This enum maps each rate to a CLM index */
 
 typedef enum clm_rates {
+	/************
+	* 1 chain  *
+	************
+	*/
 
-	
+	/* 1 Stream */
 	WL_RATE_1X1_DSSS_1            = 0,
 	WL_RATE_1X1_DSSS_2            = 1,
 	WL_RATE_1X1_DSSS_5_5          = 2,
@@ -143,8 +155,12 @@ typedef enum clm_rates {
 	WL_RATE_P_1X1_VHT11SS1        = 23,
 
 
+	/************
+	* 2 chains *
+	************
+	*/
 
-	
+	/* 1 Stream expanded + 1 */
 	WL_RATE_1X2_DSSS_1            = 24,
 	WL_RATE_1X2_DSSS_2            = 25,
 	WL_RATE_1X2_DSSS_5_5          = 26,
@@ -183,7 +199,7 @@ typedef enum clm_rates {
 	WL_RATE_P_1X2_VHT10SS1        = 46,
 	WL_RATE_P_1X2_VHT11SS1        = 47,
 
-	
+	/* 2 Streams */
 	WL_RATE_2X2_STBC_MCS0         = 48,
 	WL_RATE_2X2_STBC_MCS1         = 49,
 	WL_RATE_2X2_STBC_MCS2         = 50,
@@ -232,8 +248,12 @@ typedef enum clm_rates {
 	WL_RATE_P_2X2_VHT10SS2        = 70,
 	WL_RATE_P_2X2_VHT11SS2        = 71,
 
+	/****************************
+	 * TX Beamforming, 2 chains *
+	 ****************************
+	 */
 
-	
+	/* 1 Stream expanded + 1 */
 	WL_RATE_1X2_TXBF_OFDM_6       = 72,
 	WL_RATE_1X2_TXBF_OFDM_9       = 73,
 	WL_RATE_1X2_TXBF_OFDM_12      = 74,
@@ -267,7 +287,7 @@ typedef enum clm_rates {
 	WL_RATE_P_1X2_TXBF_VHT10SS1   = 90,
 	WL_RATE_P_1X2_TXBF_VHT11SS1   = 91,
 
-	
+	/* 2 Streams */
 	WL_RATE_2X2_TXBF_SDM_MCS8     = 92,
 	WL_RATE_2X2_TXBF_SDM_MCS9     = 93,
 	WL_RATE_2X2_TXBF_SDM_MCS10    = 94,
@@ -293,8 +313,12 @@ typedef enum clm_rates {
 	WL_RATE_P_2X2_TXBF_VHT11SS2   = 103,
 
 
+	/************
+	* 3 chains *
+	************
+	*/
 
-	
+	/* 1 Stream expanded + 2 */
 	WL_RATE_1X3_DSSS_1            = 104,
 	WL_RATE_1X3_DSSS_2            = 105,
 	WL_RATE_1X3_DSSS_5_5          = 106,
@@ -333,7 +357,7 @@ typedef enum clm_rates {
 	WL_RATE_P_1X3_VHT10SS1        = 126,
 	WL_RATE_P_1X3_VHT11SS1        = 127,
 
-	
+	/* 2 Streams expanded + 1 */
 	WL_RATE_2X3_STBC_MCS0         = 128,
 	WL_RATE_2X3_STBC_MCS1         = 129,
 	WL_RATE_2X3_STBC_MCS2         = 130,
@@ -382,7 +406,7 @@ typedef enum clm_rates {
 	WL_RATE_P_2X3_VHT10SS2        = 150,
 	WL_RATE_P_2X3_VHT11SS2        = 151,
 
-	
+	/* 3 Streams */
 	WL_RATE_3X3_SDM_MCS16         = 152,
 	WL_RATE_3X3_SDM_MCS17         = 153,
 	WL_RATE_3X3_SDM_MCS18         = 154,
@@ -408,8 +432,12 @@ typedef enum clm_rates {
 	WL_RATE_P_3X3_VHT11SS3        = 163,
 
 
+	/****************************
+	 * TX Beamforming, 3 chains *
+	 ****************************
+	 */
 
-	
+	/* 1 Stream expanded + 2 */
 	WL_RATE_1X3_TXBF_OFDM_6       = 164,
 	WL_RATE_1X3_TXBF_OFDM_9       = 165,
 	WL_RATE_1X3_TXBF_OFDM_12      = 166,
@@ -443,7 +471,7 @@ typedef enum clm_rates {
 	WL_RATE_P_1X3_TXBF_VHT10SS1   = 182,
 	WL_RATE_P_1X3_TXBF_VHT11SS1   = 183,
 
-	
+	/* 2 Streams expanded + 1 */
 	WL_RATE_2X3_TXBF_SDM_MCS8     = 184,
 	WL_RATE_2X3_TXBF_SDM_MCS9     = 185,
 	WL_RATE_2X3_TXBF_SDM_MCS10    = 186,
@@ -468,7 +496,7 @@ typedef enum clm_rates {
 	WL_RATE_P_2X3_TXBF_VHT10SS2   = 194,
 	WL_RATE_P_2X3_TXBF_VHT11SS2   = 195,
 
-	
+	/* 3 Streams */
 	WL_RATE_3X3_TXBF_SDM_MCS16    = 196,
 	WL_RATE_3X3_TXBF_SDM_MCS17    = 197,
 	WL_RATE_3X3_TXBF_SDM_MCS18    = 198,
@@ -494,8 +522,12 @@ typedef enum clm_rates {
 	WL_RATE_P_3X3_TXBF_VHT11SS3   = 207,
 
 
+	/************
+	* 4 chains *
+	************
+	*/
 
-	
+	/* 1 Stream expanded + 3 */
 	WL_RATE_1X4_DSSS_1            = 208,
 	WL_RATE_1X4_DSSS_2            = 209,
 	WL_RATE_1X4_DSSS_5_5          = 210,
@@ -534,7 +566,7 @@ typedef enum clm_rates {
 	WL_RATE_P_1X4_VHT10SS1        = 230,
 	WL_RATE_P_1X4_VHT11SS1        = 231,
 
-	
+	/* 2 Streams expanded + 2 */
 	WL_RATE_2X4_STBC_MCS0         = 232,
 	WL_RATE_2X4_STBC_MCS1         = 233,
 	WL_RATE_2X4_STBC_MCS2         = 234,
@@ -583,7 +615,7 @@ typedef enum clm_rates {
 	WL_RATE_P_2X4_VHT10SS2        = 254,
 	WL_RATE_P_2X4_VHT11SS2        = 255,
 
-	
+	/* 3 Streams expanded + 1 */
 	WL_RATE_3X4_SDM_MCS16         = 256,
 	WL_RATE_3X4_SDM_MCS17         = 257,
 	WL_RATE_3X4_SDM_MCS18         = 258,
@@ -609,7 +641,7 @@ typedef enum clm_rates {
 	WL_RATE_P_3X4_VHT11SS3        = 267,
 
 
-	
+	/* 4 Streams */
 	WL_RATE_4X4_SDM_MCS24         = 268,
 	WL_RATE_4X4_SDM_MCS25         = 269,
 	WL_RATE_4X4_SDM_MCS26         = 270,
@@ -635,8 +667,12 @@ typedef enum clm_rates {
 	WL_RATE_P_4X4_VHT11SS4        = 279,
 
 
+	/****************************
+	 * TX Beamforming, 4 chains *
+	 ****************************
+	 */
 
-	
+	/* 1 Stream expanded + 3 */
 	WL_RATE_1X4_TXBF_OFDM_6       = 280,
 	WL_RATE_1X4_TXBF_OFDM_9       = 281,
 	WL_RATE_1X4_TXBF_OFDM_12      = 282,
@@ -670,7 +706,7 @@ typedef enum clm_rates {
 	WL_RATE_P_1X4_TXBF_VHT10SS1   = 298,
 	WL_RATE_P_1X4_TXBF_VHT11SS1   = 299,
 
-	
+	/* 2 Streams expanded + 2 */
 	WL_RATE_2X4_TXBF_SDM_MCS8     = 300,
 	WL_RATE_2X4_TXBF_SDM_MCS9     = 301,
 	WL_RATE_2X4_TXBF_SDM_MCS10    = 302,
@@ -695,7 +731,7 @@ typedef enum clm_rates {
 	WL_RATE_P_2X4_TXBF_VHT10SS2   = 310,
 	WL_RATE_P_2X4_TXBF_VHT11SS2   = 311,
 
-	
+	/* 3 Streams expanded + 1 */
 	WL_RATE_3X4_TXBF_SDM_MCS16    = 312,
 	WL_RATE_3X4_TXBF_SDM_MCS17    = 313,
 	WL_RATE_3X4_TXBF_SDM_MCS18    = 314,
@@ -720,7 +756,7 @@ typedef enum clm_rates {
 	WL_RATE_P_3X4_TXBF_VHT10SS3   = 322,
 	WL_RATE_P_3X4_TXBF_VHT11SS3   = 323,
 
-	
+	/* 4 Streams */
 	WL_RATE_4X4_TXBF_SDM_MCS24    = 324,
 	WL_RATE_4X4_TXBF_SDM_MCS25    = 325,
 	WL_RATE_4X4_TXBF_SDM_MCS26    = 326,
@@ -747,10 +783,11 @@ typedef enum clm_rates {
 
 } clm_rates_t;
 
+/* Number of rate codes */
 #define WL_NUMRATES 336
 
 #ifdef __cplusplus
 }
-#endif 
+#endif /* __cplusplus */
 
-#endif 
+#endif /* _bcmwifi_rates_h_ */

@@ -582,31 +582,31 @@ static u32 mx_fuse_data = 0x0;
 
 static const u32 vddcx_pvs_retention_data[8] =
 {
-   600000,
-   550000,
-   500000,
-   450000,
-   400000,
-   400000, 
-   400000, 
-   600000
+  /* 000 */ 600000,
+  /* 001 */ 550000,
+  /* 010 */ 500000,
+  /* 011 */ 450000,
+  /* 100 */ 400000,
+  /* 101 */ 400000, //limiting based on CR812560
+  /* 110 */ 400000, //limiting based on CR812560
+  /* 111 */ 600000
 };
 
 static const u32 vddmx_pvs_retention_data[8] =
 {
-   700000,
-   650000,
-   580000,
-   550000,
-   490000,
-   490000,
-   490000,
-   490000
+  /* 000 */ 700000,
+  /* 001 */ 650000,
+  /* 010 */ 580000,
+  /* 011 */ 550000,
+  /* 100 */ 490000,
+  /* 101 */ 490000,
+  /* 110 */ 490000,
+  /* 111 */ 490000
 };
 
 static int read_cx_fuse_setting(void){
 	if(cx_fuse_data != 0x0)
-		
+		/* 0x00070134[31:29] */
 		return ((cx_fuse_data & (0x7 << 29)) >> 29);
 	else
 		return -ENOMEM;
@@ -614,7 +614,7 @@ static int read_cx_fuse_setting(void){
 
 static int read_mx_fuse_setting(void){
 	if(mx_fuse_data != 0x0)
-		
+		/* 0x00070148[4:2] */
 		return ((mx_fuse_data & (0x7 << 2)) >> 2);
 	else
 		return -ENOMEM;

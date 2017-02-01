@@ -34,14 +34,16 @@
 #include <typedefs.h>
 #endif
 
+/* This marks the start of a packed structure section. */
 #include <packed_section_start.h>
 
 
-#define ICMP_TYPE_ECHO_REQUEST	8	
-#define ICMP_TYPE_ECHO_REPLY		0	
+#define ICMP_TYPE_ECHO_REQUEST	8	/* ICMP type echo request */
+#define ICMP_TYPE_ECHO_REPLY		0	/* ICMP type echo reply */
 
-#define ICMP_CHKSUM_OFFSET	2	
+#define ICMP_CHKSUM_OFFSET	2	/* ICMP body checksum offset */
 
+/* ICMP6 error and control message types */
 #define ICMP6_DEST_UNREACHABLE		1
 #define ICMP6_PKT_TOO_BIG		2
 #define ICMP6_TIME_EXCEEDED		3
@@ -64,9 +66,9 @@
 #define ICMP6_REDIRECT_OPT_OFFSET	40
 
 BWL_PRE_PACKED_STRUCT struct icmp6_opt {
-	uint8	type;		
-	uint8	length;		
-	uint8	data[0];	
+	uint8	type;		/* Option identifier */
+	uint8	length;		/* Lenth including type and length */
+	uint8	data[0];	/* Variable length data */
 } BWL_POST_PACKED_STRUCT;
 
 #define	ICMP6_OPT_TYPE_SRC_LINK_LAYER	1
@@ -75,12 +77,14 @@ BWL_PRE_PACKED_STRUCT struct icmp6_opt {
 #define	ICMP6_OPT_TYPE_REDIR_HDR	4
 #define	ICMP6_OPT_TYPE_MTU		5
 
+/* These fields are stored in network order */
 BWL_PRE_PACKED_STRUCT struct bcmicmp_hdr {
-	uint8	type;		
-	uint8	code;		
-	uint16	chksum;		
+	uint8	type;		/* Echo or Echo-reply */
+	uint8	code;		/* Always 0 */
+	uint16	chksum;		/* Icmp packet checksum */
 } BWL_POST_PACKED_STRUCT;
 
+/* This marks the end of a packed structure section. */
 #include <packed_section_end.h>
 
-#endif	
+#endif	/* #ifndef _bcmicmp_h_ */

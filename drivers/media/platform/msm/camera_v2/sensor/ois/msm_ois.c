@@ -359,13 +359,13 @@ static int32_t msm_ois_control(struct msm_ois_ctrl_t *o_ctrl,
 		cci_client->retries = 3;
 		cci_client->id_map = 0;
 		cci_client->cci_i2c_master = o_ctrl->cci_master;
-		
+		//HTC_START
 		#if 1
 		cci_client->i2c_freq_mode = I2C_FAST_MODE;
 		#else
 		cci_client->i2c_freq_mode = set_info->ois_params.i2c_freq_mode;
 		#endif
-		
+		//HTC_END
 	} else {
 		o_ctrl->i2c_client.client->addr =
 			set_info->ois_params.i2c_addr;

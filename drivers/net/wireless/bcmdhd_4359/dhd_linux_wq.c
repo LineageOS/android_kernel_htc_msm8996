@@ -47,15 +47,19 @@
 #include <dhd_linux_wq.h>
 
 struct dhd_deferred_event_t {
-	u8	event; 
-	void	*event_data; 
+	u8	event; /* holds the event */
+	void	*event_data; /* Holds event specific data */
 	event_handler_t event_handler;
 };
 #define DEFRD_EVT_SIZE	sizeof(struct dhd_deferred_event_t)
 
 struct dhd_deferred_wq {
-	struct work_struct	deferred_work; 
+	struct work_struct	deferred_work; /* should be the first member */
 
+	/*
+	 * work events may occur simultaneously.
+	 * Can hold upto 64 low priority events and 4 high priority events
+	 */
 #define DHD_PRIO_WORK_FIFO_SIZE	(4 * sizeof(struct dhd_deferred_event_t))
 #define DHD_WORK_FIFO_SIZE	(64 * sizeof(struct dhd_deferred_event_t))
 	struct kfifo			*prio_fifo;
@@ -63,7 +67,7 @@ struct dhd_deferred_wq {
 	u8				*prio_fifo_buf;
 	u8				*work_fifo_buf;
 	spinlock_t			work_lock;
-	void				*dhd_info; 
+	void				*dhd_info; /* review: does it require */
 };
 
 static inline struct kfifo*
@@ -80,7 +84,7 @@ dhd_kfifo_init(u8 *buf, int size, spinlock_t *lock)
 		return NULL;
 	}
 	kfifo_init(fifo, buf, size);
-#endif 
+#endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 33)) */
 	return fifo;
 }
 
@@ -89,11 +93,12 @@ dhd_kfifo_free(struct kfifo *fifo)
 {
 	kfifo_free(fifo);
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 31))
-	
+	/* FC11 releases the fifo memory */
 	kfree(fifo);
 #endif
 }
 
+/* deferred work functions */
 static void dhd_deferred_work_handler(struct work_struct *data);
 
 void*
@@ -119,10 +124,10 @@ dhd_deferred_work_init(void *dhd_info)
 
 	INIT_WORK((struct work_struct *)work, dhd_deferred_work_handler);
 
-	
+	/* initialize event fifo */
 	spin_lock_init(&work->work_lock);
 
-	
+	/* allocate buffer to hold prio events */
 	fifo_size = DHD_PRIO_WORK_FIFO_SIZE;
 	fifo_size = is_power_of_2(fifo_size)? fifo_size : roundup_pow_of_two(fifo_size);
 	buf = (u8*)kzalloc(fifo_size, flags);
@@ -131,14 +136,14 @@ dhd_deferred_work_init(void *dhd_info)
 		goto return_null;
 	}
 
-	
+	/* Initialize prio event fifo */
 	work->prio_fifo = dhd_kfifo_init(buf, fifo_size, &work->work_lock);
 	if (!work->prio_fifo) {
 		kfree(buf);
 		goto return_null;
 	}
 
-	
+	/* allocate buffer to hold work events */
 	fifo_size = DHD_WORK_FIFO_SIZE;
 	fifo_size = is_power_of_2(fifo_size)? fifo_size : roundup_pow_of_two(fifo_size);
 	buf = (u8*)kzalloc(fifo_size, flags);
@@ -147,7 +152,7 @@ dhd_deferred_work_init(void *dhd_info)
 		goto return_null;
 	}
 
-	
+	/* Initialize event fifo */
 	work->work_fifo = dhd_kfifo_init(buf, fifo_size, &work->work_lock);
 	if (!work->work_fifo) {
 		kfree(buf);
@@ -177,9 +182,13 @@ dhd_deferred_work_deinit(void *work)
 		return;
 	}
 
-	
+	/* cancel the deferred work handling */
 	cancel_work_sync((struct work_struct *)deferred_work);
 
+	/*
+	 * free work event fifo.
+	 * kfifo_free frees locally allocated fifo buffer
+	 */
 	if (deferred_work->prio_fifo)
 		dhd_kfifo_free(deferred_work->prio_fifo);
 
@@ -189,6 +198,10 @@ dhd_deferred_work_deinit(void *work)
 	kfree(deferred_work);
 }
 
+/*
+ *	Prepares event to be queued
+ *	Schedules the event
+ */
 int
 dhd_deferred_schedule_work(void *workq, void *event_data, u8 event,
 	event_handler_t event_handler, u8 priority)
@@ -208,6 +221,12 @@ dhd_deferred_schedule_work(void *workq, void *event_data, u8 event,
 		return DHD_WQ_STS_UNKNOWN_EVENT;
 	}
 
+	/*
+	 * default element size is 1, which can be changed
+	 * using kfifo_esize(). Older kernel(FC11) doesn't support
+	 * changing element size. For compatibility changing
+	 * element size is not prefered
+	 */
 	ASSERT(kfifo_esize(deferred_wq->prio_fifo) == 1);
 	ASSERT(kfifo_esize(deferred_wq->work_fifo) == 1);
 
@@ -250,15 +269,21 @@ dhd_get_scheduled_work(struct dhd_deferred_wq *deferred_wq, struct dhd_deferred_
 		return DHD_WQ_STS_UNINITIALIZED;
 	}
 
+	/*
+	 * default element size is 1 byte, which can be changed
+	 * using kfifo_esize(). Older kernel(FC11) doesn't support
+	 * changing element size. For compatibility changing
+	 * element size is not prefered
+	 */
 	ASSERT(kfifo_esize(deferred_wq->prio_fifo) == 1);
 	ASSERT(kfifo_esize(deferred_wq->work_fifo) == 1);
 
-	
+	/* first read  priorit event fifo */
 	status = kfifo_out_spinlocked(deferred_wq->prio_fifo, event,
 		DEFRD_EVT_SIZE, &deferred_wq->work_lock);
 
 	if (!status) {
-		
+		/* priority fifo is empty. Now read low prio work fifo */
 		status = kfifo_out_spinlocked(deferred_wq->work_fifo, event,
 			DEFRD_EVT_SIZE, &deferred_wq->work_lock);
 	}
@@ -266,6 +291,9 @@ dhd_get_scheduled_work(struct dhd_deferred_wq *deferred_wq, struct dhd_deferred_
 	return status;
 }
 
+/*
+ *	Called when work is scheduled
+ */
 static void
 dhd_deferred_work_handler(struct work_struct *work)
 {

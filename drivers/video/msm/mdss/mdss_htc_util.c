@@ -69,14 +69,22 @@ static ssize_t dsi_cmd_write(
 	if (!ctrl_instance)
 		return count;
 
-	
+	/* end of string */
 	debug_buf[count] = 0;
 
-	
+	/* Format:
+	ex: echo 39 51 ff > dsi_cmd
+	read ex: echo 06 52 00 > dsi_cmd
+	     [type] space [addr] space [value]
+	     +--+--+-----+--+--+------+--+--+-
+	bit   0  1    2   3  4     5   6  7
+	ex:    39          51           ff
+	*/
+	/* Calc the count, min count = 9, format: type addr value */
 	cnt = (count) / 3 - 1;
 	debug_cmd.dchdr.dlen = cnt;
 
-	
+	/* Get the type */
 	sscanf(debug_buf, "%x", &type);
 
 	if (type == DTYPE_DCS_LWRITE)
@@ -90,7 +98,7 @@ static ssize_t dsi_cmd_write(
 
 	pr_info("%s: cnt=%d, type=0x%x\n", __func__, cnt, type);
 
-	
+	/* Get the cmd and value */
 	for (i = 0; i < cnt; i++) {
 		if (i >= DCS_MAX_CNT) {
 			pr_info("%s: DCS command count over DCS_MAX_CNT, Skip these commands.\n", __func__);
@@ -111,7 +119,7 @@ static ssize_t dsi_cmd_write(
 		cmdreq.flags = CMD_REQ_COMMIT | CMD_REQ_RX;
 		cmdreq.rlen = 4;
 		cmdreq.rbuf = dsi_rbuf;
-		cmdreq.cb = dsi_read_cb; 
+		cmdreq.cb = dsi_read_cb; /* call back */
 
 		mdss_dsi_cmdlist_put(ctrl_instance, &cmdreq);
 	} else {
@@ -216,8 +224,35 @@ static ssize_t switch_store(struct device *dev, struct device_attribute *attr,
 	return ret;
 }
 
+/*
+HTC native mipi command format :
 
-#define SLEEPMS_OFFSET(strlen) (strlen+1) 
+	"format string", < sleep ms >,  <cmd leng>, ['cmd bytes'...] ;
+
+	"format string" :
+		"DTYPE_DCS_WRITE"  : 0x05
+		"DTYPE_DCS_WRITE1" : 0x15
+		"DTYPE_DCS_LWRITE" : 0x39
+		"DTYPE_GEN_WRITE"  : 0x03
+		"DTYPE_GEN_WRITE1" : 0x13
+		"DTYPE_GEN_WRITE2" : 0x23
+		"DTYPE_GEN_LWRITE" : 0x29
+
+	Example :
+		htc-fmt,mdss-dsi-off-command =
+					"DTYPE_DCS_WRITE", <1>, <0x02>, [28 00],
+					"DTYPE_DCS_WRITE", <120>, <0x02>, [10 00];
+		htc-fmt,display-on-cmds = "DTYPE_DCS_WRITE", <0x0A>, <0x02>, [29 00];
+		htc-fmt,cabc-off-cmds = "DTYPE_DCS_LWRITE", <1>, <0x02>, [55 00];
+		htc-fmt,cabc-ui-cmds =
+			"DTYPE_DCS_LWRITE", <5>, <0x02>, [55 02],
+			"DTYPE_DCS_LWRITE", <1>, <0x02>, [5E 11],
+			"DTYPE_DCS_LWRITE", <1>, <0x0A>, [CA 2D 27 26 25 24 22 21 21 20],
+			"DTYPE_DCS_LWRITE", <1>, <0x23>, [CE 00 00 00 00 10 10 16 16 16 16 16 16 16 16 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00];
+
+*/
+
+#define SLEEPMS_OFFSET(strlen) (strlen+1) /* < sleep ms>, [cmd len ... */
 #define CMDLEN_OFFSET(strlen)  (SLEEPMS_OFFSET(strlen)+sizeof(const __be32))
 #define CMD_OFFSET(strlen)     (CMDLEN_OFFSET(strlen)+sizeof(const __be32))
 
@@ -259,7 +294,7 @@ int htc_mdss_dsi_parse_dcs_cmds(struct device_node *np,
 	if (!prop || !len || !(prop->length) || !(prop->value)) {
 		pr_err("%s: failed, key=%s  [%d : %d : %p]\n", __func__, cmd_key,
 			len, (prop ? prop->length : -1), (prop ? prop->value : 0) );
-		
+		//pr_err("%s: failed, key=%s\n", __func__, cmd_key);
 		return -ENOMEM;
 	}
 
@@ -275,7 +310,7 @@ int htc_mdss_dsi_parse_dcs_cmds(struct device_node *np,
 				break;
 			curcmdtype++;
 		};
-		if( !dsi_cmd_map[curcmdtype].cmdtype_strlen ) 
+		if( !dsi_cmd_map[curcmdtype].cmdtype_strlen ) /* no matching */
 			break;
 
 		i = be32_to_cpup((__be32 *)&data[CMDLEN_OFFSET(dsi_cmd_map[curcmdtype].cmdtype_strlen)]);

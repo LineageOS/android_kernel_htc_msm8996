@@ -60,17 +60,19 @@ static	uint16_t nv7K9Kdiff_table[NV_TABLE_SZ] = {14,
 
 static	uint16_t nv9Konly_table[NV_TABLE_SZ] = {7, 579, 580, 1192, 1194, 4204, 4964, 818};
 
+/*mode reset */
 static	uint16_t M297K9K_table[M29_TABLE_SZ] = {4, 1, 2, 4, 5};
 static	uint16_t M297Konly_table[M29_TABLE_SZ];
 static	uint16_t M297K9Kdiff_table[M29_TABLE_SZ];
 static	uint16_t M299Konly_table[M29_TABLE_SZ];
 
+/*PRL read/write*/
 static	uint16_t PRL7K9K_table[PRL_TABLE_SZ] = {1, 0};
 static	uint16_t PRL7Konly_table[PRL_TABLE_SZ];
 static	uint16_t PRL7K9Kdiff_table[PRL_TABLE_SZ];
 static	uint16_t PRL9Konly_table[PRL_TABLE_SZ];
 
-static int radio_initialized; 
+static int radio_initialized; /*radio can response 0xc command*/
 
 static int diag2arm9query;
 #define XPST_SMD	0
@@ -79,6 +81,7 @@ static int diag2arm9query;
 
 #endif
 
+/* 8064 is the platform that modem located in external 9k */
 static struct diag_context *get_modem_ctxt(void)
 {
 #if defined(CONFIG_ARCH_APQ8064)
@@ -117,6 +120,7 @@ static void diag_req_free(struct usb_request *req)
 	req = 0;
 }
 
+/* add a request to the tail of a list */
 static void xpst_req_put(struct diag_context *ctxt, struct list_head *head,
 		struct usb_request *req)
 {
@@ -127,6 +131,7 @@ static void xpst_req_put(struct diag_context *ctxt, struct list_head *head,
 	spin_unlock_irqrestore(&ctxt->req_lock, flags);
 }
 
+/* remove a request from the head of a list */
 static struct usb_request *xpst_req_get(struct diag_context *ctxt,
 		struct list_head *head)
 {
@@ -250,7 +255,7 @@ int modem_to_userspace(void *buf, int r, int type, int is9k)
 				decode_encode_hdlc(buf, &r, req->buf, 0, 3);
 		}
 	} else if (type == NO_DEF_ID) {
-		
+		/*in this case, cmd may reply error message*/
 		value = *((uint8_t *)req->buf+2);
 		pr_info("%s:check error cmd=0x%x message=ox%x\n", __func__
 				, value, *((uint8_t *)req->buf+1));
@@ -268,7 +273,7 @@ int modem_to_userspace(void *buf, int r, int type, int is9k)
 	else
 		print_hex_dump(KERN_DEBUG, "DM Read Packet Data"
 				" from 7k radio (first 16 Bytes): ", DUMP_PREFIX_ADDRESS, 16, 1, req->buf, 16, 1);
-	
+	/* ctxt->rx_count += r; */
 	req->actual = r;
 	xpst_req_put(ctxt, &ctxt->rx_arm9_done, req);
 	wake_up(&ctxt->read_arm9_wq);
@@ -302,11 +307,11 @@ static long htc_diag_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 		htc_usb_enable_function("mtp,adb,mass_storage,diag", tmp_value?1:0);
 #if 0
 		if (tmp_value) {
-			
+			/* Never close SMD channel */
 			diag_smd_enable(driver->smd_data[MODEM_DATA].ch, "diag_ioctl", tmp_value);
 		}
 #endif
-		
+		/* force diag_read to return error when disable diag */
 		if (tmp_value == 0)
 			ctxt->error = 1;
 		wake_up(&ctxt->read_wq);
@@ -332,7 +337,7 @@ static long htc_diag_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 		pr_info("diag: fix me USB_DIAG_FUNC_IOC_AMR_SET\n");
 		break;
 	case USB_DIAG_FUNC_IOC_LOGTYPE_GET:
-		
+		/* to see if logging mode = 1 (USB_MODE) */
 		tmp_value = (driver->logging_mode == 1)?1:0;
 		if (copy_to_user(argp, &tmp_value, sizeof(tmp_value)))
 			return -EFAULT;
@@ -356,7 +361,7 @@ static ssize_t htc_diag_read(struct file *fp, char __user *buf,
 	pr_info("%s:%s(parent:%s): tgid=%d\n", __func__,
 			current->comm, current->parent->comm, current->tgid);
 
-	
+	/* we will block until we're online */
 	if (!ctxt->online) {
 		ret = wait_event_interruptible(ctxt->read_wq, (ctxt->online || ctxt->error));
 		if (ret < 0 || ctxt->error)
@@ -533,7 +538,7 @@ static int htc_diag_open(struct inode *ip, struct file *fp)
 		}
 	}
 
-	
+	/* clear pending data if any */
 	while ((req = xpst_req_get(ctxt, &ctxt->rx_req_idle)))
 		diag_req_free(req);
 
@@ -549,7 +554,7 @@ static int htc_diag_open(struct inode *ip, struct file *fp)
 	}
 
 	ctxt->opened = true;
-	
+	/* clear the error latch */
 	ctxt->error = 0;
 
 done:
@@ -620,7 +625,10 @@ static int if_route_to_userspace(struct diag_context *ctxt, unsigned int cmd)
 
 	if (!ctxt->opened || cmd_id == 0)
 		return 0;
-	
+	/* command ids 0xfb..0xff are not used by msm diag; we steal these ids
+	 * for communication between userspace tool and host test tool.
+	 */
+	/*printk("cmd_num=%d cmd_id=%d\n", cmd_num, cmd_id);*/
 	if (cmd_id >= 0xfb && cmd_id <= 0xff)
 		return 1;
 
@@ -628,6 +636,9 @@ static int if_route_to_userspace(struct diag_context *ctxt, unsigned int cmd)
 	spin_lock_irqsave(&ctxt->req_lock, flags);
 	for (i = 0; i < ARRAY_SIZE(ctxt->id_table); i = i+2)
 		if (ctxt->id_table[i] == cmd_id) {
+			/* if the command id equals to any of registered ids,
+			 * route to userspace to handle.
+			 */
 			if (ctxt->id_table[i+1] == cmd_num || ctxt->id_table[i+1] == 0xff) {
 				spin_unlock_irqrestore(&ctxt->req_lock, flags);
 				return 1;
@@ -803,7 +814,7 @@ static int diag2arm9_open(struct inode *ip, struct file *fp)
 		rc = -EBUSY;
 		goto done;
 	}
-	
+	/* clear pending data if any */
 	while ((req = xpst_req_get(ctxt, &ctxt->rx_arm9_done)))
 		diag_req_free(req);
 
@@ -821,18 +832,20 @@ static int diag2arm9_open(struct inode *ip, struct file *fp)
 	ctxt->read_arm9_buf = 0;
 	ctxt->read_arm9_req = 0;
 	ctxt->diag2arm9_opened = true;
-	DM_enable = true; 
+	DM_enable = true; /*++ 2015/10/26, USB Team, PCN00032 ++*/
+/*++ 2015/10/26, USB Team, PCN00031 ++*/
 	for (i = 0; i < NUM_PERIPHERALS; i++) {
 		diagfwd_open(i, TYPE_DATA);
 		diagfwd_open(i, TYPE_CMD);
 	}
 	queue_work(driver->diag_real_time_wq, &driver->diag_real_time_work);
+/*-- 2015/10/26, USB Team, PCN00031 --*/
 
-	
+	//diag_smd_enable(driver->smd_data[MODEM_DATA].ch, "diag2arm9_open", SMD_FUNC_OPEN_DIAG);
 
-	
-	
-	
+	/* Active the diag buffer */
+	//driver->smd_data[MODEM_DATA].in_busy_1 = 0;
+	//driver->smd_data[MODEM_DATA].in_busy_2 = 0;
 done:
 	mutex_unlock(&ctxt->diag2arm9_lock);
 	return rc;
@@ -856,7 +869,12 @@ static int diag2arm9_release(struct inode *ip, struct file *fp)
 		diag_req_free(ctxt->read_arm9_req);
 	mutex_unlock(&ctxt->diag2arm9_read_lock);
 
-	
+	/*************************************
+	 * If smd is closed, it will  lead to slate can't be tested.
+	 * slate will open it for one time
+	 * but close it for several times and never open
+	 *************************************/
+	/*smd_diag_enable("diag2arm9_release", 0);*/
 	mutex_unlock(&ctxt->diag2arm9_lock);
 	return 0;
 }
@@ -881,6 +899,10 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 			r = -EFAULT;
 			break;
 		}
+		/*if (driver->smd_data[MODEM_DATA].ch == NULL) {
+			DIAG_INFO("%s: driver->smd_data[MODEM_DATA].ch == NULL", __func__);
+			r = -EFAULT;
+			break;*/
 		if (ctxt->toARM9_buf == NULL) {
 			pr_info("%s: ctxt->toARM9_buf == NULL", __func__);
 			r = -EFAULT;
@@ -911,7 +933,7 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 				break;
 			}
 			diagfwd_write(PERIPHERAL_MODEM, TYPE_CMD, ctxt->toARM9_buf, hdlc.dest_idx-3);
-			
+			//smd_write(driver->smd_data[MODEM_DATA].ch, ctxt->toARM9_buf, hdlc.dest_idx-3);
 			break;
 		case DM9KONLY:
 			pr_info("%s:above date to DM9KONLY\n", __func__);
@@ -930,9 +952,9 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 			pr_info("%s:above data to DM7KONLY\n", __func__);
 #if !defined(CONFIG_MACH_VIGOR)
 			diagfwd_write(PERIPHERAL_MODEM, TYPE_CMD, ctxt->DM_buf, writed);
-			
+			//smd_write(driver->smd_cmd[MODEM_DATA].ch, ctxt->DM_buf, writed);
 #else
-			
+			/* send to 8k after decode HDLC*/
 			hdlc.dest_ptr = ctxt->toARM9_buf;
 			hdlc.dest_size = SMD_MAX;
 			hdlc.src_ptr = ctxt->DM_buf;
@@ -948,7 +970,7 @@ static ssize_t diag2arm9_write(struct file *fp, const char __user *buf,
 				break;
 			}
 			diagfwd_write(PERIPHERAL_MODEM, TYPE_CMD, ctxt->toARM9_buf, hdlc.dest_idx-3);
-			
+			//smd_write(driver->smd_data[MODEM_DATA].ch, ctxt->toARM9_buf, hdlc.dest_idx-3);
 #endif
 			break;
 		case NO_DEF_ID:
@@ -982,12 +1004,12 @@ static ssize_t diag2arm9_read(struct file *fp, char __user *buf,
 	pr_info("%s\n", __func__);
 	mutex_lock(&ctxt->diag2arm9_read_lock);
 
-	
+	/* if we have data pending, give it to userspace */
 	if (ctxt->read_arm9_count > 0)
 		req = ctxt->read_arm9_req;
 	else {
 retry:
-		
+		/* get data from done queue */
 		req = 0;
 		ret = wait_event_interruptible_timeout(ctxt->read_arm9_wq,
 				((req = xpst_req_get(ctxt, &ctxt->rx_arm9_done)) ||
@@ -1018,7 +1040,7 @@ retry:
 	ctxt->read_arm9_buf += xfer;
 	ctxt->read_arm9_count -= xfer;
 	r += xfer;
-	
+	/* if we've emptied the buffer, release the request */
 	if (ctxt->read_arm9_count == 0) {
 		print_hex_dump(KERN_DEBUG, "DM Packet Data"
 				" read from radio ", DUMP_PREFIX_ADDRESS, 16, 1, req->buf, req->actual, 1);

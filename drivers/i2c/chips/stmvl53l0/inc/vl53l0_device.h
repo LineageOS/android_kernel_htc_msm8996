@@ -26,6 +26,10 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *******************************************************************************/
 
+/**
+ * Device specific defines. To be adapted by implementer for the targeted
+ * device.
+ */
 
 #ifndef _VL53L0_DEVICE_H_
 #define _VL53L0_DEVICE_H_
@@ -33,12 +37,24 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "vl53l0_types.h"
 
 
+/** @defgroup VL53L0_DevSpecDefines_group VL53L0 cut1.1 Device Specific Defines
+ *  @brief VL53L0 cut1.1 Device Specific Defines
+ *  @{
+ */
 
 
+/** @defgroup VL53L0_DeviceError_group Device Error
+ *  @brief Device Error code
+ *
+ *  This enum is Device specific it should be updated in the implementation
+ *  Use @a VL53L0_GetStatusErrorString() to get the string.
+ *  It is related to Status Register of the Device.
+ *  @{
+ */
 typedef uint8_t VL53L0_DeviceError;
 
 #define VL53L0_DEVICEERROR_NONE                        ((VL53L0_DeviceError) 0)
-	
+	/*!< 0  NoError  */
 #define VL53L0_DEVICEERROR_VCSELCONTINUITYTESTFAILURE  ((VL53L0_DeviceError) 1)
 #define VL53L0_DEVICEERROR_VCSELWATCHDOGTESTFAILURE    ((VL53L0_DeviceError) 2)
 #define VL53L0_DEVICEERROR_NOVHVVALUEFOUND             ((VL53L0_DeviceError) 3)
@@ -54,8 +70,16 @@ typedef uint8_t VL53L0_DeviceError;
 #define VL53L0_DEVICEERROR_ALGOOVERFLOW                ((VL53L0_DeviceError) 13)
 #define VL53L0_DEVICEERROR_RANGEIGNORETHRESHOLD        ((VL53L0_DeviceError) 14)
 
+/** @} end of VL53L0_DeviceError_group */
 
 
+/** @defgroup VL53L0_CheckEnable_group Check Enable list
+ *  @brief Check Enable code
+ *
+ *  Define used to specify the LimitCheckId.
+ *  Use @a VL53L0_GetLimitCheckInfo() to get the string.
+ *  @{
+ */
 
 #define VL53L0_CHECKENABLE_SIGMA_FINAL_RANGE           0
 #define VL53L0_CHECKENABLE_SIGNAL_RATE_FINAL_RANGE     1
@@ -64,33 +88,52 @@ typedef uint8_t VL53L0_DeviceError;
 
 #define VL53L0_CHECKENABLE_NUMBER_OF_CHECKS            4
 
+/** @}  end of VL53L0_CheckEnable_group */
 
 
+/** @defgroup VL53L0_GpioFunctionality_group Gpio Functionality
+ *  @brief Defines the different functionalities for the device GPIO(s)
+ *  @{
+ */
 typedef uint8_t VL53L0_GpioFunctionality;
 
 #define VL53L0_GPIOFUNCTIONALITY_OFF                     \
-	((VL53L0_GpioFunctionality)  0) 
+	((VL53L0_GpioFunctionality)  0) /*!< NO Interrupt  */
 #define VL53L0_GPIOFUNCTIONALITY_THRESHOLD_CROSSED_LOW   \
-	((VL53L0_GpioFunctionality)  1) 
+	((VL53L0_GpioFunctionality)  1) /*!< Level Low (value < thresh_low)  */
 #define VL53L0_GPIOFUNCTIONALITY_THRESHOLD_CROSSED_HIGH   \
-	((VL53L0_GpioFunctionality)  2) 
+	((VL53L0_GpioFunctionality)  2) /*!< Level High (value > thresh_high) */
 #define VL53L0_GPIOFUNCTIONALITY_THRESHOLD_CROSSED_OUT    \
 	((VL53L0_GpioFunctionality)  3)
-	
+	/*!< Out Of Window (value < thresh_low OR value > thresh_high)  */
 #define VL53L0_GPIOFUNCTIONALITY_NEW_MEASURE_READY        \
-	((VL53L0_GpioFunctionality)  4) 
+	((VL53L0_GpioFunctionality)  4) /*!< New Sample Ready  */
+
+/** @} end of VL53L0_GpioFunctionality_group */
 
 
+/* Device register map */
 
-
+/** @defgroup VL53L0_DefineRegisters_group Define Registers
+ *  @brief List of all the defined registers
+ *  @{
+ */
 #define VL53L0_REG_SYSRANGE_START                        0x000
-	
+	/** mask existing bit in #VL53L0_REG_SYSRANGE_START*/
 	#define VL53L0_REG_SYSRANGE_MODE_MASK          0x0F
+	/** bit 0 in #VL53L0_REG_SYSRANGE_START write 1 toggle state in
+	 * continuous mode and arm next shot in single shot mode */
 	#define VL53L0_REG_SYSRANGE_MODE_START_STOP    0x01
-	
+	/** bit 1 write 0 in #VL53L0_REG_SYSRANGE_START set single shot mode */
 	#define VL53L0_REG_SYSRANGE_MODE_SINGLESHOT    0x00
+	/** bit 1 write 1 in #VL53L0_REG_SYSRANGE_START set back-to-back
+	 *  operation mode */
 	#define VL53L0_REG_SYSRANGE_MODE_BACKTOBACK    0x02
+	/** bit 2 write 1 in #VL53L0_REG_SYSRANGE_START set timed operation
+	 *  mode */
 	#define VL53L0_REG_SYSRANGE_MODE_TIMED         0x04
+	/** bit 3 write 1 in #VL53L0_REG_SYSRANGE_START set histogram operation
+	 *  mode */
 	#define VL53L0_REG_SYSRANGE_MODE_HISTOGRAM     0x08
 
 
@@ -115,6 +158,7 @@ typedef uint8_t VL53L0_GpioFunctionality;
 
 #define VL53L0_REG_SYSTEM_INTERRUPT_CLEAR           0x000B
 
+/* Result registers */
 #define VL53L0_REG_RESULT_INTERRUPT_STATUS          0x0013
 #define VL53L0_REG_RESULT_RANGE_STATUS              0x0014
 
@@ -125,11 +169,13 @@ typedef uint8_t VL53L0_GpioFunctionality;
 #define VL53L0_REG_RESULT_CORE_RANGING_TOTAL_EVENTS_REF    0x00D4
 #define VL53L0_REG_RESULT_PEAK_SIGNAL_RATE_REF             0x00B6
 
+/* Algo register */
 
 #define VL53L0_REG_ALGO_PART_TO_PART_RANGE_OFFSET_MM       0x0028
 
 #define VL53L0_REG_I2C_SLAVE_DEVICE_ADDRESS                0x008a
 
+/* Check Limit registers */
 #define VL53L0_REG_MSRC_CONFIG_CONTROL                     0x0060
 
 #define VL53L0_REG_PRE_RANGE_CONFIG_MIN_SNR                      0X0027
@@ -146,6 +192,7 @@ typedef uint8_t VL53L0_GpioFunctionality;
 #define VL53L0_REG_PRE_RANGE_CONFIG_SIGMA_THRESH_HI              0X0061
 #define VL53L0_REG_PRE_RANGE_CONFIG_SIGMA_THRESH_LO              0X0062
 
+/* PRE RANGE registers */
 #define VL53L0_REG_PRE_RANGE_CONFIG_VCSEL_PERIOD                 0x0050
 #define VL53L0_REG_PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI            0x0051
 #define VL53L0_REG_PRE_RANGE_CONFIG_TIMEOUT_MACROP_LO            0x0052
@@ -170,6 +217,7 @@ typedef uint8_t VL53L0_GpioFunctionality;
 
 
 #define VL53L0_SIGMA_ESTIMATE_MAX_VALUE                          65535
+/* equivalent to a range sigma of 655.35mm */
 
 #define VL53L0_REG_GLOBAL_CONFIG_VCSEL_WIDTH          0x032
 #define VL53L0_REG_GLOBAL_CONFIG_SPAD_ENABLES_REF_0   0x0B0
@@ -180,22 +228,28 @@ typedef uint8_t VL53L0_GpioFunctionality;
 #define VL53L0_REG_GLOBAL_CONFIG_SPAD_ENABLES_REF_5   0x0B5
 
 #define VL53L0_REG_GLOBAL_CONFIG_REF_EN_START_SELECT   0xB6
-#define VL53L0_REG_DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD 0x4E 
-#define VL53L0_REG_DYNAMIC_SPAD_REF_EN_START_OFFSET    0x4F 
+#define VL53L0_REG_DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD 0x4E /* 0x14E */
+#define VL53L0_REG_DYNAMIC_SPAD_REF_EN_START_OFFSET    0x4F /* 0x14F */
 #define VL53L0_REG_POWER_MANAGEMENT_GO1_POWER_FORCE    0x80
 
+/*
+ * Speed of light in um per 1E-10 Seconds
+ */
 
 #define VL53L0_SPEED_OF_LIGHT_IN_AIR 2997
 
 #define VL53L0_REG_VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV     0x0089
 
-#define VL53L0_REG_ALGO_PHASECAL_LIM                         0x0030 
+#define VL53L0_REG_ALGO_PHASECAL_LIM                         0x0030 /* 0x130 */
 #define VL53L0_REG_ALGO_PHASECAL_CONFIG_TIMEOUT              0x0030
 
+/** @} VL53L0_DefineRegisters_group */
 
+/** @} VL53L0_DevSpecDefines_group */
 
 
 #endif
 
+/* _VL53L0_DEVICE_H_ */
 
 

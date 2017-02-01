@@ -321,9 +321,9 @@ static void power_supply_changed_work(struct work_struct *work)
 		class_for_each_device(power_supply_class, NULL, psy,
 				      __power_supply_changed_work);
 #ifdef CONFIG_HTC_BATT_PCN0012
-         
-		
-#endif 
+         /* Don't let drivers have chance to contorl LED directly */
+		//power_supply_update_leds(psy);
+#endif //CONFIG_HTC_BATT_PCN0012
 		atomic_notifier_call_chain(&power_supply_notifier,
 				PSY_EVENT_PROP_CHANGED, psy);
 		kobject_uevent(&psy->dev->kobj, KOBJ_CHANGE);

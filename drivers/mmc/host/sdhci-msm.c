@@ -298,6 +298,9 @@ static int sdhci_read_speed_class(struct seq_file *m, void *v)
 		host->card ? host->card->speed_class : -1);
 }
 
+/*
+ * seq_file wrappers for procfile show routines.
+ */
 static int sdhci_proc_speed_class_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, sdhci_read_speed_class, PDE_DATA(file_inode(file)));
@@ -329,11 +332,20 @@ static const struct file_operations sdhci_proc_sd_tray_fops = {
 	.release	= single_release,
 };
 
+/*
+ * sdhci_msm_get_cd - return SD status
+ *
+ * return 0 : ejected
+ * return 1 : inserted
+ * return -38 : ENOSYS, current host doesn`t have detection pin
+ *
+ */
 static int sdhci_msm_get_cd(struct sdhci_host *host)
 {
 	return mmc_gpio_get_cd(host->mmc);
 }
 
+/* MSM platform specific tuning */
 static inline int msm_dll_poll_ck_out_en(struct sdhci_host *host,
 						u8 poll)
 {
@@ -1488,7 +1500,7 @@ static int sdhci_msm_parse_pinctrl_info(struct device *dev,
 		goto out;
 	}
 
-	
+	/* Look-up active_sdr104 pin states from device tree */
 	pctrl_data->pins_active_sdr104 = pinctrl_lookup_state(
 			pctrl_data->pctrl, "active_sdr104");
 	if (IS_ERR(pctrl_data->pins_active_sdr104)) {
@@ -3110,6 +3122,9 @@ static void sdhci_msm_set_clock(struct sdhci_host *host, unsigned int clock)
 	mb();
 
 	if (sup_clock != msm_host->clk_rate) {
+		/*
+		 * SD SDR104/DDR50 mode need the other driving group.
+		 */
 		if (is_sd_platform(msm_host->pdata) &&
 			(curr_ios.timing == MMC_TIMING_UHS_SDR104 ||
 			 curr_ios.timing == MMC_TIMING_UHS_DDR50))
@@ -4539,7 +4554,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 				mmc_hostname(host->mmc));
 	}
 
-	
+	/* Successful initialization */
 	goto out;
 
 remove_max_bus_bw_file:

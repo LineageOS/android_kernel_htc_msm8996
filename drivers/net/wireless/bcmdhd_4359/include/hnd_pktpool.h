@@ -36,6 +36,7 @@
 extern "C" {
 #endif
 
+/* mutex macros for thread safe */
 #ifdef HND_PKTPOOL_THREAD_SAFE
 #define HND_PKTPOOL_MUTEX_DECL(mutex)		OSL_EXT_MUTEX_DECL(mutex)
 #else
@@ -44,17 +45,18 @@ extern "C" {
 
 #ifdef BCMPKTPOOL
 #define POOL_ENAB(pool)		((pool) && (pool)->inited)
-#else 
+#else /* BCMPKTPOOL */
 #define POOL_ENAB(bus)		0
-#endif 
+#endif /* BCMPKTPOOL */
 
 #ifndef PKTPOOL_LEN_MAX
 #define PKTPOOL_LEN_MAX		40
-#endif 
+#endif /* PKTPOOL_LEN_MAX */
 #define PKTPOOL_CB_MAX		3
 #define PKTPOOL_CB_MAX_AVL	4
 
 
+/* forward declaration */
 struct pktpool;
 
 typedef void (*pktpool_cb_t)(struct pktpool *pool, void *arg);
@@ -63,6 +65,7 @@ typedef struct {
 	void *arg;
 } pktpool_cbinfo_t;
 
+/** PCIe SPLITRX related: call back fn extension to populate host address in pool pkt */
 typedef int (*pktpool_cb_extn_t)(struct pktpool *pool, void *arg1, void* pkt, bool arg2);
 typedef struct {
 	pktpool_cb_extn_t cb;
@@ -71,6 +74,7 @@ typedef struct {
 
 
 #ifdef BCMDBG_POOL
+/* pkt pool debug states */
 #define POOL_IDLE	0
 #define POOL_RXFILL	1
 #define POOL_RXDH	2
@@ -87,38 +91,38 @@ typedef struct {
 } pktpool_dbg_t;
 
 typedef struct {
-	uint8 txdh;	
-	uint8 txd11;	
-	uint8 enq;	
-	uint8 rxdh;	
-	uint8 rxd11;	
-	uint8 rxfill;	
-	uint8 idle;	
+	uint8 txdh;	/* tx to host */
+	uint8 txd11;	/* tx to d11 */
+	uint8 enq;	/* waiting in q */
+	uint8 rxdh;	/* rx from host */
+	uint8 rxd11;	/* rx from d11 */
+	uint8 rxfill;	/* dma_rxfill */
+	uint8 idle;	/* avail in pool */
 } pktpool_stats_t;
-#endif 
+#endif /* BCMDBG_POOL */
 
 typedef struct pktpool {
-	bool inited;            
-	uint8 type;             
-	uint8 id;               
-	bool istx;              
-	HND_PKTPOOL_MUTEX_DECL(mutex)	
+	bool inited;            /**< pktpool_init was successful */
+	uint8 type;             /**< type of lbuf: basic, frag, etc */
+	uint8 id;               /**< pktpool ID:  index in registry */
+	bool istx;              /**< direction: transmit or receive data path */
+	HND_PKTPOOL_MUTEX_DECL(mutex)	/**< thread-safe mutex */
 
-	void * freelist;        
-	uint16 avail;           
-	uint16 len;             
-	uint16 maxlen;          
-	uint16 plen;            
+	void * freelist;        /**< free list: see PKTNEXTFREE(), PKTSETNEXTFREE() */
+	uint16 avail;           /**< number of packets in pool's free list */
+	uint16 len;             /**< number of packets managed by pool */
+	uint16 maxlen;          /**< maximum size of pool <= PKTPOOL_LEN_MAX */
+	uint16 plen;            /**< size of pkt buffer, excluding lbuf|lbuf_frag */
 
 	bool empty;
 	uint8 cbtoggle;
 	uint8 cbcnt;
 	uint8 ecbcnt;
-	uint8 emptycb_disable;	
+	uint8 emptycb_disable;	/**< Value of type enum pktpool_empty_cb_state */
 	pktpool_cbinfo_t *availcb_excl;
 	pktpool_cbinfo_t cbs[PKTPOOL_CB_MAX_AVL];
 	pktpool_cbinfo_t ecbs[PKTPOOL_CB_MAX];
-	pktpool_cbextn_info_t cbext;	
+	pktpool_cbextn_info_t cbext;	/**< PCIe SPLITRX related */
 	pktpool_cbextn_info_t rxcplidfn;
 #ifdef BCMDBG_POOL
 	uint8 dbg_cbcnt;
@@ -132,8 +136,9 @@ typedef struct pktpool {
 
 pktpool_t *get_pktpools_registry(int id);
 
+/* Incarnate a pktpool registry. On success returns total_pools. */
 extern int pktpool_attach(osl_t *osh, uint32 total_pools);
-extern int pktpool_dettach(osl_t *osh); 
+extern int pktpool_dettach(osl_t *osh); /* Relinquish registry */
 
 extern int pktpool_init(osl_t *osh, pktpool_t *pktp, int *pktplen, int plen, bool istx, uint8 type);
 extern int pktpool_deinit(osl_t *osh, pktpool_t *pktp);
@@ -165,9 +170,24 @@ extern int pkpool_haddr_avail_register_cb(pktpool_t *pktp, pktpool_cb_t cb, void
 #define pktpool_maxlen(pp)  (POOLPTR(pp)->maxlen)
 
 
+/*
+ * ----------------------------------------------------------------------------
+ * A pool ID is assigned with a pkt pool during pool initialization. This is
+ * done by maintaining a registry of all initialized pools, and the registry
+ * index at which the pool is registered is used as the pool's unique ID.
+ * ID 0 is reserved and is used to signify an invalid pool ID.
+ * All packets henceforth allocated from a pool will be tagged with the pool's
+ * unique ID. Packets allocated from the heap will use the reserved ID = 0.
+ * Packets with non-zero pool id signify that they were allocated from a pool.
+ * A maximum of 15 pools are supported, allowing a 4bit pool ID to be used
+ * in place of a 32bit pool pointer in each packet.
+ * ----------------------------------------------------------------------------
+ */
 #define PKTPOOL_INVALID_ID          (0)
 #define PKTPOOL_MAXIMUM_ID          (15)
 
+/* Registry of pktpool(s) */
+/* Pool ID to/from Pool Pointer converters */
 #define PKTPOOL_ID2PTR(id)          (get_pktpools_registry(id))
 #define PKTPOOL_PTR2ID(pp)          (POOLID(pp))
 
@@ -177,7 +197,7 @@ extern int pktpool_start_trigger(pktpool_t *pktp, void *p);
 extern int pktpool_dbg_dump(pktpool_t *pktp);
 extern int pktpool_dbg_notify(pktpool_t *pktp);
 extern int pktpool_stats_dump(pktpool_t *pktp, pktpool_stats_t *stats);
-#endif 
+#endif /* BCMDBG_POOL */
 
 #ifdef BCMPKTPOOL
 #define SHARED_POOL		(pktpool_shared)
@@ -187,18 +207,19 @@ extern pktpool_t *pktpool_shared;
 extern pktpool_t *pktpool_shared_lfrag;
 #endif
 
+/** PCIe SPLITRX related */
 #define SHARED_RXFRAG_POOL	(pktpool_shared_rxlfrag)
 extern pktpool_t *pktpool_shared_rxlfrag;
 
 void hnd_pktpool_init(osl_t *osh);
 void hnd_pktpool_fill(pktpool_t *pktpool, bool minimal);
 void hnd_pktpool_refill(bool minimal);
-#else 
+#else /* BCMPKTPOOL */
 #define SHARED_POOL		((struct pktpool *)NULL)
-#endif 
+#endif /* BCMPKTPOOL */
 
 #ifdef __cplusplus
 	}
 #endif
 
-#endif 
+#endif /* _hnd_pktpool_h_ */

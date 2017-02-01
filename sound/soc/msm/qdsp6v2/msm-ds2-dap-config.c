@@ -21,7 +21,9 @@
 
 
 #ifdef CONFIG_DOLBY_DS2
+//HTC_AUD_START
 #include <linux/workqueue.h>
+//HTC_AUD_END
 
 /* ramp up/down for 30ms    */
 #define DOLBY_SOFT_VOLUME_PERIOD	40
@@ -42,10 +44,13 @@ enum {
 /* Wait time for module enable/disble */
 #define DOLBY_MODULE_ENABLE_PERIOD     50
 
+//HTC_AUD_START
 static struct work_struct ramping_dwork;
 static void msm_htc_ds2_bypass(struct work_struct *work);
 static DECLARE_WORK(ramping_dwork, msm_htc_ds2_bypass);
+//HTC_AUD_END
 
+/* DOLBY device definitions end */
 enum {
 	DOLBY_OFF_CACHE = 0,
 	DOLBY_SPEAKER_CACHE,
@@ -192,17 +197,19 @@ static int all_supported_devices = EARPIECE|SPEAKER|WIRED_HEADSET|
 			PROXY|FM|FM_TX|DEVICE_NONE|
 			BLUETOOTH_SCO_HEADSET|BLUETOOTH_SCO_CARKIT;
 
+//HTC_AUD_START
 void msm_dolby_ssr_reset(void)
 {
 	int i;
 
 	pr_err("%s: reset dolby dap params states", __func__);
 
-	
+	//check if we need to reset more
 	for (i = 0; i < DS2_DEVICES_ALL; i++) {
 		dev_map[i].stream_ref_count = 0;
 	}
 }
+//HTC_AUD_END
 
 static void msm_ds2_dap_check_and_update_ramp_wait(int port_id, int copp_idx,
 						   int *ramp_wait)
@@ -885,8 +892,14 @@ static int msm_ds2_dap_handle_bypass_wait(int port_id, int copp_idx,
 {
 	int ret = 0;
 	adm_set_wait_parameters(port_id, copp_idx);
+//HTC_AUD_START
+//	msm_pcm_routing_release_lock();
+//HTC_AUD_END
 	ret = adm_wait_timeout(port_id, copp_idx, wait_time);
-	
+//HTC_AUD_START
+//	msm_pcm_routing_acquire_lock();
+//HTC_AUD_END
+	/* Reset the parameters if wait has timed out */
 	if (ret == 0)
 		adm_reset_wait_parameters(port_id, copp_idx);
 	return ret;
@@ -902,9 +915,11 @@ static int msm_ds2_dap_handle_bypass(struct dolby_param_data *dolby_data)
 	bool cs_onoff = ds2_dap_params_states.custom_stereo_onoff;
 	int ramp_wait = DOLBY_SOFT_VOLUME_PERIOD;
 
+//HTC_AUD_START
 	pr_info("%s:Hardbypass: %d Effect enable: %d\n", __func__,
 		 ds2_dap_params_states.dap_bypass_type,
 		 !(ds2_dap_params_states.dap_bypass));
+//HTC_AUD_END
 	mod_list = kzalloc(ADM_GET_TOPO_MODULE_LIST_LENGTH, GFP_KERNEL);
 	if (!mod_list) {
 		pr_err("%s: param memory alloc failed\n", __func__);
@@ -1402,10 +1417,12 @@ static int msm_ds2_dap_handle_commands(u32 cmd, void *arg)
 		ds2_dap_params_states.dap_bypass = data;
 		/* hard bypass */
 		if (ds2_dap_params_states.dap_bypass_type == DAP_HARD_BYPASS)
+//HTC_AUD_START
 		{
 			schedule_work(&ramping_dwork);
 		}
-		
+//HTC_AUD_END
+		/* soft bypass */
 		msm_ds2_dap_commit_params(dolby_data, 0);
 	break;
 
@@ -1964,11 +1981,13 @@ end:
 }
 #endif
 
+//HTC_AUD_START
 static void msm_htc_ds2_bypass(struct work_struct *work)
 {
 	pr_info("%s: Work trigger start \n", __func__);
 	msm_ds2_dap_handle_bypass(NULL);
 }
+//HTC_AUD_END
 
 int msm_ds2_dap_init(int port_id, int copp_idx, int channels,
 		     bool is_custom_stereo_on)
@@ -2085,7 +2104,9 @@ void msm_ds2_dap_deinit(int port_id)
 	 */
 	int idx = -1, i;
 	pr_debug("%s: port_id %d\n", __func__, port_id);
+//HTC_AUD_START
 	cancel_work_sync(&ramping_dwork);
+//HTC_AUD_END
 
 	if (port_id != DOLBY_INVALID_PORT_ID) {
 		for (i = 0; i < DS2_DEVICES_ALL; i++) {
@@ -2115,8 +2136,10 @@ void msm_ds2_dap_deinit(int port_id)
 		}
 		pr_debug("%s:index %d, dev [0x%x, 0x%x]\n", __func__, idx,
 			 dev_map[idx].device_id, ds2_dap_params_states.device);
+//HTC_AUD_START
 		if (dev_map[idx].stream_ref_count > 0)
 			dev_map[idx].stream_ref_count--;
+//HTC_AUD_END
 		if (dev_map[idx].stream_ref_count == 0) {
 			/*perform next func only if hard bypass enabled*/
 			if (ds2_dap_params_states.dap_bypass_type ==

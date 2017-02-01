@@ -42,4 +42,4 @@ extern void si_pmu_minresmask_htavail_set(si_t *sih, osl_t *osh, bool set_clear)
 extern void si_pmu_slow_clk_reinit(si_t *sih, osl_t *osh);
 extern void si_pmu_avbtimer_enable(si_t *sih, osl_t *osh, bool set_flag);
 
-#endif 
+#endif /* _hndpmu_h_ */

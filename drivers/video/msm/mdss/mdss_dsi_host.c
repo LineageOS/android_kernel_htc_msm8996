@@ -2376,6 +2376,12 @@ static int mdss_dsi_mdp_busy_tout_check(struct mdss_dsi_ctrl_pdata *ctrl)
 	int tout = 1;
 
 	MDSS_XLOG(ctrl->ndx, ctrl->mdp_busy, current->pid, 0xbadf);
+	/*
+	 * two possible scenario:
+	 * 1) DSI_INTR_CMD_MDP_DONE set but isr not fired
+	 * 2) DSI_INTR_CMD_MDP_DONE set and cleared (isr fired)
+	 * but event_thread not wakeup
+	 */
 	mdss_dsi_clk_ctrl(ctrl, ctrl->dsi_clk_handle, MDSS_DSI_ALL_CLKS,
 			  MDSS_DSI_CLK_ON);
 	spin_lock_irqsave(&ctrl->mdp_lock, flag);
@@ -3133,7 +3139,7 @@ irqreturn_t mdss_dsi_isr(int irq, void *ptr)
 
 	isr = MIPI_INP(ctrl->ctrl_base + 0x0110);/* DSI_INTR_CTRL */
 	MIPI_OUTP(ctrl->ctrl_base + 0x0110, (isr & ~DSI_INTR_ERROR));
-	isr2 = MIPI_INP(ctrl->ctrl_base + 0x0110);
+	isr2 = MIPI_INP(ctrl->ctrl_base + 0x0110);/* DSI_INTR_CTRL */
 	if (isr2 & mask2) {
 		pr_warn("%s: unclear intr ctrl, ndx=%d, isr=%x, isr2=%x, irq=%x\n",
 			__func__, ctrl->ndx, isr, isr2, irq);

@@ -39,4 +39,4 @@ struct msm_hdmi_sp_ops {
 int msm_hdmi_register_sp(struct platform_device *pdev,
 			  struct msm_hdmi_sp_ops *ops);
 
-#endif 
+#endif /* __MDSS_HDMI_MHL_H__ */

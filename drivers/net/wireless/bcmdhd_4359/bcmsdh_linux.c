@@ -27,6 +27,9 @@
  * $Id: bcmsdh_linux.c 514727 2014-11-12 03:02:48Z $
  */
 
+/**
+ * @file bcmsdh_linux.c
+ */
 
 #define __UNDEF_NO_VERSION__
 
@@ -46,9 +49,10 @@ extern void dhdsdio_isr(void * args);
 #include <dhd.h>
 #if defined(CONFIG_ARCH_ODIN)
 #include <linux/platform_data/gpio-odin.h>
-#endif 
+#endif /* defined(CONFIG_ARCH_ODIN) */
 #include <dhd_linux.h>
 
+/* driver info, initialized when bcmsdh_register is called */
 static bcmsdh_driver_t drvinfo = {NULL, NULL, NULL, NULL};
 
 typedef enum {
@@ -58,67 +62,76 @@ typedef enum {
 	DHD_INTR_SWOOB
 } DHD_HOST_INTR_TYPE;
 
+/* the BCMSDH module comprises the generic part (bcmsdh.c) and OS specific layer (e.g.
+ * bcmsdh_linux.c). Put all OS specific variables (e.g. irq number and flags) here rather
+ * than in the common structure bcmsdh_info. bcmsdh_info only keeps a handle (os_ctx) to this
+ * structure.
+ */
 typedef struct bcmsdh_os_info {
 	DHD_HOST_INTR_TYPE	intr_type;
-	int			oob_irq_num;	
-	unsigned long		oob_irq_flags;	
+	int			oob_irq_num;	/* valid when hardware or software oob in use */
+	unsigned long		oob_irq_flags;	/* valid when hardware or software oob in use */
 	bool			oob_irq_registered;
 	bool			oob_irq_enabled;
 	bool			oob_irq_wake_enabled;
 	spinlock_t		oob_irq_spinlock;
 	bcmsdh_cb_fn_t		oob_irq_handler;
 	void			*oob_irq_handler_context;
-	void			*context;	
-	void			*sdioh;		
-	void			*dev;		
+	void			*context;	/* context returned from upper layer */
+	void			*sdioh;		/* handle to lower layer (sdioh) */
+	void			*dev;		/* handle to the underlying device */
 	bool			dev_wake_enabled;
 } bcmsdh_os_info_t;
 
+/* debugging macros */
 #define SDLX_MSG(x)
 
+/**
+ * Checks to see if vendor and device IDs match a supported SDIO Host Controller.
+ */
 bool
 bcmsdh_chipmatch(uint16 vendor, uint16 device)
 {
-	
+	/* Add other vendors and devices as required */
 
 #ifdef BCMSDIOH_STD
-	
+	/* Check for Arasan host controller */
 	if (vendor == VENDOR_SI_IMAGE) {
 		return (TRUE);
 	}
-	
+	/* Check for BRCM 27XX Standard host controller */
 	if (device == BCM27XX_SDIOH_ID && vendor == VENDOR_BROADCOM) {
 		return (TRUE);
 	}
-	
+	/* Check for BRCM Standard host controller */
 	if (device == SDIOH_FPGA_ID && vendor == VENDOR_BROADCOM) {
 		return (TRUE);
 	}
-	
+	/* Check for TI PCIxx21 Standard host controller */
 	if (device == PCIXX21_SDIOH_ID && vendor == VENDOR_TI) {
 		return (TRUE);
 	}
 	if (device == PCIXX21_SDIOH0_ID && vendor == VENDOR_TI) {
 		return (TRUE);
 	}
-	
+	/* Ricoh R5C822 Standard SDIO Host */
 	if (device == R5C822_SDIOH_ID && vendor == VENDOR_RICOH) {
 		return (TRUE);
 	}
-	
+	/* JMicron Standard SDIO Host */
 	if (device == JMICRON_SDIOH_ID && vendor == VENDOR_JMICRON) {
 		return (TRUE);
 	}
 
-#endif 
+#endif /* BCMSDIOH_STD */
 #ifdef BCMSDIOH_SPI
-	
+	/* This is the PciSpiHost. */
 	if (device == SPIH_FPGA_ID && vendor == VENDOR_BROADCOM) {
 		printf("Found PCI SPI Host Controller\n");
 		return (TRUE);
 	}
 
-#endif 
+#endif /* BCMSDIOH_SPI */
 
 	return (FALSE);
 }
@@ -150,22 +163,22 @@ void* bcmsdh_probe(osl_t *osh, void *dev, void *sdioh, void *adapter_info, uint 
 #if !defined(CONFIG_HAS_WAKELOCK) && (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 36))
 	if (dev && device_init_wakeup(dev, true) == 0)
 		bcmsdh_osinfo->dev_wake_enabled = TRUE;
-#endif 
+#endif /* !defined(CONFIG_HAS_WAKELOCK) && (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 36)) */
 
 #if defined(OOB_INTR_ONLY)
 	spin_lock_init(&bcmsdh_osinfo->oob_irq_spinlock);
-	
+	/* Get customer specific OOB IRQ parametres: IRQ number as IRQ type */
 	bcmsdh_osinfo->oob_irq_num = wifi_platform_get_irq_number(adapter_info,
 		&bcmsdh_osinfo->oob_irq_flags);
 	if  (bcmsdh_osinfo->oob_irq_num < 0) {
 		SDLX_MSG(("%s: Host OOB irq is not defined\n", __FUNCTION__));
 		goto err;
 	}
-#endif 
+#endif /* defined(BCMLXSDMMC) */
 
-	
+	/* Read the vendor/device ID from the CIS */
 	vendevid = bcmsdh_query_device(bcmsdh);
-	
+	/* try to attach to the target device */
 	bcmsdh_osinfo->context = drvinfo.probe((vendevid >> 16), (vendevid & 0xFFFF), bus_num,
 		slot_num, 0, bus_type, (void *)regs, osh, bcmsdh);
 	if (bcmsdh_osinfo->context == NULL) {
@@ -175,7 +188,7 @@ void* bcmsdh_probe(osl_t *osh, void *dev, void *sdioh, void *adapter_info, uint 
 
 	return bcmsdh;
 
-	
+	/* error handling */
 err:
 	if (bcmsdh != NULL)
 		bcmsdh_detach(osh, bcmsdh);
@@ -192,7 +205,7 @@ int bcmsdh_remove(bcmsdh_info_t *bcmsdh)
 	if (bcmsdh_osinfo->dev)
 		device_init_wakeup(bcmsdh_osinfo->dev, false);
 	bcmsdh_osinfo->dev_wake_enabled = FALSE;
-#endif 
+#endif /* !defined(CONFIG_HAS_WAKELOCK) && (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 36)) */
 
 	drvinfo.remove(bcmsdh_osinfo->context);
 	MFREE(bcmsdh->osh, bcmsdh->os_cxt, sizeof(bcmsdh_os_info_t));
@@ -234,7 +247,7 @@ void bcmsdh_unreg_sdio_notify(void)
 {
 	sdio_func_unreg_notify();
 }
-#endif 
+#endif /* defined(BCMLXSDMMC) */
 
 int
 bcmsdh_register(bcmsdh_driver_t *driver)
@@ -266,7 +279,7 @@ void bcmsdh_dev_pm_stay_awake(bcmsdh_info_t *bcmsdh)
 #if !defined(CONFIG_HAS_WAKELOCK) && (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 36))
 	bcmsdh_os_info_t *bcmsdh_osinfo = bcmsdh->os_cxt;
 	pm_stay_awake(bcmsdh_osinfo->dev);
-#endif 
+#endif /* !defined(CONFIG_HAS_WAKELOCK) && (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 36)) */
 }
 
 void bcmsdh_dev_relax(bcmsdh_info_t *bcmsdh)
@@ -274,7 +287,7 @@ void bcmsdh_dev_relax(bcmsdh_info_t *bcmsdh)
 #if !defined(CONFIG_HAS_WAKELOCK) && (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 36))
 	bcmsdh_os_info_t *bcmsdh_osinfo = bcmsdh->os_cxt;
 	pm_relax(bcmsdh_osinfo->dev);
-#endif 
+#endif /* !defined(CONFIG_HAS_WAKELOCK) && (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 36)) */
 }
 
 bool bcmsdh_dev_pm_enabled(bcmsdh_info_t *bcmsdh)
@@ -337,7 +350,7 @@ int bcmsdh_oob_intr_register(bcmsdh_info_t *bcmsdh, bcmsdh_cb_fn_t oob_irq_handl
 #else
 	err = request_irq(bcmsdh_osinfo->oob_irq_num, wlan_oob_irq,
 		bcmsdh_osinfo->oob_irq_flags, "bcmsdh_sdmmc", bcmsdh);
-#endif 
+#endif /* defined(CONFIG_ARCH_ODIN) */
 	if (err) {
 		SDLX_MSG(("%s: request_irq failed with %d\n", __FUNCTION__, err));
 		return err;
@@ -375,23 +388,24 @@ void bcmsdh_oob_intr_unregister(bcmsdh_info_t *bcmsdh)
 }
 #endif 
 
+/* Module parameters specific to each host-controller driver */
 
-extern uint sd_msglevel;	
+extern uint sd_msglevel;	/* Debug message level */
 module_param(sd_msglevel, uint, 0);
 
-extern uint sd_power;	
+extern uint sd_power;	/* 0 = SD Power OFF, 1 = SD Power ON. */
 module_param(sd_power, uint, 0);
 
-extern uint sd_clock;	
+extern uint sd_clock;	/* SD Clock Control, 0 = SD Clock OFF, 1 = SD Clock ON */
 module_param(sd_clock, uint, 0);
 
-extern uint sd_divisor;	
+extern uint sd_divisor;	/* Divisor (-1 means external clock) */
 module_param(sd_divisor, uint, 0);
 
-extern uint sd_sdmode;	
+extern uint sd_sdmode;	/* Default is SD4, 0=SPI, 1=SD1, 2=SD4 */
 module_param(sd_sdmode, uint, 0);
 
-extern uint sd_hiok;	
+extern uint sd_hiok;	/* Ok to use hi-speed mode */
 module_param(sd_hiok, uint, 0);
 
 extern uint sd_f2_blocksize;
@@ -405,6 +419,7 @@ module_param(sd_tuning_period, uint, 0);
 extern int sd_delay_value;
 module_param(sd_delay_value, uint, 0);
 
+/* SDIO Drive Strength for UHSI mode specific to SDIO3.0 */
 extern char dhd_sdiod_uhsi_ds_override[2];
 module_param_string(dhd_sdiod_uhsi_ds_override, dhd_sdiod_uhsi_ds_override, 2, 0);
 
@@ -450,4 +465,4 @@ EXPORT_SYMBOL(bcmsdh_cfg_write_word);
 EXPORT_SYMBOL(bcmsdh_cur_sbwad);
 EXPORT_SYMBOL(bcmsdh_chipinfo);
 
-#endif 
+#endif /* BCMSDH_MODULE */

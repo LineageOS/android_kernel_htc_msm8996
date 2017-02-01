@@ -55,6 +55,7 @@
 #define C1_B_Cb		1	/* B/Cb */
 #define C0_G_Y		0	/* G/luma */
 
+/* wait for 1 second for unexpected irq missing */
 #define KOFF_TIMEOUT msecs_to_jiffies(1000)
 
 #define OVERFETCH_DISABLE_TOP		BIT(0)
@@ -460,7 +461,7 @@ struct mdss_mdp_ctl {
 	/* dynamic resolution switch during cont-splash handoff */
 	bool switch_with_handoff;
 
-	
+	/* HTC: */
 	struct mutex event_lock;
 };
 

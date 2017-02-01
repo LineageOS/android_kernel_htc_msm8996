@@ -19,6 +19,7 @@
 #ifndef _SYNAPTICS_DSX_RMI4_H_
 #define _SYNAPTICS_DSX_RMI4_H_
 
+//#define MTK_PLATFORM
 
 #define SYNAPTICS_DS4 (1 << 0)
 #define SYNAPTICS_DS5 (1 << 1)
@@ -84,6 +85,20 @@
 #else
 #define pr_err(fmt, ...) printk(KERN_ERR dev_err_fm(fmt), ##__VA_ARGS__)
 #endif
+/*
+#ifdef dev_dbg
+#undef dev_dbg
+#endif
+#ifdef MTK_PLATFORM
+#define dev_dbg(dev, fmt, ...) do { if (dev) \
+			printk(dev_fm(fmt), ##__VA_ARGS__); \
+			} while (0)
+#else
+#define dev_dbg(dev, fmt, ...) do { if (dev) \
+			printk(KERN_DEBUG dev_fm(fmt), ##__VA_ARGS__); \
+			} while (0)
+#endif
+*/
 #ifdef dev_info
 #undef dev_info
 #endif
@@ -174,6 +189,16 @@ enum exp_fn {
 	RMI_LAST,
 };
 
+/*
+ * struct synaptics_rmi4_fn_desc - function descriptor fields in PDT entry
+ * @query_base_addr: base address for query registers
+ * @cmd_base_addr: base address for command registers
+ * @ctrl_base_addr: base address for control registers
+ * @data_base_addr: base address for data registers
+ * @intr_src_count: number of interrupt sources
+ * @fn_version: version of function
+ * @fn_number: function number
+ */
 struct synaptics_rmi4_fn_desc {
 	union {
 		struct {
@@ -191,6 +216,13 @@ struct synaptics_rmi4_fn_desc {
 	};
 };
 
+/*
+ * synaptics_rmi4_fn_full_addr - full 16-bit base addresses
+ * @query_base: 16-bit base address for query registers
+ * @cmd_base: 16-bit base address for command registers
+ * @ctrl_base: 16-bit base address for control registers
+ * @data_base: 16-bit base address for data registers
+ */
 struct synaptics_rmi4_fn_full_addr {
 	unsigned short query_base;
 	unsigned short cmd_base;
@@ -198,10 +230,23 @@ struct synaptics_rmi4_fn_full_addr {
 	unsigned short data_base;
 };
 
+/*
+ * struct synaptics_rmi4_f11_extra_data - extra data of F$11
+ * @data38_offset: offset to F11_2D_DATA38 register
+ */
 struct synaptics_rmi4_f11_extra_data {
 	unsigned char data38_offset;
 };
 
+/*
+ * struct synaptics_rmi4_f12_extra_data - extra data of F$12
+ * @data1_offset: offset to F12_2D_DATA01 register
+ * @data4_offset: offset to F12_2D_DATA04 register
+ * @data15_offset: offset to F12_2D_DATA15 register
+ * @data15_size: size of F12_2D_DATA15 register
+ * @data15_data: buffer for reading F12_2D_DATA15 register
+ * @ctrl20_offset: offset to F12_2D_CTRL20 register
+ */
 struct synaptics_rmi4_f12_extra_data {
 	unsigned char data1_offset;
 	unsigned char data4_offset;
@@ -216,6 +261,20 @@ struct synaptics_rmi4_f12_extra_data {
 	unsigned char ctrl23_offset;
 };
 
+/*
+ * struct synaptics_rmi4_fn - RMI function handler
+ * @fn_number: function number
+ * @num_of_data_sources: number of data sources
+ * @num_of_data_points: maximum number of fingers supported
+ * @size_of_data_register_block: data register block size
+ * @intr_reg_num: index to associated interrupt register
+ * @intr_mask: interrupt mask
+ * @full_addr: full 16-bit base addresses of function registers
+ * @link: linked list for function handlers
+ * @data_size: size of private data
+ * @data: pointer to private data
+ * @extra: pointer to extra data
+ */
 struct synaptics_rmi4_fn {
 	unsigned char fn_number;
 	unsigned char num_of_data_sources;
@@ -230,6 +289,17 @@ struct synaptics_rmi4_fn {
 	void *extra;
 };
 
+/*
+ * struct synaptics_rmi4_device_info - device information
+ * @version_major: RMI protocol major version number
+ * @version_minor: RMI protocol minor version number
+ * @manufacturer_id: manufacturer ID
+ * @product_props: product properties
+ * @product_info: product information
+ * @product_id_string: product ID
+ * @build_id: firmware build ID
+ * @support_fn_list: linked list for function handlers
+ */
 struct synaptics_rmi4_device_info {
 	unsigned int version_major;
 	unsigned int version_minor;
@@ -269,6 +339,51 @@ struct synaptics_rmi4_log_report_points {
 	int wy;
 	int z;
 };
+/*
+ * struct synaptics_rmi4_data - RMI4 device instance data
+ * @pdev: pointer to platform device
+ * @input_dev: pointer to associated input device
+ * @hw_if: pointer to hardware interface data
+ * @rmi4_mod_info: device information
+ * @pwr_reg: pointer to regulator for power control
+ * @bus_reg: pointer to regulator for bus pullup control
+ * @rmi4_reset_mutex: mutex for software reset
+ * @rmi4_report_mutex: mutex for input event reporting
+ * @rmi4_io_ctrl_mutex: mutex for communication interface I/O
+ * @early_suspend: early suspend power management
+ * @current_page: current RMI page for register access
+ * @button_0d_enabled: switch for enabling 0d button support
+ * @full_pm_cycle: switch for enabling full power management cycle
+ * @num_of_tx: number of Tx channels for 2D touch
+ * @num_of_rx: number of Rx channels for 2D touch
+ * @num_of_fingers: maximum number of fingers for 2D touch
+ * @max_touch_width: maximum touch width
+ * @report_enable: input data to report for F$12
+ * @no_sleep_setting: default setting of NoSleep in F01_RMI_CTRL00 register
+ * @intr_mask: interrupt enable mask
+ * @button_txrx_mapping: Tx Rx mapping of 0D buttons
+ * @num_of_intr_regs: number of interrupt registers
+ * @f01_query_base_addr: query base address for f$01
+ * @f01_cmd_base_addr: command base address for f$01
+ * @f01_ctrl_base_addr: control base address for f$01
+ * @f01_data_base_addr: data base address for f$01
+ * @firmware_id: firmware build ID
+ * @chip_id: chip ID
+ * @irq: attention interrupt
+ * @sensor_max_x: maximum x coordinate for 2D touch
+ * @sensor_max_y: maximum y coordinate for 2D touch
+ * @flash_prog_mode: flag to indicate flash programming mode status
+ * @irq_enabled: flag to indicate attention interrupt enable status
+ * @fingers_on_2d: flag to indicate presence of fingers in 2D area
+ * @suspend: flag to indicate whether in suspend state
+ * @sensor_sleep: flag to indicate sleep state of sensor
+ * @stay_awake: flag to indicate whether to stay awake during suspend
+ * @irq_enable: pointer to interrupt enable function
+ * @f11_wakeup_gesture: flag to indicate support for wakeup gestures in F$11
+ * @f12_wakeup_gesture: flag to indicate support for wakeup gestures in F$12
+ * @enable_wakeup_gesture: flag to indicate usage of wakeup gestures
+ * @reset_device: pointer to device reset function
+ */
 struct synaptics_rmi4_data {
 	struct platform_device *pdev;
 	struct input_dev *input_dev;
@@ -344,7 +459,7 @@ struct synaptics_rmi4_data {
 	int width_factor;
 	int height_factor;
 	struct synaptics_rmi4_report_points report_points[10];
-	
+	//uint32_t config_version;
 	char config_version[65];
 	uint16_t  tw_vendor;
 	char lcm_vendor[LCM_VENDER_SIZE];
@@ -354,7 +469,7 @@ struct synaptics_rmi4_data {
 	int32_t *report_data_32;
 	uint8_t *temp_report_data;
 	uint8_t i2c_to_mcu;
-	int cont_splash_enable;	
+	int cont_splash_enable;	/* Display notification for continuous splash */
 	uint8_t glove_enable;
 	uint8_t glove_status;
 	uint8_t glove_setting;

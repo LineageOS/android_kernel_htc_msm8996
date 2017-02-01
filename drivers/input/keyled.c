@@ -54,14 +54,14 @@ static int keyled_parse_dt(struct device_node *dt,
 	struct property *prop;
 	char parser_st[3][15] = {"key_down_delay", "keys_down", "keys_up"};
 
-	
+	/* Parse key_down_delay */
 	if (of_property_read_u32(dt, parser_st[0], &pdata->key_down_delay))
 		KEY_LOGI("DT:%s parser gets nothing\n", parser_st[0]);
 
 	KEY_LOGI("DT:%s=%d\n", parser_st[0], pdata->key_down_delay);
 
-	
-	
+	/* Parse keys_down keycode */
+	/* Must have keys_down property */
 	prop = of_find_property(dt, parser_st[1], NULL);
 	if (!prop) {
 		KEY_LOGE("DT:%s property not found\n", parser_st[1]);
@@ -88,8 +88,8 @@ static int keyled_parse_dt(struct device_node *dt,
 	for(cnt = 0; cnt < num_keys; cnt++)
 		KEY_LOGI("DT:%s=%d\n", parser_st[1], pdata->keys_down[cnt]);
 
-	
-	
+	/* Parse keys_up keycode */
+	/* keys_up property is optional */
 	prop = of_find_property(dt, parser_st[2], NULL);
 	if (!prop) {
 		KEY_LOGI("DT:%s property not found\n", parser_st[2]);

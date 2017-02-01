@@ -699,6 +699,11 @@ static u32 xhci_get_port_status(struct usb_hcd *hcd,
 	}
 	/* Update Port Link State */
 	if (hcd->speed == HCD_USB3) {
+		/* Due to hardware problem, it will cause xHCI driver
+		 * enter compliance mode when usb host connect with
+		 * non-superspeed accessories. We implement a WA to
+		 * avoid link state keeping in compliance mode.
+		 */
 		if (is_bundle_headset()) {
 			if ((raw_port_status & PORT_PLS_MASK) == USB_SS_PORT_LS_COMP_MOD) {
 				printk("[USBH] %s: force reset COMP MODE to U0\n", __func__);

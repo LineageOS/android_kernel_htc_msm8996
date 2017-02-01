@@ -196,9 +196,16 @@ struct snd_compr_metadata {
 #define SNDRV_COMPRESS_PARTIAL_DRAIN	_IO('C', 0x36)
 #define SNDRV_COMPRESS_SET_NEXT_TRACK_PARAM\
 					_IOW('C', 0x80, union snd_codec_options)
+//HTC_AUD_START
 #define SNDRV_COMPRESS_ENABLE_EFFECT    _IOW('C', 0x70, int)
+//HTC_AUD_END
 
-#define SND_COMPR_TRIGGER_DRAIN 7 
+/*
+ * TODO
+ * 1. add mmap support
+ *
+ */
+#define SND_COMPR_TRIGGER_DRAIN 7 /*FIXME move this to pcm.h */
 #define SND_COMPR_TRIGGER_NEXT_TRACK 8
 #define SND_COMPR_TRIGGER_PARTIAL_DRAIN 9
 

@@ -275,7 +275,7 @@ int nanohub_spi_read(void *data, uint8_t *rx, int max_length, int timeout)
 	if (max_length < min_size)
 		return ERROR_NACK;
 
-	
+	/* consume leftover bytes, if any */
 	if (spi_data->rx_offset < spi_data->rx_length) {
 		for (i = spi_data->rx_offset; i < spi_data->rx_length; i++) {
 			if (comms->rx_buffer[i] != 0xFF) {

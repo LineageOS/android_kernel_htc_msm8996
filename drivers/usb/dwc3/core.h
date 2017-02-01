@@ -986,7 +986,7 @@ struct dwc3 {
 	unsigned                irq_dbg_index;
 
 	wait_queue_head_t	wait_linkstate;
-	
+	/*++ 2015/10/13, USB Team, PCN00022 ++*/
 	bool usb_disable;
 	struct work_struct disable_work;
 	void	(*notify_usb_disabled)(void);

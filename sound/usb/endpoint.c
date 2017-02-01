@@ -962,10 +962,12 @@ void snd_usb_endpoint_stop(struct snd_usb_endpoint *ep)
 
 	if (--ep->use_count == 0) {
 		deactivate_urbs(ep, false);
+//HTC_AUD_START : Change the ordering to avoid data_subs is NULL but retire_data_urb/prepare_data_urb is non-NULL
 		ep->retire_data_urb = NULL;
 		ep->prepare_data_urb = NULL;
 		ep->data_subs = NULL;
 		ep->sync_slave = NULL;
+//HTC_AUD_END
 		set_bit(EP_FLAG_STOPPING, &ep->flags);
 	}
 }

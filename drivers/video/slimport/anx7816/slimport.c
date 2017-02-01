@@ -14,10 +14,15 @@
 #include "slimport.h"
 #include "../../msm/mdss/mdss_hdmi_mhl.h"
 
+/* Enable or Disable HDCP by default */
+/* hdcp_enable = 1: Enable,  0: Disable */
 static int hdcp_enable = 1;
 
+/* HDCP switch for external block*/
+/* external_block_en = 1: enable, 0: disable*/
 int external_block_en = 0;
 
+/* to access global platform data */
 static struct anx7816_platform_data *g_pdata;
 static struct class_compat *sp_class_compat;
 
@@ -64,7 +69,7 @@ struct anx7816_platform_data {
 	struct regulator *vdd33;
 	spinlock_t lock;
 
-	
+	/* HTC */
 	int chipid;
 	struct pinctrl *pinctrl;
 	struct platform_device *hdmi_pdev;
@@ -131,6 +136,7 @@ static ssize_t slimport_chipid_show(struct device *dev,
 
 
 
+/*sysfs interface : Enable or Disable HDCP by default*/
 static ssize_t sp_hdcp_feature_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -151,6 +157,7 @@ static ssize_t sp_hdcp_feature_store(struct device *dev,
 	return count;
 }
 
+/*sysfs  interface : HDCP switch for VGA dongle*/
 static ssize_t sp_external_block_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
@@ -170,6 +177,11 @@ static ssize_t sp_external_block_store(struct device *dev,
 	return count;
 }
 
+/*sysfs  interface : i2c_master_read_reg, i2c_master_write_reg
+anx7730 addr id:: DP_rx(0x50:0, 0x8c:1) HDMI_tx(0x72:5, 0x7a:6, 0x70:7)
+ex:read ) 05df   = read:0  id:5 reg:0xdf
+ex:write) 15df5f = write:1 id:5 reg:0xdf val:0x5f
+*/
 static ssize_t anx7730_write_reg_store(struct device *dev,
 				   struct device_attribute *attr,
 				   const char *buf, size_t count)
@@ -208,13 +220,13 @@ static ssize_t anx7730_write_reg_store(struct device *dev,
 	}
 
 	switch (op) {
-	case 0x30:		
+	case 0x30:		/* "0" -> read */
 		i2c_master_read_reg(id, reg, &tmp);
 		pr_info("%s: anx7730 read(%d,0x%x)= 0x%x\n", LOG_TAG, id, reg,
 			tmp);
 		break;
 
-	case 0x31:		
+	case 0x31:		/* "1" -> write */
 		ret = snprintf(v, 3, buf + 4);
 		val = simple_strtoul(v, NULL, 16);
 
@@ -233,6 +245,11 @@ static ssize_t anx7730_write_reg_store(struct device *dev,
 	return count;
 }
 
+/*sysfs  interface : sp_read_reg, sp_write_reg
+anx7816 addr id:: HDMI_rx(0x7e:0, 0x80:1) DP_tx(0x72:5, 0x7a:6, 0x70:7)
+ex:read ) 05df   = read:0  id:5 reg:0xdf
+ex:write) 15df5f = write:1 id:5 reg:0xdf val:0x5f
+*/
 static int anx7816_id_change(int id)
 {
 	int chg_id = 0;
@@ -297,13 +314,13 @@ static ssize_t anx7816_write_reg_store(struct device *dev,
 	id = anx7816_id_change(id);	
 
 	switch (op) {
-	case 0x30:		
+	case 0x30:		/* "0" -> read */
 		sp_read_reg(id, reg, &tmp);
 		pr_info("%s: anx7816 read(0x%x,0x%x)= 0x%x\n", LOG_TAG, id,
 			reg, tmp);
 		break;
 
-	case 0x31:		
+	case 0x31:		/* "1" -> write */
 		ret = snprintf(v, 3, buf + 4);
 		val = simple_strtoul(v, NULL, 16);
 
@@ -329,6 +346,7 @@ static int ctrl_reg0_show(struct device *dev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG0);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg0_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, int count)
 {
@@ -341,12 +359,14 @@ static int ctrl_reg0_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg10_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG10);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg10_store(struct device *dev, struct device_attribute *attr,
 			    const char *buf, int count)
 {
@@ -359,12 +379,14 @@ static int ctrl_reg10_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg11_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG11);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg11_store(struct device *dev, struct device_attribute *attr,
 			    const char *buf, int count)
 {
@@ -377,12 +399,14 @@ static int ctrl_reg11_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg2_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG2);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg2_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, int count)
 {
@@ -395,12 +419,14 @@ static int ctrl_reg2_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg12_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG12);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg12_store(struct device *dev, struct device_attribute *attr,
 			    const char *buf, int count)
 {
@@ -413,12 +439,14 @@ static int ctrl_reg12_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg1_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG1);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg1_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, int count)
 {
@@ -431,12 +459,14 @@ static int ctrl_reg1_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg6_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG6);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg6_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, int count)
 {
@@ -449,12 +479,14 @@ static int ctrl_reg6_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg16_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG16);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg16_store(struct device *dev, struct device_attribute *attr,
 			    const char *buf, int count)
 {
@@ -467,12 +499,14 @@ static int ctrl_reg16_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg5_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG5);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg5_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, int count)
 {
@@ -485,12 +519,14 @@ static int ctrl_reg5_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg8_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG8);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg8_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, int count)
 {
@@ -503,12 +539,14 @@ static int ctrl_reg8_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg15_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG15);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg15_store(struct device *dev, struct device_attribute *attr,
 			    const char *buf, int count)
 {
@@ -521,12 +559,14 @@ static int ctrl_reg15_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*sysfs read interface*/
 static int ctrl_reg18_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%x\n", val_SP_TX_LT_CTRL_REG18);
 }
 
+/*sysfs write interface*/
 static int ctrl_reg18_store(struct device *dev, struct device_attribute *attr,
 			    const char *buf, int count)
 {
@@ -539,6 +579,7 @@ static int ctrl_reg18_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 #endif
+/* for debugging */
 static struct device_attribute slimport_device_attrs[] = {
 	__ATTR(rev_check, S_IRUGO | S_IWUSR, slimport7816_rev_check_show,
 	       slimport7816_rev_check_store),
@@ -650,7 +691,7 @@ void sp_tx_hardware_poweron(void)
 			pr_err("vdd10 enable failed\n");
 		usleep_range(1000, 2000);
 	} else if (pdata->external_ldo_control == LDO_CTRL_GPIO) {
-		
+		/* Enable 1.0V LDO */
 		gpio_set_value(pdata->gpio_v10_ctrl, 1);
 		usleep_range(1000, 2000);
 	}
@@ -709,13 +750,13 @@ EXPORT_SYMBOL(slimport_read_edid_block_ext);
 int slimport_get_max_pclk(int bw)
 {
 	switch (bw) {
-	case 0x6: 
+	case 0x6: /* 1.62G */
 		return 40000;
-	case 0xa: 
+	case 0xa: /* 2.7G */
 		return 85500;
-	case 0x14: 
+	case 0x14: /* 5.4G */
 		return 162000;
-	case 0x19: 
+	case 0x19: /* 6.75G */
 		return 297000;
 	default:
 		pr_err("%s: unknown bw (0x%x)\n", __func__, bw);
@@ -771,7 +812,7 @@ static void anx7816_free_gpio(struct anx7816_data *anx7816)
 	gpio_free(anx7816->pdata->gpio_reset);
 	gpio_free(anx7816->pdata->gpio_p_dwn);
 	if (anx7816->pdata->external_ldo_control == LDO_CTRL_REGULATOR) {
-		
+		/* nothing */
 	} else if (anx7816->pdata->external_ldo_control == LDO_CTRL_GPIO) {
 		gpio_free(anx7816->pdata->gpio_v10_ctrl);
 	}
@@ -782,7 +823,7 @@ static int anx7816_init_gpio(struct anx7816_data *anx7816)
 	int ret = 0;
 
 	pr_info("%s %s: anx7816 init gpio\n", LOG_TAG, __func__);
-	
+	/*  gpio for chip power down  */
 	ret = gpio_request(anx7816->pdata->gpio_p_dwn, "anx7816_p_dwn_ctl");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -790,7 +831,7 @@ static int anx7816_init_gpio(struct anx7816_data *anx7816)
 		goto err0;
 	}
 	gpio_direction_output(anx7816->pdata->gpio_p_dwn, 1);
-	
+	/*  gpio for chip reset  */
 	ret = gpio_request(anx7816->pdata->gpio_reset, "anx7816_reset_n");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -798,7 +839,7 @@ static int anx7816_init_gpio(struct anx7816_data *anx7816)
 		goto err1;
 	}
 	gpio_direction_output(anx7816->pdata->gpio_reset, 0);
-	
+	/*  gpio for slimport cable detect  */
 #ifdef USING_HPD_FOR_POWER_MANAGEMENT
 	ret = gpio_request(anx7816->pdata->gpio_cbl_det, "anx7816_cbl_det");
 	if (ret) {
@@ -808,11 +849,11 @@ static int anx7816_init_gpio(struct anx7816_data *anx7816)
 	}
 	gpio_direction_input(anx7816->pdata->gpio_cbl_det);
 #endif
-	
+	/*  gpios for power control */
 	if (anx7816->pdata->external_ldo_control == LDO_CTRL_REGULATOR) {
-		
+		// empty
 	} else if (anx7816->pdata->external_ldo_control == LDO_CTRL_REGULATOR) {
-		
+		/* V10 power control */
 		ret = gpio_request(anx7816->pdata->gpio_v10_ctrl,
 				   "anx7816_v10_ctrl");
 		if (ret) {
@@ -821,7 +862,7 @@ static int anx7816_init_gpio(struct anx7816_data *anx7816)
 			goto err3;
 		}
 		gpio_direction_output(anx7816->pdata->gpio_v10_ctrl, 0);
-		
+		/* V33 power control */
 		#if 0
 		ret = gpio_request(anx7816->pdata->gpio_v33_ctrl,
 				   "anx7816_v33_ctrl");
@@ -898,6 +939,15 @@ static int confirmed_cable_det(void *data)
 
 static  irqreturn_t anx7816_cbl_det_isr(int irq, void *data)
 {
+	/***********************************************************************
+	HPD IRQ Event: HPD pulse width greater than 0.25ms but narrower than 2ms;
+	Hot Unplug Event: HPD pulse stays low longer than 2ms;
+	So, AP just monitor HPD pulse high in this irq, if HPD is high,
+	the driver will power on chip,
+	and then the driver control when to powerdown the chip.
+	If HPD event is HPD IRQ, the driver deal with IRQ event from downstream.
+	If HPD event is Hot Plug, ther drive power down the chip.
+	***********************************************************************/
 	struct anx7816_data *anx7816 = data;
 	int cable_connected = 0;
 	cable_connected = confirmed_cable_det(data);
@@ -973,7 +1023,7 @@ int anx7816_regulator_configure(struct device *dev,
 
 	return rc;
 
-	
+	/* To do : regulator control after H/W change */
 
 	pdata->avdd_10 = regulator_get(dev, "analogix,vdd_ana");
 
@@ -1048,6 +1098,12 @@ static int anx7816_parse_dt(struct device *dev,
 	       "%s gpio p_dwn : %d, reset : %d,  gpio_cbl_det %d\n",
 	       LOG_TAG, pdata->gpio_p_dwn,
 	       pdata->gpio_reset, pdata->gpio_cbl_det);
+	/*
+	 * if "external-ldo-control" property is not exist, we
+	 * assume that it is used in board.
+	 * if don't use external ldo control,
+	 * please use "external-ldo-control=<0>" in dtsi
+	 */
 	rc = of_property_read_u32(np, "analogix,external-ldo-control",
 				  &pdata->external_ldo_control);
 	if (rc == -EINVAL)
@@ -1073,12 +1129,12 @@ static int anx7816_parse_dt(struct device *dev,
 	}
 
 	#if 0
-	
+	/* connects function nodes which are not provided with dts */
 	pdata->avdd_power = slimport7816_avdd_power;
 	pdata->dvdd_power = slimport7816_dvdd_power;
 	#endif
 
-	
+	/* parse phandle for hdmi tx handle */
 	hdmi_tx_node = of_parse_phandle(np, "analogix,hdmi-tx-map", 0);
 	if (!hdmi_tx_node) {
 		pr_err("can't find hdmi phandle\n");
@@ -1151,9 +1207,9 @@ static int anx7816_i2c_probe(struct i2c_client *client,
 			goto err0;
 		}
 		client->dev.platform_data = pdata;
-		
+		/* device tree parsing function call */
 		ret = anx7816_parse_dt(&client->dev, pdata);
-		if (ret != 0)	
+		if (ret != 0)	/* if occurs error */
 			goto err0;
 
 		anx7816->pdata = pdata;
@@ -1161,7 +1217,7 @@ static int anx7816_i2c_probe(struct i2c_client *client,
 		anx7816->pdata = client->dev.platform_data;
 	}
 
-	
+	/* to access global platform data */
 	g_pdata = anx7816->pdata;
 
 	anx7816_client = client;
@@ -1230,7 +1286,7 @@ static int anx7816_i2c_probe(struct i2c_client *client,
 	}
 #endif
 
-	
+	/* initialize hdmi_sp_ops */
 	hdmi_sp_ops = devm_kzalloc(&client->dev,
 				   sizeof(struct msm_hdmi_sp_ops),
 				   GFP_KERNEL);
@@ -1312,6 +1368,11 @@ bool is_slimport_vga(void)
 	return 0;
 }
 
+/* 0x01: hdmi device is attached
+    0x02: DP device is attached
+    0x03: Old VGA device is attached // RX_VGA_9832
+    0x04: new combo VGA device is attached // RX_VGA_GEN
+    0x00: unknow device            */
 EXPORT_SYMBOL(is_slimport_vga);
 bool is_slimport_dp(void)
 {

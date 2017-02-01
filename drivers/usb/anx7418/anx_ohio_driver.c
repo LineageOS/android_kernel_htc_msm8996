@@ -18,10 +18,12 @@
 #include "usb_typec_fw_update.h"
 
 #include <linux/usb/htc_info.h>
-#include <linux/htc_flags.h> 
+#include <linux/htc_flags.h> /*++ 2015/12/14, USB Team, PCN00048 ++*/
 #include <linux/usb/gadget.h>
 #include <linux/power/htc_battery.h>
 #include <linux/switch.h>
+/* Use device tree structure data when defined "CONFIG_OF"  */
+//#define CONFIG_OF
 #define CONFIG_ANX7418_EEPROM
 
 #define DEBUG 0
@@ -46,6 +48,7 @@ static int check_usbc_fw_version(const struct firmware *fw, int fw_type);
 struct switch_dev sw_rara_cable;
 bool is_RaRaCable = false;
 
+/* to access global platform data */
 static struct ohio_platform_data *g_pdata;
 
 struct switch_dev sw_rara_cable = {
@@ -88,9 +91,9 @@ struct ohio_data {
 	struct workqueue_struct *comm_workqueue;
 	struct mutex lock;
 	struct mutex drole_lock;
-	struct wake_lock ohio_lock;	
+	struct wake_lock ohio_lock;	// 2016/01/08, USB Team, PCN00055
 	int cbl_det_irq;
-	int DFP_mode; 
+	int DFP_mode; // remove this?
 	enum port_mode pmode;
 	enum power_role prole;
 	enum data_role drole;
@@ -127,7 +130,7 @@ int ohio_dual_role_get_property(struct dual_role_phy_instance *dual_role,
 
 	switch (prop) {
 		case DUAL_ROLE_PROP_SUPPORTED_MODES:
-			*val = 0; 
+			*val = 0; // "ufp dfp"
 			break;
 		case DUAL_ROLE_PROP_MODE:
 			*val = (unsigned int)ohio->pmode;
@@ -245,6 +248,7 @@ int ohio_dual_role_property_is_writeable(struct dual_role_phy_instance *dual_rol
 	return val;
 }
 
+/* Do NOT call this function if ohio is not enabled (eg, ATS flag 5 200) */
 struct dual_role_phy_instance *ohio_get_dual_role_instance(void)
 {
 	struct ohio_data *ohio = NULL;
@@ -276,7 +280,7 @@ void otp_read_word(unsigned int word_addr, unsigned char *pdata, int ECC_activat
 	else
 		ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_CTL_1, R_MCU_ACCESS_DISABLE | R_OTP_WAKEUP | R_OTP_ECC_BYPASS | R_OTP_READ);
 
-	
+	// wait for read done
 	while(1) {
 		ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_STATE, (unchar *)(&temp));
 		if ((temp & R_OTP_READ_WORD_STATE) == 0) {
@@ -315,9 +319,9 @@ retry:
 	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_ADDR_LOW, word_addr & 0xff);
 
 	for (i = 0; i < 8; i++)
-		ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_DATA_IN_0 + i, pdata[i]); 
+		ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_DATA_IN_0 + i, pdata[i]); //Data
 
-	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_ECC_IN, pdata[8]); 
+	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_ECC_IN, pdata[8]); //ECC
 
 #if VDEBUG
 	print_hex_dump(KERN_INFO, "write data:", DUMP_PREFIX_ADDRESS, 16, 1, pdata, 9, 1);
@@ -325,7 +329,7 @@ retry:
 
 	for (i = 0; i < OTP_PROGRAM_MAX; i++) {
 		ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_CTL_1, R_MCU_ACCESS_DISABLE | R_OTP_WAKEUP | R_OTP_ECC_BYPASS | R_OTP_WRITE);
-		
+		// wait for write done
 		while(1) {
 			ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_STATE, (unchar *)(&temp));
 			if ((temp & R_OTP_WRITE_WORD_STATE) == 0) {
@@ -341,7 +345,7 @@ retry:
 				}
 			}
 		};
-		otp_read_word(word_addr, read_data, 0); 
+		otp_read_word(word_addr, read_data, 0); //ECC bypass
 #if VDEBUG
 		print_hex_dump(KERN_INFO, "read data with ECC bypass:", DUMP_PREFIX_ADDRESS, 16, 1, read_data, 9, 1);
 #endif
@@ -355,7 +359,7 @@ retry:
 		}
 	}
 
-	otp_read_word(word_addr, read_data, 1); 
+	otp_read_word(word_addr, read_data, 1); //ECC activate
 #if VDEBUG
 	print_hex_dump(KERN_INFO, "read data with ECC activate:", DUMP_PREFIX_ADDRESS, 16, 1, read_data, 9, 1);
 #endif
@@ -396,30 +400,30 @@ int ohio_get_data_value(int data_member)
 		return -ENODEV;
 
 	switch (data_member) {
-		case 0: 
+		case 0: //data role
 			return ohio->drole;
-		case 1: 
+		case 1: // power role
 			return ohio->prole;
-		case 2: 
+		case 2: // port mode
 			return ohio->pmode;
-		case 3: 
+		case 3: // power role change
 			return ohio->pr_change;
-		case 4: 
+		case 4: // vconn
 			return ohio->vconn;
-		case 5: 
+		case 5: // start host flag
 			if ((ohio->fw_version < 0x12) || (ohio->fw_version == 0x16))
 				return 0;
 			else
 				return ohio->need_start_host;
-		case 6: 
+		case 6: // emarker cable connect
 			return ohio->emarker_flag;
-		case 7: 
+		case 7: // For no resistor on cc cable
 			return ohio->non_standard_flag;
-		case 8: 
+		case 8: // pd capability of connected device
 			return downstream_pd_cap;
-		case 9: 
+		case 9: // fw version
 			return ohio->fw_version;
-		case 10: 
+		case 10: // fw chip version
 			if (!ohio->fw_chip_version) {
 				ret = ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, DEVICE_VERSION, (unchar *)(&ohio->fw_chip_version));
 				if (ret < 0) {
@@ -428,7 +432,7 @@ int ohio_get_data_value(int data_member)
 				}
 			}
 			return ohio->fw_chip_version;
-		case 11: 
+		case 11: // fw update info
 			if (ohio->restUpdateTime < 0) {
 				ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, POWER_DOWN_CTRL, R_POWER_DOWN_OCM);
 				ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_CTL_1, R_MCU_ACCESS_DISABLE | R_OTP_WAKEUP | R_OTP_ECC_BYPASS);
@@ -441,10 +445,10 @@ int ohio_get_data_value(int data_member)
 					}
 					otp_read_word(i, data, 1);
 				} while (memcmp(inactive_word, data, 9) == 0);
-				old_fw_start_addr = data[0] + (data[1] << 8); 
-				old_fw_size = data[2] + (data[3] << 8); 
-				fw_head_addr = i; 
-				new_fw_start_addr = old_fw_start_addr + old_fw_size; 
+				old_fw_start_addr = data[0] + (data[1] << 8); // convert little-endian to big-endian
+				old_fw_size = data[2] + (data[3] << 8); // convert little-endian to big-endian
+				fw_head_addr = i; // init fw header address
+				new_fw_start_addr = old_fw_start_addr + old_fw_size; // init new fw start address = old fw start address + old fw size
 				pr_info("%s %s : old fw start address %04x, old fw size %04x\n", LOG_TAG, __func__, old_fw_start_addr, old_fw_size);
 				pr_info("%s %s : new fw start address %04x\n", LOG_TAG, __func__, new_fw_start_addr);
 				ohio->restUpdateTime = (0x3fff - new_fw_start_addr)/old_fw_size;
@@ -453,7 +457,7 @@ int ohio_get_data_value(int data_member)
 				ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, POWER_DOWN_CTRL, 0);
 			}
 			return ohio->restUpdateTime;
-		case 12: 
+		case 12: // type-c cable info
 			ret = ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, NEW_CC_STATUS, &temp);
 			if (ret < 0) {
 				pr_err("%s: i2c fail\n", __func__);
@@ -510,25 +514,25 @@ int ohio_set_data_value(int data_member, int val)
 		return -ENODEV;
 
 	switch (data_member) {
-		case 0: 
+		case 0: //data role
 			ohio->drole = val;
 			break;
-		case 1: 
+		case 1: // power role
 			ohio->prole = val;
 			break;
-		case 2: 
+		case 2: // port mode
 			ohio->pmode = val;
 			break;
-		case 3: 
+		case 3: // power role change
 			ohio->pr_change = val;
 			break;
-		case 4: 
+		case 4: // vconn
 			ohio->vconn = val;
 			break;
-		case 5: 
+		case 5: // start host flag
 			ohio->need_start_host = val;
 			break;
-		case 6: 
+		case 6: // emarker cable connect
 			ohio->emarker_flag = val;
 			break;
 		default:
@@ -567,6 +571,7 @@ bool ohio_is_connected(void)
 }
 EXPORT_SYMBOL(ohio_is_connected);
 
+/* ohio power status, sync with interface and cable detection thread */
 inline unsigned char OhioReadReg(unsigned char RegAddr)
 {
 	int ret = 0;
@@ -712,24 +717,24 @@ void ohio_hardware_poweron(void)
 	retry_count = 3;
 	while(retry_count--){
 		ohio_hardware_powerdown();
-		
+		// Set USN3.0 re-drive IC (1,1)
 		gpio_set_value(pdata->gpio_usb_ptn_c1, 1);
 		gpio_set_value(pdata->gpio_usb_ptn_c2, 1);
 		pr_debug("%s USB3.0 re-drive status (c1, c2)= (%d, %d) retry_count = %d\n",
 				__func__, gpio_get_value(pdata->gpio_usb_ptn_c1),
 				gpio_get_value(pdata->gpio_usb_ptn_c2), retry_count);
-		
+		//mdelay(120);
 
-		
+		/*power on pin enable */
 		gpio_set_value(pdata->gpio_p_on, 1);
 		mdelay(10);
-		
+		/*power reset pin enable */
 		gpio_set_value(pdata->gpio_reset, 1);
 		mdelay(1);
 
-		
+		/* load delay T3 : eeprom 3.2s,  OTP 20ms*/
 		for(i=0; i< 3200; i++) {
-			
+			/*Interface work?*/
 			if(OhioReadReg(0x16) == 0x80) {
 				atomic_set(&ohio_power_status, 1);
 				chip_register_init();
@@ -781,14 +786,14 @@ void ohio_hardware_powerdown(void)
 	struct ohio_platform_data *pdata = ohio_client->dev.platform_data;
 #endif
 	atomic_set(&ohio_power_status, 0);
-	
+	//pull down reset chip
 	gpio_set_value(pdata->gpio_reset, 0);
 	mdelay(1);
 
-	
+	//pull down power-en chip
 	gpio_set_value(pdata->gpio_p_on, 0);
 
-	
+	// Set USN3.0 re-drive IC (0,0)
 	gpio_set_value(pdata->gpio_usb_ptn_c1, 0);
 	gpio_set_value(pdata->gpio_usb_ptn_c2, 0);
 
@@ -800,6 +805,7 @@ void ohio_hardware_powerdown(void)
 		__func__, gpio_get_value(pdata->gpio_p_on), gpio_get_value(pdata->gpio_reset));
 }
 
+// this function only enables smart_5v. Vconn still needs anx7418 to control PMOS
 int ohio_hardware_enable_vconn(void)
 {
 	int rc;
@@ -832,7 +838,7 @@ int ohio_hardware_enable_vconn(void)
 		else
 			pr_err("%s: ERR: smart_5v regulator is already enabled\n", __func__);
 
-		
+		// check reg
 		if (is_pon_spare_reg_on()) {
 			gpio_direction_output(ohio->pdata->gpio_vconn_boost, 1);
 			ohio->vconn = VCONN_SUPPLY_YES;
@@ -959,7 +965,7 @@ static int ohio_init_gpio(struct ohio_data *ohio)
 
 	pr_debug("%s: ohio init gpio\n", __func__);
 
-	
+	/*  gpio for Vconn boost */
 	ret = gpio_request(ohio->pdata->gpio_vconn_boost, "ohio_vconn");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -968,7 +974,7 @@ static int ohio_init_gpio(struct ohio_data *ohio)
 	}
 	gpio_direction_output(ohio->pdata->gpio_vconn_boost, 0);
 
-	
+	/*  gpio for chip power down  */
 	ret = gpio_request(ohio->pdata->gpio_p_on, "ohio_p_on_ctl");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -976,7 +982,7 @@ static int ohio_init_gpio(struct ohio_data *ohio)
 		goto err0;
 	}
 	gpio_direction_output(ohio->pdata->gpio_p_on, 0);
-	
+	/*  gpio for chip reset  */
 	ret = gpio_request(ohio->pdata->gpio_reset, "ohio_reset_n");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -984,7 +990,7 @@ static int ohio_init_gpio(struct ohio_data *ohio)
 		goto err1;
 	}
 	gpio_direction_output(ohio->pdata->gpio_reset, 0);
-	
+	/*  gpio for ohio cable detect  */
 	ret = gpio_request(ohio->pdata->gpio_cbl_det, "ohio_cbl_det");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -994,7 +1000,7 @@ static int ohio_init_gpio(struct ohio_data *ohio)
 	gpio_direction_input(ohio->pdata->gpio_cbl_det);
 	pr_debug("cabled detect successfully set up\n");
 
-	
+	/*  gpio for chip interface communaction */
 	ret = gpio_request(ohio->pdata->gpio_intr_comm, "ohio_intr_comm");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -1004,7 +1010,7 @@ static int ohio_init_gpio(struct ohio_data *ohio)
 	gpio_direction_input(ohio->pdata->gpio_intr_comm);
 
 #ifdef SUP_VBUS_CTL
-	
+	/*  gpio for vbus control  */
 	ret = gpio_request(ohio->pdata->gpio_vbus_ctrl, "ohio_vbus_ctrl");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -1014,7 +1020,7 @@ static int ohio_init_gpio(struct ohio_data *ohio)
 	gpio_direction_output(ohio->pdata->gpio_vbus_ctrl, 0);
 #endif
 
-	
+	/*  gpio for usb3.0 re-drive pin 1  */
 	ret = gpio_request(ohio->pdata->gpio_usb_ptn_c1, "ohio_usb_ptn_c1");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -1023,7 +1029,7 @@ static int ohio_init_gpio(struct ohio_data *ohio)
 	}
 	gpio_direction_input(ohio->pdata->gpio_usb_ptn_c1);
 
-	
+	/*  gpio for usb3.0 re-drive pin 2  */
 	ret = gpio_request(ohio->pdata->gpio_usb_ptn_c2, "ohio_usb_ptn_c2");
 	if (ret) {
 		pr_err("%s : failed to request gpio %d\n", __func__,
@@ -1060,8 +1066,8 @@ out:
 
 static int __maybe_unused ohio_system_init(void)
 {
-	
-	
+	/*init interface between AP and Ohio*/
+	//interface_init();
 		return 0;
 }
 
@@ -1089,30 +1095,42 @@ void cable_disconnect(void *data)
 #endif
 	ohio_hardware_disable_vconn();
 	ohio_hardware_powerdown();
-	
-	wake_unlock(&ohio->ohio_lock); 
+	//ohio_clean_state_machine();
+	wake_unlock(&ohio->ohio_lock); // 2016/01/08, USB Team, PCN00055
 }
 
+/*
+  * example 2: send sink capability from AP to ohio
+  *
+  */
 void update_pwr_sink_caps(void){
+	/*
+	  *example 2: sink power capability for customer's reference,
+	  *you can change it using PDO_XXX() macro easily
+	  */
 	u32 sink_caps[] = {PDO_FIXED(PD_VOLTAGE_5V, PD_CURRENT_900MA, PDO_FIXED_FLAGS)};
 	#if 0
-		
+		/*5V, 0.9A, Fixed*/
 		PDO_FIXED(PD_VOLTAGE_5V, PD_CURRENT_900MA, PDO_FIXED_FLAGS)
 		#if 0
-		
+		/*min 5V, max 20V, power 15W, battery*/
 		PDO_BATT(PD_VOLTAGE_5V, PD_MAX_VOLTAGE_20V, PD_POWER_15W),
-		
+		/*min5V, max 5V, current 3A, variable*/
 		PDO_VAR(PD_VOLTAGE_5V, PD_MAX_VOLTAGE_20V, PD_CURRENT_3A)
 		#endif
 	};
 	#endif
 
 	pr_debug("update_pwr_sink_caps\n");
-	
-	send_pd_msg(TYPE_PWR_SNK_CAP, (const char *)sink_caps, 4  );
+	/* send source capability from AP to ohio. */
+	send_pd_msg(TYPE_PWR_SNK_CAP, (const char *)sink_caps, 4  /*sizeof(sink_caps)*/);
 }
 
 
+/*
+  * example 3: send VDM  from AP to ohio
+  *
+  */
 void update_VDM(void)
 {
 
@@ -1121,7 +1139,7 @@ void update_VDM(void)
 	};
 
 	pr_debug("update_vdm\n");
-	
+	/* send source capability from AP to ohio. */
 	send_pd_msg(TYPE_VDM, (const char *)vdm, sizeof(vdm));
 }
 
@@ -1135,7 +1153,7 @@ static unsigned char confirmed_cable_det(void *data)
 	u8 val = 0;
 
 	if ((val = gpio_get_value(anxohio->pdata->gpio_cbl_det))
-			== DONGLE_CABLE_REMOVE) { 
+			== DONGLE_CABLE_REMOVE) { // cable remove
 		do {
 			if ((val = gpio_get_value(anxohio->pdata->gpio_cbl_det))
 					== DONGLE_CABLE_REMOVE) {
@@ -1147,7 +1165,7 @@ static unsigned char confirmed_cable_det(void *data)
 				return DONGLE_CABLE_REMOVE;
 			mdelay(3);
 		} while (count--);
-	} else { 
+	} else { // cable insert
 		do {
 			if ((val = gpio_get_value(anxohio->pdata->gpio_cbl_det))
 					== DONGLE_CABLE_INSERT) {
@@ -1162,6 +1180,26 @@ static unsigned char confirmed_cable_det(void *data)
 	}
 	return DONGLE_CABLE_DEBOUNCE_FAIL;
 
+/*
+	val = gpio_get_value(anxohio->pdata->gpio_cbl_det);
+	if (val == 0) { // cable out
+		mdelay(1);
+		val = gpio_get_value(anxohio->pdata->gpio_cbl_det);
+		if (val == 0)
+			return 0;
+	}
+
+	do {
+		if ((val=gpio_get_value(anxohio->pdata->gpio_cbl_det))
+				== DONGLE_CABLE_INSERT) {
+			cable_det_count++;
+		}
+		if (cable_det_count >= 5)
+			return 1;
+		mdelay(1);
+	} while (count--);
+	return 0;
+*/
 #else
 	return gpio_get_value(anxohio->pdata->gpio_cbl_det);
 #endif
@@ -1169,6 +1207,12 @@ static unsigned char confirmed_cable_det(void *data)
 
 static irqreturn_t ohio_cbl_det_isr(int irq, void *data)
 {
+	/***********************************************************************
+	defaultly when DVDDIO and AVDD33 is pull up by AP, Ohio enter standby mode,
+        cable detect pin will be toggled every 100ms, so you need to deglith this pause!!!
+        cable detect pin will be pulled up when downstream cable is plugged,
+	the driver will power on chip, and then the driver control when to powerdown the chip.
+	************************************************************************/
 	struct ohio_data *ohio = data;
 	if (!delayed_work_pending(&ohio->work)) {
 		queue_delayed_work(ohio->workqueue, &ohio->work, 2);
@@ -1181,7 +1225,7 @@ static irqreturn_t ohio_cbl_det_isr(int irq, void *data)
 void switch_i2c_slave_speed(void)
 {
 	uint8_t reg = 0;
-	
+	/* Change i2c slave speed to 1M */
 	ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, ANALOG_CTRL_7 , (unchar *)(&reg));
 	reg &= ~(0xf << 4);
 	reg |= (1 << 4);
@@ -1192,6 +1236,7 @@ void switch_i2c_slave_speed(void)
 
 }
 
+// FIXME: Connection of USB3.0 host mode would be unstable, downgrade temporarily.
 void ufp_switch_usb_speed(int on)
 {
 	uint8_t pre = 0, reg = 0;
@@ -1253,6 +1298,7 @@ void ufp_switch_usb_speed(int on)
 	}
 }
 
+// FIXME: Connection of USB3.0 host mode would be unstable, downgrade temporarily.
 void dfp_downgrade_usb20(void)
 {
 	uint8_t pre = 0, reg = 0;
@@ -1280,7 +1326,7 @@ void dfp_downgrade_usb20(void)
 extern int usb_lock_speed;
 void ohio_main_process(void)
 {
-	
+	//process main task as you wanted
 	uint8_t val = 0;
 	int ret = 0;
 	int rc = 0;
@@ -1296,9 +1342,9 @@ void ohio_main_process(void)
 			ohio->fw_version = val;
 		}
 
-		
-		
-		
+		// boost_5v is capable of limiting output current
+		// we have to assure that we enable boost_5v before 7418 enable vconn_en
+		// thus enabling boost_5v when cable in, and disabling it when cable out
 		if (!ohio->pdata->boost_5v) {
 			pr_info("%s: no smart_5v regulator, try to get it again...", __func__);
 			ohio->pdata->boost_5v = devm_regulator_get(&ohio_client->dev, "V_USB_boost");
@@ -1342,14 +1388,14 @@ void ohio_main_process(void)
 			}
 		}
 
-		
+		/* Read UFP/DFP */
 		ret = ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, ANALOG_STATUS, &val);
 		if (ret < 0) {
 			pr_err("%s : cannot read DFP or UFP status\n", __func__);
 			goto exit;
 		}
 		if (val & DFP_OR_UFP) {
-			
+			/* UFP */
 			pr_info("%s: UFP(%d) FW version 0x%02x\n",
 					__func__, val & DFP_OR_UFP, ohio->fw_version);
 
@@ -1358,23 +1404,31 @@ void ohio_main_process(void)
 			ohio->pmode = MODE_UFP;
 			dual_role_instance_changed(ohio->ohio_dual_role_instance);
 		} else {
-			wake_lock(&ohio->ohio_lock); 
-			
+			wake_lock(&ohio->ohio_lock); // 2016/01/08, USB Team, PCN00055
+			/* DFP */
 			ohio->prole = UNKNOWN_POWER_ROLE;
 			ohio->pmode = MODE_DFP;
 			pr_info("%s: DFP(%d) FW version 0x%02x\n",
 					__func__, val & DFP_OR_UFP, ohio->fw_version);
-			
+			/* workaround: prevent from entering DFP twice*/
 			if (ohio->DFP_mode) {
 				pr_err("%s: ERROR: hit double DFP issue, cancel starting host\n", __func__);
 				goto exit;
 			}
 
+			/* change for OCM FW v1.0REL
+			 *	Do NOT start host here. Wait for the notification of intr_vector.
+			 *  change for OCM FW v1.2beta and interface driver v0.7
+			 *    try to be sink. If failed to be sink, start host here because 7418 will not notify us later.
+			 *  change for OCM FW v1.2
+			 *    not support try_sink at cbl_det time. and 7418 notify us to start_host only when DR_SWAP
+			 *    thus we have to set a flag to decide whether to start_host when we enable Vbus later
+			 */
 			ohio->DFP_mode = 1;
 			ohio->need_start_host = 1;
 #if 0
 			val = try_sink();
-			if (val) { 
+			if (val) { // try_sink fail
 				msleep(150);
 				pr_info("try_sink failed at cbl_det\n");
 
@@ -1395,7 +1449,7 @@ void ohio_main_process(void)
 				dwc3_otg_set_id_state(0);
 				ohio->drole = DR_HOST;
 			}
-			else { 
+			else { // try_sink success
 				ohio->prole = PR_SINK;
 				ohio->drole = DR_DEVICE;
 				ohio->pmode = MODE_UFP;
@@ -1418,7 +1472,7 @@ void usb_downgrade_func(void)
 #ifdef OHIO_DEBUG
 	ohio_debug_dump();
 #endif
-	
+	// Workaround: Downgrade USB speed to USB2.0 in host mode
 	if (ohio_get_data_value(OHIO_PMODE) == MODE_DFP && usb_lock_host_speed)
 		dfp_downgrade_usb20();
 	if (ohio_get_data_value(OHIO_PMODE) == MODE_UFP && usb_lock_speed)
@@ -1479,13 +1533,13 @@ static void oc_enable_work_func(struct work_struct *work)
 static void drole_work_func(struct work_struct *work)
 {
 	struct ohio_data *td = i2c_get_clientdata(ohio_client);
-		
+		/* data role changed */
 #ifdef OHIO_DEBUG
 		pr_info("data role change %d\n", (int)td->drole_on);
 #endif
 		pr_info("data role change %d\n", (int)td->drole_on);
-		
-		
+		/* TODO: remember to add check current state */
+		/* to DFP  */
 		if (cable_connected == 0) {
 			pr_err("%s: cable out, should not do anything with event irq\n", __func__);
 			return;
@@ -1496,7 +1550,7 @@ static void drole_work_func(struct work_struct *work)
 			dwc3_otg_set_id_state(0);
 			ohio_set_data_value(OHIO_DROLE, DR_HOST);
 		}
-		
+		/* to UFP  */
 		else {
 			if (ohio_get_data_value(OHIO_EMARKER)){
 				ohio_set_data_value(OHIO_START_HOST_FLAG, 0);
@@ -1519,7 +1573,7 @@ static void ohio_work_func(struct work_struct *work)
 	pr_info("%s : detect cable insertion/remove, cable_connected = %d\n",
 				__func__, cable_connected);
 	if (cable_connected == DONGLE_CABLE_INSERT) {
-		
+		//wake_lock(&td->ohio_lock); // 2016/01/08, USB Team, PCN00055
 		mutex_lock(&td->lock);
 		ohio_main_process();
 		mutex_unlock(&td->lock);
@@ -1680,7 +1734,7 @@ static int ohio_parse_dt(struct device *dev,
 		of_get_named_gpio_flags(np, "analogix,vconn-boost-gpio", 0, NULL);
 
 	pdata->boost_5v = devm_regulator_get(dev, "V_USB_boost");
-	
+	/* maybe failed here, will try to get the regulator later */
 	if (IS_ERR(pdata->boost_5v)) {
 		temp = PTR_ERR(pdata->boost_5v);
 		pr_err("%s: Unable to get boost_5v regulator, %d\n", __func__, temp);
@@ -1707,8 +1761,8 @@ void eeprom_burst_write(unsigned int eeprom_begin_addr, unsigned char *buf)
 {
 	unsigned char temp = 0;
 	unsigned int i = 0;
-	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_ADDR_H_BYTE, (eeprom_begin_addr >> 8 ) & 0xff); 
-	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_ADDR_L_BYTE, (eeprom_begin_addr & 0xff)); 
+	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_ADDR_H_BYTE, (eeprom_begin_addr >> 8 ) & 0xff); // update [15:8]
+	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_ADDR_L_BYTE, (eeprom_begin_addr & 0xff)); // update [7:0]
 	for (i = 0; i < 8; i++)
 		ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_BURST_DATA0 + i, buf[i]);
 	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_CTL_2, R_EE_BURST_WR_EN | 0x01);
@@ -1724,11 +1778,11 @@ void eeprom_burst_write(unsigned int eeprom_begin_addr, unsigned char *buf)
 unsigned char eeprom_read_byte(unsigned int eeprom_begin_addr)
 {
 	unsigned char temp = 0;
-	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_ADDR_H_BYTE, (eeprom_begin_addr >> 8 ) & 0xff); 
-	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_ADDR_L_BYTE, (eeprom_begin_addr & 0xff)); 
+	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_ADDR_H_BYTE, (eeprom_begin_addr >> 8 ) & 0xff); // update [15:8]
+	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_ADDR_L_BYTE, (eeprom_begin_addr & 0xff)); // update [7:0]
 	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_CTL_1, 0xCA);
 
-	
+	// wait for read done
 	do{
 		ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, R_EE_STATE, (unchar *)(&temp));
 	} while(!(temp & R_EE_RW_DONE));
@@ -1768,7 +1822,7 @@ static ssize_t fw_update_store(struct device *pdev, struct device_attribute *att
 		goto exit;
 	}
 
-	
+	/* For ANX7418 emergency download */
 	disable_irq_nosync(ohio->cbl_det_irq);
 	ohio_hardware_powerdown();
 	gpio_set_value(pdata->gpio_p_on, 1);
@@ -1781,7 +1835,7 @@ static ssize_t fw_update_store(struct device *pdev, struct device_attribute *att
 
 	switch (chip_type) {
 		case EEPROM:
-			
+			/* Load firmware from /etc/firmware/ */
 			ret = request_firmware(&fw, ANX7418FW, pdev);
 			if (ret || fw == NULL) {
 				pr_err("firmware request failed (ret = %d, fwptr = %p)", ret, fw);
@@ -1796,7 +1850,7 @@ static ssize_t fw_update_store(struct device *pdev, struct device_attribute *att
 			release_firmware(fw);
 			break;
 		case OTP_AB:
-			
+			/* Load firmware from /etc/firmware/ */
 			ret = request_firmware(&fw, ANX7418FW_OTP_AB, pdev);
 			if (ret || fw == NULL) {
 				pr_err("firmware request failed (ret = %d, fwptr = %p)", ret, fw);
@@ -1811,7 +1865,7 @@ static ssize_t fw_update_store(struct device *pdev, struct device_attribute *att
 			release_firmware(fw);
 			break;
 		case OTP_AD:
-			
+			/* Load firmware from /etc/firmware/ */
 			ret = request_firmware(&fw, ANX7418FW_OTP_AD, pdev);
 			if (ret || fw == NULL) {
 				pr_err("firmware request failed (ret = %d, fwptr = %p)", ret, fw);
@@ -1845,6 +1899,7 @@ uint dtob(uint num)
 		return (num % 2) + 10 * dtob(num / 2);
 }
 
+/*++ 2016/01/26, USB Team, PCN00060 ++*/
 ssize_t dump_all_register(char *buf)
 {
 	int i = 0, len = 0;
@@ -1874,6 +1929,7 @@ ssize_t dump_all_register(char *buf)
 	return len;
 }
 EXPORT_SYMBOL(dump_all_register);
+/*-- 2016/01/26, USB Team, PCN00060 --*/
 
 static ssize_t dump_register_show(struct device *pdev, struct device_attribute *attr,
 			   char *buf)
@@ -1897,6 +1953,7 @@ static ssize_t dump_register_store(struct device *pdev, struct device_attribute 
 	return size;
 }
 
+/* for debug only */
 static ssize_t vconn_en_store(struct device *pdev, struct device_attribute *attr,
 				const char *buff, size_t size)
 {
@@ -1925,7 +1982,7 @@ static ssize_t vconn_en_store(struct device *pdev, struct device_attribute *attr
 		}
 
 		switch (temp) {
-			case 0:  
+			case 0:  // disable vconn
 				vconn_mask = OhioReadReg(INTP_CTRL);
 				vconn_mask &= 0x0F;
 				OhioWriteReg(INTP_CTRL, vconn_mask);
@@ -1936,7 +1993,7 @@ static ssize_t vconn_en_store(struct device *pdev, struct device_attribute *attr
 					return size;
 				}
 				break;
-			case 1:  
+			case 1:  // enable vconn1 only
 				rc = regulator_enable(ohio->pdata->boost_5v);
 				if (rc) {
 					pr_err("%s: Unable to enable boost_5v regulator\n", __func__);
@@ -1947,7 +2004,7 @@ static ssize_t vconn_en_store(struct device *pdev, struct device_attribute *attr
 				vconn_mask &= 0x0F;
 				OhioWriteReg(INTP_CTRL, (vconn_mask | 0x10));
 				break;
-			case 2:  
+			case 2:  // enable vconn2 only
 				rc = regulator_enable(ohio->pdata->boost_5v);
 				if (rc) {
 					pr_err("%s: Unable to enable boost_5v regulator\n", __func__);
@@ -1991,11 +2048,11 @@ static int update_firmware(struct usb_typec_fwu_notifier *notifier, struct firmw
 	unsigned char read_temp[8] = {0};
 	bool failFlag = 1;
 
-	
+	/* Reset ANX7418 OCM */
 	pr_info("%s %s : reset ANX7418 OCM\n", LOG_TAG, __func__);
 	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, RESET_CTRL_0, R_OCM_RESET);
 
-	
+	/* EEPROM access password*/
 	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, EE_KEY_1, EEPROM_ACCESS_KEY_1);
 	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, EE_KEY_2, EEPROM_ACCESS_KEY_2);
 	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, EE_KEY_3, EEPROM_ACCESS_KEY_3);
@@ -2044,7 +2101,7 @@ unsigned char ECC_encoder(unsigned char *pData)
         {
             if(c & 0x1)
             {
-                result ^= ECC_table[(i << 3) + j]; 
+                result ^= ECC_table[(i << 3) + j]; // i * 8 + j
             }
             c >>= 1;
         }
@@ -2070,7 +2127,7 @@ static int update_firmware_otp(struct usb_typec_fwu_notifier *notifier, struct f
 	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_CTL_1, R_MCU_ACCESS_DISABLE | R_OTP_WAKEUP | R_OTP_ECC_BYPASS);
 	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_ACC_PROTECT, OTP_ACCESS_KEY);
 
-	
+	/* Check OTP header info */
 	otp_read_word(0, data, 1);
 	if (memcmp(blank_word, data, 9) != 0) {
 		pr_err("%s %s : first word is not blank word in OTP.\n", LOG_TAG, __func__);
@@ -2086,8 +2143,11 @@ static int update_firmware_otp(struct usb_typec_fwu_notifier *notifier, struct f
 			pr_err("%s %s : OTP update fw header failed, please re-program.\n", LOG_TAG, __func__);
 			goto exit;
 		}
-		fw_head_addr = 2; 
-		new_fw_start_addr = 2 + OTP_UPDATE_MAX; 
+		fw_head_addr = 2; // init fw header address
+		new_fw_start_addr = 2 + OTP_UPDATE_MAX; // init new fw start address
+	/*} else if (memcmp(fw->data + 9, data, 9) != 0) {
+		pr_err("%s %s : word 1 has been programmed but its content is not expecting.\n", LOG_TAG, __func__);
+		goto exit;*/
 	} else if (data[4] == 0) {
 		pr_err("%s %s : word 1 has been programmed but its content is not expecting.\n", LOG_TAG, __func__);
 		goto exit;
@@ -2100,10 +2160,10 @@ static int update_firmware_otp(struct usb_typec_fwu_notifier *notifier, struct f
 			}
 			otp_read_word(i, data, 1);
 		} while (memcmp(inactive_word, data, 9) == 0);
-		old_fw_start_addr = data[0] + (data[1] << 8); 
-		old_fw_size = data[2] + (data[3] << 8); 
-		fw_head_addr = i; 
-		new_fw_start_addr = old_fw_start_addr + old_fw_size; 
+		old_fw_start_addr = data[0] + (data[1] << 8); // convert little-endian to big-endian
+		old_fw_size = data[2] + (data[3] << 8); // convert little-endian to big-endian
+		fw_head_addr = i; // init fw header address
+		new_fw_start_addr = old_fw_start_addr + old_fw_size; // init new fw start address = old fw start address + old fw size
 		pr_info("%s %s : old fw start address %04x, old fw size %04x\n", LOG_TAG, __func__, old_fw_start_addr, old_fw_size);
 	}
 
@@ -2120,7 +2180,7 @@ static int update_firmware_otp(struct usb_typec_fwu_notifier *notifier, struct f
 	pr_info("%s %s : address %d word : ", LOG_TAG, __func__, new_fw_start_addr);
 	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_ADDRESS, 16, 1, data, 9, 1);
 #endif
-	
+	/* Start update fw */
 	new_fw_size = fw->data[OTP_FW_HEADER_SIZE] + (fw->data[OTP_FW_HEADER_SIZE + 1] << 8);
 	pr_info("%s %s : new fw start address %04x, new fw size %04x\n", LOG_TAG, __func__, new_fw_start_addr, new_fw_size);
 
@@ -2146,7 +2206,7 @@ static int update_firmware_otp(struct usb_typec_fwu_notifier *notifier, struct f
 			usb_typec_fwu_progress(notifier, progress);
 	}
 
-	
+	/* Erasing old fw header */
 	otp_read_word(fw_head_addr, data, 1);
 	if (memcmp(blank_word, data, 9) != 0) {
 		ret = otp_write_word(fw_head_addr, inactive_word);
@@ -2157,7 +2217,7 @@ static int update_firmware_otp(struct usb_typec_fwu_notifier *notifier, struct f
 		fw_head_addr++;
 	}
 
-	
+	/* Update new fw header */
 	memcpy(data, fw->data + OTP_FW_HEADER_START_ADDR, 9);
 	data[0] = new_fw_start_addr & 0xff;
 	data[1] = (new_fw_start_addr >> 8) & 0xff;
@@ -2168,7 +2228,7 @@ static int update_firmware_otp(struct usb_typec_fwu_notifier *notifier, struct f
 	print_hex_dump(KERN_INFO, "Update fw header :", DUMP_PREFIX_ADDRESS, 16, 1, data, 9, 1);
 	ret = otp_write_word(fw_head_addr, data);
 	while (!ret) {
-		otp_read_word(fw_head_addr, read_data, 1); 
+		otp_read_word(fw_head_addr, read_data, 1); //ECC activate
 		pr_err("%s %s : Update new fw header failed.\n", LOG_TAG, __func__);
 		print_hex_dump(KERN_INFO, "Read back data:", DUMP_PREFIX_ADDRESS, 16, 1, read_data, 9, 1);
 		ret = otp_write_word(fw_head_addr, inactive_word);
@@ -2187,7 +2247,7 @@ static int update_firmware_otp(struct usb_typec_fwu_notifier *notifier, struct f
 	pr_info("%s %s : flash OCM fw done\n", LOG_TAG, __func__);
 
 exit:
-	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_ACC_PROTECT, 0x00); 
+	ohio_write_reg(OHIO_SLVAVE_I2C_ADDR, R_OTP_ACC_PROTECT, 0x00); // clear OTP access key
 	if (ret == 0)
 		return -1;
 	return 0;
@@ -2204,31 +2264,37 @@ static int check_usbc_fw_version(const struct firmware *fw, int fw_type)
 		updating_version = fw->data[OTP_FW_VERSION_OFFSET];
 	} else {
 		pr_err("%s %s : cannot get updating firmware version\n", LOG_TAG, __func__);
-		return 0; 
+		return 0; /* bypass */
 	}
 
-	
+	// Check current FW version
 	ret = ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, ANALOG_CTRL_3 , (unchar *)(&curr_version));
 	if (ret < 0) {
 		pr_err("%s %s : cannot read firmware version\n", LOG_TAG, __func__);
-		return 0; 
+		return 0; /* bypass */
 	}
 
 	pr_info("%s %s : curr_version= %02x , updating_version= %02x\n",
 			LOG_TAG, __func__, curr_version, updating_version);
 
+	/* Workaround:
+	 *	  there is a possibility that when checking fw version in fw update process,
+	 *	  it gets "version 00" from 7418 register for unknown reason.
+	 *	  In case that OTP needs to reserve ROM space for future update, we
+	 *	  skip the update of this time if getting version < 0x10.
+	 */
 	if (fw_type == OTP_AB || fw_type == EEPROM) {
 		if ((curr_version == 0x16) && updating_version >= 0x10 && updating_version != 0x16) {
-			
+			// 0x16 -> 0x10~
 			pr_info("%s %s : Need Update\n", LOG_TAG, __func__);
 			return 1;
 		} else if (updating_version > curr_version && updating_version != 0x16) {
-			
+			// 0x10~ but !0x16
 			pr_info("%s %s : Need Update\n", LOG_TAG, __func__);
 			return 1;
 		} else {
 			pr_info("%s %s : Update Bypass\n", LOG_TAG, __func__);
-			return 0; 
+			return 0; /* bypass */
 		}
 	} else if (fw_type == OTP_AD) {
 		if ((curr_version == 0xD0) && updating_version >= 0x20 && updating_version != 0xD0) {
@@ -2239,11 +2305,11 @@ static int check_usbc_fw_version(const struct firmware *fw, int fw_type)
 			return 1;
 		} else {
 			pr_info("%s %s : Update Bypass\n", LOG_TAG, __func__);
-			return 0; 
+			return 0; /* bypass */
 		}
 	} else {
 		pr_info("%s %s : Update Bypass\n", LOG_TAG, __func__);
-		return 0; 
+		return 0; /* bypass */
 	}
 }
 
@@ -2260,19 +2326,19 @@ int analogix_usbc_fw_update(struct usb_typec_fwu_notifier *notifier, struct firm
 		ohio = i2c_get_clientdata(ohio_client);
 	else {
 		pr_err("%s : ANX7418 chip not ready\n", __func__);
-		return 1; 
+		return 1; // BYPASS
 	}
 
 	pr_info("%s\n", __func__);
 
-	
+	// TODO: do we have race condition here?
 	disable_irq_nosync(ohio_client->irq);
 	disable_irq_nosync(ohio->cbl_det_irq);
 	pr_info("%s: Waiting 500ms for current work end\n", __func__);
-	mdelay(500); 
+	mdelay(500); // WA: delay 500ms to ensure current work end
 	if(atomic_read(&ohio_power_status) != 1) {
 		ohio_hardware_poweron();
-		pre_power_status = 0; 
+		pre_power_status = 0; // will powerdown after fw_update
 	}
 	else {
 		pre_power_status = 1;
@@ -2287,7 +2353,7 @@ int analogix_usbc_fw_update(struct usb_typec_fwu_notifier *notifier, struct firm
 		case EEPROM:
 			if (fw_type != EEPROM_FW) {
 				pr_err("%s %s : ANX7418 chip type not match to the firmware\n", LOG_TAG, __func__);
-				ret = 1; 
+				ret = 1; //BYPASS
 				break;
 			}
 			ret = check_usbc_fw_version(fw, EEPROM);
@@ -2300,7 +2366,7 @@ int analogix_usbc_fw_update(struct usb_typec_fwu_notifier *notifier, struct firm
 		case OTP_AB:
 			if (fw_type != OTP_AB_FW) {
 				pr_err("%s %s : ANX7418 chip type not match to the firmware\n", LOG_TAG, __func__);
-				ret = 1; 
+				ret = 1; //BYPASS
 				break;
 			}
 			ret = check_usbc_fw_version(fw, OTP_AB);
@@ -2313,7 +2379,7 @@ int analogix_usbc_fw_update(struct usb_typec_fwu_notifier *notifier, struct firm
 		case OTP_AD:
 			if (fw_type != OTP_AD_FW) {
 				pr_err("%s %s : ANX7418 chip type not match to the firmware\n", LOG_TAG, __func__);
-				ret = 1; 
+				ret = 1; //BYPASS
 				break;
 			}
 			ret = check_usbc_fw_version(fw, OTP_AD);
@@ -2325,7 +2391,7 @@ int analogix_usbc_fw_update(struct usb_typec_fwu_notifier *notifier, struct firm
 			break;
 		default:
 			pr_err("%s %s : ANX7418 cannot read chip type\n", LOG_TAG, __func__);
-			ret = 1; 
+			ret = 1; //BYPASS
 			break;
 	}
 
@@ -2342,7 +2408,7 @@ int register_usb_typec_fw_update(struct usb_typec_fwu_notifier *notifier)
 {
 	notifier->fwupdate = analogix_usbc_fw_update;
 	notifier->flash_timeout = 360;
-	
+	//notifier.dev_id = fw_update_data->id;
 	snprintf(notifier->fw_vendor,
 			sizeof(notifier->fw_vendor), "%s", "ANALOGIX");
 	return register_usbc_fw_update(notifier);
@@ -2386,13 +2452,13 @@ static int ohio_i2c_probe(struct i2c_client *client,
 
 	pr_info("%s start\n", __func__);
 
-	
+	/*++ 2015/12/14, USB Team, PCN00048 ++*/
 	if ((get_debug_flag() & 0x200)  && !((strcmp(htc_get_bootmode(), "download") == 0)
 		|| (strcmp(htc_get_bootmode(), "RUU") == 0))) {
 		pr_info("%s skip ANX7418 driver probe on %s mode\n", __func__, htc_get_bootmode());
 		goto exit;
 	}
-	
+	/*-- 2015/12/14, USB Team, PCN00048 --*/
 
 	if (!i2c_check_functionality(client->adapter,
 	I2C_FUNC_SMBUS_I2C_BLOCK)) {
@@ -2418,9 +2484,9 @@ static int ohio_i2c_probe(struct i2c_client *client,
 			goto err0;
 		}
 		client->dev.platform_data = pdata;
-		
+		/* device tree parsing function call */
 		ret = ohio_parse_dt(&client->dev, pdata);
-		if (ret != 0)	
+		if (ret != 0)	/* if occurs error */
 			goto err0;
 
 		ohio->pdata = pdata;
@@ -2438,7 +2504,7 @@ static int ohio_i2c_probe(struct i2c_client *client,
 	register_usb_typec_fw_update(ohio->usbc_fwu_notifier);
 	pr_debug("%s register usb typec FW update driver\n", __func__);
 
-	
+	/* to access global platform data */
 	g_pdata = ohio->pdata;
 	ohio_client = client;
 	ohio_client->addr = (OHIO_SLAVE_I2C_ADDR >> 1);
@@ -2494,7 +2560,7 @@ static int ohio_i2c_probe(struct i2c_client *client,
 	}
 
 	wake_lock_init(&ohio->ohio_lock,
-		       WAKE_LOCK_SUSPEND, "ohio_wake_lock"); 
+		       WAKE_LOCK_SUSPEND, "ohio_wake_lock"); // 2016/01/08, USB Team, PCN00055
 
 	client->irq = gpio_to_irq(ohio->pdata->gpio_intr_comm);
 	if (client->irq < 0) {
@@ -2538,7 +2604,7 @@ static int ohio_i2c_probe(struct i2c_client *client,
 
 	cable_connected = 0;
 
-	
+	// Set USN3.0 re-drive IC (0,0)
 	gpio_direction_output(ohio->pdata->gpio_usb_ptn_c1, 0);
 	gpio_set_value(ohio->pdata->gpio_usb_ptn_c2, 0);
 
@@ -2546,7 +2612,7 @@ static int ohio_i2c_probe(struct i2c_client *client,
 		__func__, gpio_get_value(ohio->pdata->gpio_usb_ptn_c1),
 		gpio_get_value(ohio->pdata->gpio_usb_ptn_c2));
 
-	
+	// Queue work for detecting cbl_det when booting device with USB cable
 	queue_delayed_work(ohio->workqueue, &ohio->work, msecs_to_jiffies(2000));
 	pr_info("%s: delay 2000ms to detect cbl_det\n", __func__);
 
@@ -2616,7 +2682,7 @@ static int ohio_i2c_remove(struct i2c_client *client)
 	ohio_free_gpio(ohio);
 	usb_typec_fw_update_deinit(ohio->usbc_fwu_notifier);
 	destroy_workqueue(ohio->workqueue);
-	wake_lock_destroy(&ohio->ohio_lock);  
+	wake_lock_destroy(&ohio->ohio_lock);  // 2016/01/08, USB Team, PCN00055
 	kfree(ohio);
 	return 0;
 }
@@ -2682,6 +2748,11 @@ static void __exit ohio_exit(void)
 }
 
 
+/*****************************
+ * power control interface:
+ *  to power on chip(enable=0)
+ *  or power down chip(enable = 1)
+ */
 static void __maybe_unused hardware_power_ctl(unchar enable)
 {
 	if(enable == 0)
@@ -2799,7 +2870,7 @@ ssize_t anx_ohio_send_pd_cmd(struct device *dev,
 	case TYPE_PWR_SRC_CAP:
 		send_pd_msg(TYPE_PWR_SRC_CAP, 0, 0);
 		break;
-	case TYPE_PWR_SNK_CAP:  
+	case TYPE_PWR_SNK_CAP:  // remove this case ?
 		update_pwr_sink_caps();
 		break;
 
@@ -2859,7 +2930,7 @@ ssize_t __maybe_unused anx_ohio_send_thr_cmd(struct device *dev,
         int result;
 
         result = sscanf(buf, "%d", &cmd);
-       
+       //usb_pd_cmd = cmd;
         return count;
 }
 
@@ -2956,6 +3027,7 @@ ssize_t anx_ohio_select_rdo_index(struct device *dev,
 }
 
 
+/* for debugging */
 static struct device_attribute anx_ohio_device_attrs[] = {
 	__ATTR(pdcmd, S_IWUSR, NULL,anx_ohio_send_pd_cmd),
 	__ATTR(thrcmd, S_IWUSR, NULL, anx_ohio_send_thr_cmd),
@@ -2986,6 +3058,7 @@ error:
 	return -EINVAL;
 }
 
+/////////////////////////////////
 module_init(ohio_init);
 module_exit(ohio_exit);
 

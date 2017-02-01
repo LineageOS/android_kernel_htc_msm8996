@@ -18,16 +18,21 @@
 #include <linux/regulator/rpm-smd-regulator.h>
 #include <linux/regulator/consumer.h>
 #ifdef CONFIG_OIS_CALIBRATION
+/*HTC_START*/
 #include "lc898123AXD_htc.h"
+/*HTC_END*/
 #endif
+/* HTC_START */
 #ifdef CONFIG_CAM_REG_LASER
 #include <linux/laser.h>
 #endif
+/* HTC_END */
 
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
 #ifdef CONFIG_OIS_CALIBRATION
+/*HTC_START*/
 #define OIS_COMPONENT_I2C_ADDR_WRITE 0x7C
 
 int htc_ois_calibration(struct msm_sensor_ctrl_t *s_ctrl, int cam_id)
@@ -37,13 +42,13 @@ int htc_ois_calibration(struct msm_sensor_ctrl_t *s_ctrl, int cam_id)
     pr_info("[CAM]%s:E \n", __func__);
     pr_info("[CAM]%s cam_id = %d\n", __func__, cam_id);
 
-	
+	/* Bcakup the I2C slave address */
 	cci_client_sid_backup = s_ctrl->sensor_i2c_client->cci_client->sid;
 
-	
+	/* Replace the I2C slave address with OIS component */
 	s_ctrl->sensor_i2c_client->cci_client->sid = OIS_COMPONENT_I2C_ADDR_WRITE >> 1;
 
-    
+    /*GYRO calibration*/
     rc = htc_GyroReCalib(s_ctrl, cam_id);
     if (rc != 0)
           pr_err("htc_GyroReCalib fail.\n");
@@ -55,7 +60,7 @@ int htc_ois_calibration(struct msm_sensor_ctrl_t *s_ctrl, int cam_id)
             pr_info("[CAM]Gyro calibration success.\n");
     }
 
-	
+	/* Restore the I2C slave address */
 	s_ctrl->sensor_i2c_client->cci_client->sid = cci_client_sid_backup;
 
 	return rc;
@@ -68,10 +73,10 @@ int htc_ois_FWupdate(struct msm_sensor_ctrl_t *s_ctrl)
     static int f_first = 0;
     pr_info("[CAM]%s:E s_ctrl->id = %d.\n", __func__, s_ctrl->id);
 
-	
+	/* Bcakup the I2C slave address */
 	cci_client_sid_backup = s_ctrl->sensor_i2c_client->cci_client->sid;
 
-	
+	/* Replace the I2C slave address with OIS component */
 	s_ctrl->sensor_i2c_client->cci_client->sid = OIS_COMPONENT_I2C_ADDR_WRITE >> 1;
 
     if (m_first ==0||f_first==0)
@@ -83,12 +88,13 @@ int htc_ois_FWupdate(struct msm_sensor_ctrl_t *s_ctrl)
             f_first = 1;
     }
 
-	
+	/* Restore the I2C slave address */
 	s_ctrl->sensor_i2c_client->cci_client->sid = cci_client_sid_backup;
 
 	return rc;
 }
 
+/*HTC_END*/
 #endif
 
 static void msm_sensor_adjust_mclk(struct msm_camera_power_ctrl_t *ctrl)
@@ -215,9 +221,11 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 	const char *sensor_name;
 	uint32_t retry = 0;
 
+/* HTC_START, register laser */
 #ifdef CONFIG_CAM_REG_LASER
 	static int first = 1;
 #endif
+/* HTC_END */
 
 	if (!s_ctrl) {
 		pr_err("%s:%d failed: %pK\n",
@@ -241,6 +249,7 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 		return -EINVAL;
 	}
 
+/* HTC_START, register laser */
 #ifdef CONFIG_CAM_REG_LASER
 	if (first)
 	{
@@ -252,6 +261,7 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 		msleep(1);
 	}
 #endif
+/* HTC_END */
 
 	if (s_ctrl->set_mclk_23880000)
 		msm_sensor_adjust_mclk(power_info);
@@ -271,7 +281,9 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 			break;
 		}
 	}
+/*HTC_START*/
     htc_ois_FWupdate(s_ctrl);
+/*HTC_END*/
 	return rc;
 }
 
@@ -294,6 +306,7 @@ static uint16_t msm_sensor_id_by_mask(struct msm_sensor_ctrl_t *s_ctrl,
 	return sensor_id;
 }
 
+//HTC_START
 #define EEPROM_COMPONENT_I2C_ADDR_WRITE 0xA0
 int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctrl_t *s_ctrl)
 {
@@ -306,11 +319,11 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 	struct msm_camera_i2c_client *sensor_i2c_client;
 	struct msm_camera_slave_info *slave_info;
 	static uint8_t main_otp[20];
-	static uint8_t defect_pixel_of_main_otp[160]; 
-	static struct pixels_array_tt pixels_array = { { { 0, 0 } }, 0 }; 
-	bool check_defect_pixel_count; 
+	static uint8_t defect_pixel_of_main_otp[160]; // HTC Read Defect Pixel
+	static struct pixels_array_tt pixels_array = { { { 0, 0 } }, 0 }; // HTC Read Defect Pixel
+	bool check_defect_pixel_count; // HTC Read Defect Pixel
 	int index = 0;
-	
+	/* HTC_START Read Defect Pixel */
 	int index_for_dp = 0;
 	int pix_count = 0;
 	int y = 0;
@@ -319,12 +332,12 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 	int x_t = 0;
 	int delta_x = 0;
 	int delta_y = 0;
-	
-	const short id_addr[10] = {0x000D,0x000E,0x000F,0x0010,0x0011,0x0012,0x0013,0x0014,0x0015,0x0016};
-	static uint16_t front_otp_data[10] = {0,0,0,0,0,0,0,0,0,0}; 
-	static uint16_t front_id_data[4] = {0,0,0,0}; 
-	static int32_t valid_page=-1;
-	static int32_t SN_valid_page=-1;
+	/* HTC_END */
+	const short id_addr[10] = {0x000D,0x000E,0x000F,0x0010,0x0011,0x0012,0x0013,0x0014,0x0015,0x0016};//S5K4E6 only
+	static uint16_t front_otp_data[10] = {0,0,0,0,0,0,0,0,0,0}; //S5K4E6 only
+	static uint16_t front_id_data[4] = {0,0,0,0}; //S5K4E6 only
+	static int32_t valid_page=-1;//S5K4E6 only
+	static int32_t SN_valid_page=-1;//S5K4E6 only
 	sensor_i2c_client = s_ctrl->sensor_i2c_client;
 	slave_info = s_ctrl->sensordata->slave_info;
 	CDBG("%s: +", __func__);
@@ -350,7 +363,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 		        CDBG("%s: read(0x%x, 0x%x), main_otp[%d] = 0x%x", __func__, address, read_data, index, main_otp[index]);
 		        index++;
 		    }
-		    
+		    /* HTC_START Read Defect Pixel */
 		    for(address = 0x15; address <= 0xB4 ; address += 0x04 )
 		    {
 			    check_defect_pixel_count = false;
@@ -386,8 +399,8 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 				    x_t = (x | defect_pixel_of_main_otp[index_for_dp-2]) << 2;
 				    pixels_array.pix[pix_count].x =  x_t | (defect_pixel_of_main_otp[index_for_dp-1] >> 6 );
 		
-				    pixels_array.pix[pix_count].y -= 18; 
-				    pixels_array.pix[pix_count++].x -= 26; 
+				    pixels_array.pix[pix_count].y -= 18; // for htc camif raw
+				    pixels_array.pix[pix_count++].x -= 26; // for htc camif raw
 				    CDBG("%s: pixel_x = (0x%x,%d), pixel_y = (0x%x,%d)", __func__, pixels_array.pix[pix_count-1].x, pixels_array.pix[pix_count-1].x, pixels_array.pix[pix_count-1].y, pixels_array.pix[pix_count-1].y);
 		
 				    delta_y = 0;
@@ -422,7 +435,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 		    }
 		    pixels_array.count = pix_count;
 		    CDBG("%s: Total_DP_Count = %d", __func__, pixels_array.count);
-		    
+		    /* HTC_END */
 		    s_ctrl->sensor_i2c_client->cci_client->sid = 0x56;
 		    msleep(1);
 		    read_data = 0;
@@ -467,7 +480,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 		cdata->cfg.fuse.fuse_id_word3 = main_otp[13];
 		cdata->cfg.fuse.fuse_id_word4 = main_otp[14];
 
-		
+		//vcm
 		cdata->af_value.MODULE_ID_AB = cdata->cfg.fuse.fuse_id_word2;
 		cdata->af_value.VCM_VENDOR_ID_VERSION = main_otp[4];
 		cdata->af_value.AF_INF_MSB = main_otp[5];
@@ -494,14 +507,14 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 
 		cdata->af_value.VCM_VENDOR = main_otp[0];
 		
-		
+		/* HTC_START Read Defect Pixel */
 		cdata->pixels_array.count = pixels_array.count;
 		for(i = 0 ; i < cdata->pixels_array.count ; i++)
 		{
 			cdata->pixels_array.pix[i].x = pixels_array.pix[i].x;
 			cdata->pixels_array.pix[i].y = pixels_array.pix[i].y;
 		}
-		
+		/* HTC_END */
 
 		strlcpy(cdata->af_value.ACT_NAME, "lc898214_act", sizeof("lc898214_act"));
 		pr_info("[CAM]%s: OTP Actuator Name = %s\n",__func__, cdata->af_value.ACT_NAME);
@@ -520,19 +533,19 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 		if(front_first == true)
         {
             front_first= false;
-            
+            //Read page 53~51
             for (i = 53 ; i >= 51 ; i--)
             {
-                
+                // page select to 4000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0xFCFC, 0x4000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
-                
+                //Stream enable
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x0100, 0x0100, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
                 msleep(10);
-                
+                //page select to 2000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6028, 0x2000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -540,7 +553,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
 
-                
+                //OTP page "i" select
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6F12, i, MSM_CAMERA_I2C_BYTE_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -548,7 +561,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602A, 0X0009, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
-                
+                //read enable
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6F12, 0X01, MSM_CAMERA_I2C_BYTE_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -557,12 +570,12 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 					pr_err("%s: i2c_write failed\n", __func__);
 
                 msleep(5);
-                
+                //page select to 2000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602C, 0X2000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
 
-                
+                //Read S/N
                 for (j = 0 ; j <4; j++)
                 {
                     rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602E, id_addr[j], MSM_CAMERA_I2C_WORD_DATA);
@@ -582,19 +595,19 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
                     break;
 
             }
-            
+            //Read page 50~48
             for (i = 50 ; i >= 48 ; i--)
             {
-                
+                // page select to 4000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0xFCFC, 0x4000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
-                
+                //Stream enable
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x0100, 0x0100, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
                 msleep(10);
-                
+                //page select to 2000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6028, 0x2000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -602,7 +615,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
 
-                
+                //OTP page "i" select
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6F12, i, MSM_CAMERA_I2C_BYTE_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -610,7 +623,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602A, 0X0009, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
-                
+                //read enable
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6F12, 0X01, MSM_CAMERA_I2C_BYTE_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -619,12 +632,12 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 					pr_err("%s: i2c_write failed\n", __func__);
 
                 msleep(5);
-                
+                //page select to 2000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602C, 0X2000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
 
-                
+                //Read OTP data
                 for (j = 0 ; j <10; j++)
                 {
                     rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602E, id_addr[j], MSM_CAMERA_I2C_WORD_DATA);
@@ -655,7 +668,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
                     cdata->cfg.fuse.fuse_id_word3,
                     cdata->cfg.fuse.fuse_id_word4);
             cdata->lens_id = front_otp_data[1];
-            
+            //vcm
             cdata->af_value.VCM_VENDOR = front_otp_data[0];
             cdata->af_value.MODULE_ID_AB = cdata->cfg.fuse.fuse_id_word1;
             cdata->af_value.VCM_VENDOR_ID_VERSION = front_otp_data[4];
@@ -686,7 +699,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
         return rc;
 
     }
-	
+	/* HTC_START, ov12890 */
 	if(strncmp("ov12890_htc", s_ctrl->sensordata->sensor_name, sizeof("ov12890_htc")) == 0)
 	{
 		static int first= true;
@@ -747,7 +760,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 		cdata->cfg.fuse.fuse_id_word3 = main_otp[13];
 		cdata->cfg.fuse.fuse_id_word4 = main_otp[14];
 
-		
+		//vcm
 		cdata->af_value.MODULE_ID_AB = cdata->cfg.fuse.fuse_id_word2;
 		cdata->af_value.VCM_VENDOR_ID_VERSION = main_otp[4];
 		cdata->af_value.AF_INF_MSB = main_otp[5];
@@ -845,7 +858,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 		cdata->cfg.fuse.fuse_id_word3 = main_otp[13];
 		cdata->cfg.fuse.fuse_id_word4 = main_otp[14];
 
-		
+		//vcm
 		cdata->af_value.MODULE_ID_AB = cdata->cfg.fuse.fuse_id_word2;
 		cdata->af_value.VCM_VENDOR_ID_VERSION = main_otp[4];
 		cdata->af_value.AF_INF_MSB = main_otp[5];
@@ -883,7 +896,7 @@ int msm_sensor_read_fuseid(struct sensorb_cfg_data *cdata, struct msm_sensor_ctr
 		pr_info("[CAM]%s: OTP Actuator vender ID & Version = 0x%x\n",__func__,  main_otp[4]);
 		}
 	}
-	
+	/* HTC_END */
 
 	CDBG("%s: -", __func__);
 	return 0;
@@ -900,16 +913,16 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 	struct msm_camera_i2c_client *sensor_i2c_client;
 	struct msm_camera_slave_info *slave_info;
 	static uint8_t main_otp[20];
-	static uint8_t defect_pixel_of_main_otp[160]; 
-	static struct pixels_array_tt pixels_array = { { { 0, 0 } }, 0 }; 
-	bool check_defect_pixel_count; 
-	const short id_addr[10] = {0x000D,0x000E,0x000F,0x0010,0x0011,0x0012,0x0013,0x0014,0x0015,0x0016};
-	static uint16_t front_otp_data[10] = {0,0,0,0,0,0,0,0,0,0}; 
-	static uint16_t front_id_data[4] = {0,0,0,0}; 
-	static int32_t valid_page=-1;
-	static int32_t SN_valid_page=-1;
+	static uint8_t defect_pixel_of_main_otp[160]; // HTC Read Defect Pixel
+	static struct pixels_array_tt pixels_array = { { { 0, 0 } }, 0 }; // HTC Read Defect Pixel
+	bool check_defect_pixel_count; // HTC Read Defect Pixel
+	const short id_addr[10] = {0x000D,0x000E,0x000F,0x0010,0x0011,0x0012,0x0013,0x0014,0x0015,0x0016};//S5K4E6 only
+	static uint16_t front_otp_data[10] = {0,0,0,0,0,0,0,0,0,0}; //S5K4E6 only
+	static uint16_t front_id_data[4] = {0,0,0,0}; //S5K4E6 only
+	static int32_t valid_page=-1;//S5K4E6 only
+	static int32_t SN_valid_page=-1;//S5K4E6 only
 	int index = 0;
-	
+	/* HTC_START Read Defect Pixel */
 	int index_for_dp = 0;
 	int pix_count = 0;
 	int y = 0;
@@ -918,7 +931,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 	int x_t = 0;
 	int delta_x = 0;
 	int delta_y = 0;
-	
+	/* HTC_END */
 	sensor_i2c_client = s_ctrl->sensor_i2c_client;
 	slave_info = s_ctrl->sensordata->slave_info;
 	CDBG("%s: +", __func__);
@@ -944,7 +957,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 		        CDBG("%s: read(0x%x, 0x%x), main_otp[%d] = 0x%x", __func__, address, read_data, index, main_otp[index]);
 		        index++;
 		    }
-		    
+		    /* HTC_START Read Defect Pixel */
 		    for(address = 0x15; address <= 0xB4 ; address += 0x04 )
 		    {
 			    check_defect_pixel_count = false;
@@ -980,8 +993,8 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 				    x_t = (x | defect_pixel_of_main_otp[index_for_dp-2]) << 2;
 				    pixels_array.pix[pix_count].x =  x_t | (defect_pixel_of_main_otp[index_for_dp-1] >> 6 );
 		
-				    pixels_array.pix[pix_count].y -= 18; 
-				    pixels_array.pix[pix_count++].x -= 26; 
+				    pixels_array.pix[pix_count].y -= 18; // for htc camif raw
+				    pixels_array.pix[pix_count++].x -= 26; // for htc camif raw
 				    CDBG("%s: pixel_x = (0x%x,%d), pixel_y = (0x%x,%d)", __func__, pixels_array.pix[pix_count-1].x, pixels_array.pix[pix_count-1].x, pixels_array.pix[pix_count-1].y, pixels_array.pix[pix_count-1].y);
 		
 				    delta_y = 0;
@@ -1016,7 +1029,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 		    }
 		    pixels_array.count = pix_count;
 		    CDBG("%s: Total_DP_Count = %d", __func__, pixels_array.count);
-		    
+		    /* HTC_END */
 		    s_ctrl->sensor_i2c_client->cci_client->sid = 0x56;
 		    msleep(1);
 		    read_data = 0;
@@ -1061,7 +1074,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 		cdata->cfg.fuse.fuse_id_word3 = main_otp[13];
 		cdata->cfg.fuse.fuse_id_word4 = main_otp[14];
 
-		
+		//vcm
 		cdata->af_value.MODULE_ID_AB = cdata->cfg.fuse.fuse_id_word2;
 		cdata->af_value.VCM_VENDOR_ID_VERSION = main_otp[4];
 		cdata->af_value.AF_INF_MSB = main_otp[5];
@@ -1088,14 +1101,14 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 
 		cdata->af_value.VCM_VENDOR = main_otp[0];
 
-		
+		/* HTC_START Read Defect Pixel */
 		cdata->pixels_array.count = pixels_array.count;
 		for(i = 0 ; i < cdata->pixels_array.count ; i++)
 		{
 			cdata->pixels_array.pix[i].x = pixels_array.pix[i].x;
 			cdata->pixels_array.pix[i].y = pixels_array.pix[i].y;
 		}
-		
+		/* HTC_END */
 
 		strlcpy(cdata->af_value.ACT_NAME, "lc898214_act", sizeof("lc898214_act"));
 		pr_info("[CAM]%s: OTP Actuator Name = %s\n",__func__, cdata->af_value.ACT_NAME);
@@ -1116,16 +1129,16 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
             front_first= false;
             for (i = 53 ; i >= 51 ; i--)
             {
-                
+                // page select to 4000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0xFCFC, 0x4000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
-                
+                //Stream enable
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x0100, 0x0100, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
                 msleep(10);
-                
+                //page select to 2000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6028, 0x2000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -1133,7 +1146,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
 
-                
+                //OTP page "i" select
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6F12, i, MSM_CAMERA_I2C_BYTE_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -1141,7 +1154,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602A, 0X0009, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
-                
+                //read enable
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6F12, 0X01, MSM_CAMERA_I2C_BYTE_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -1150,12 +1163,12 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 					pr_err("%s: i2c_write failed\n", __func__);
 
                 msleep(5);
-                
+                //page select to 2000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602C, 0X2000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
 
-                
+                //Read S/N
                 for (j = 0 ; j <4; j++)
                 {
                     rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602E, id_addr[j], MSM_CAMERA_I2C_WORD_DATA);
@@ -1175,19 +1188,19 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
                     break;
 
             }
-            
+            //Read page 50~48
             for (i = 50 ; i >= 48 ; i--)
             {
-                
+                // page select to 4000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0xFCFC, 0x4000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
-                
+                //Stream enable
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x0100, 0x0100, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
                 msleep(10);
-                
+                //page select to 2000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6028, 0x2000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -1195,7 +1208,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
 
-                
+                //OTP page "i" select
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6F12, i, MSM_CAMERA_I2C_BYTE_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -1203,7 +1216,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602A, 0X0009, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
-                
+                //read enable
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x6F12, 0X01, MSM_CAMERA_I2C_BYTE_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
@@ -1212,12 +1225,12 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 					pr_err("%s: i2c_write failed\n", __func__);
 
                 msleep(5);
-                
+                //page select to 2000
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602C, 0X2000, MSM_CAMERA_I2C_WORD_DATA);
                 if (rc < 0)
 					pr_err("%s: i2c_write failed\n", __func__);
 
-                
+                //Read OTP data
                 for (j = 0 ; j <10; j++)
                 {
                     rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x602E, id_addr[j], MSM_CAMERA_I2C_WORD_DATA);
@@ -1248,7 +1261,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
                     cdata->cfg.fuse.fuse_id_word3,
                     cdata->cfg.fuse.fuse_id_word4);
             cdata->lens_id = front_otp_data[1];
-            
+            //vcm
             cdata->af_value.VCM_VENDOR = front_otp_data[0];
             cdata->af_value.MODULE_ID_AB = cdata->cfg.fuse.fuse_id_word1;
             cdata->af_value.VCM_VENDOR_ID_VERSION = front_otp_data[4];
@@ -1279,7 +1292,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
         return rc;
 
     }
-	
+	/* HTC_START, ov12890 */
 	if(strncmp("ov12890_htc", s_ctrl->sensordata->sensor_name, sizeof("ov12890_htc")) == 0)
 	{
 		static int first= true;
@@ -1340,7 +1353,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 		cdata->cfg.fuse.fuse_id_word3 = main_otp[13];
 		cdata->cfg.fuse.fuse_id_word4 = main_otp[14];
 
-		
+		//vcm
 		cdata->af_value.MODULE_ID_AB = cdata->cfg.fuse.fuse_id_word2;
 		cdata->af_value.VCM_VENDOR_ID_VERSION = main_otp[4];
 		cdata->af_value.AF_INF_MSB = main_otp[5];
@@ -1438,7 +1451,7 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 		cdata->cfg.fuse.fuse_id_word3 = main_otp[13];
 		cdata->cfg.fuse.fuse_id_word4 = main_otp[14];
 
-		
+		//vcm
 		cdata->af_value.MODULE_ID_AB = cdata->cfg.fuse.fuse_id_word2;
 		cdata->af_value.VCM_VENDOR_ID_VERSION = main_otp[4];
 		cdata->af_value.AF_INF_MSB = main_otp[5];
@@ -1476,12 +1489,13 @@ int msm_sensor_read_fuseid32(struct sensorb_cfg_data32 *cdata, struct msm_sensor
 		pr_info("[CAM]%s: OTP Actuator vender ID & Version = 0x%x\n",__func__,  main_otp[4]);
 		}
 	}
-	
+	/* HTC_END */
 
 	CDBG("%s: -", __func__);
 	return 0;
 }
 #endif
+//HTC_END
 int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	int rc = 0;
@@ -1510,7 +1524,7 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 		sensor_i2c_client, slave_info->sensor_id_reg_addr,
 		&chipid, MSM_CAMERA_I2C_WORD_DATA);
 	if (rc < 0) {
-		
+		/* HTC_START */
 		if(strncmp("imx377_htc", sensor_name, sizeof("imx377_htc")) == 0)
 		{
 			pr_err("%s: PMEif_htc: read id failed\n", __func__);
@@ -1524,7 +1538,7 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 			pr_err("%s: PMEose_htc: read id failed\n", __func__);
 		}
 		else
-		
+		/* HTC_END */
 		pr_err("%s: %s: read id failed\n", __func__, sensor_name);
 		return rc;
 	}
@@ -1638,6 +1652,7 @@ long msm_sensor_subdev_fops_ioctl(struct file *file,
 {
 	return video_usercopy(file, cmd, arg, msm_sensor_subdev_do_ioctl);
 }
+//HTC_START
 #if 1
 int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 	void __user *argp)
@@ -1645,6 +1660,7 @@ int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 	void __user *argp)
 #endif
+//HTC_END
 {
 	struct sensorb_cfg_data32 *cdata = (struct sensorb_cfg_data32 *)argp;
 	int32_t rc = 0;
@@ -2160,6 +2176,7 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 		break;
 	}
 	#if 1
+/* HTC_START, HTC_VCM, Harvey 20130628 - Porting read OTP*/
 	case CFG_I2C_IOCTL_R_OTP:
 		if (s_ctrl->func_tbl->sensor_i2c_read_fuseid32 == NULL) {
 			rc = -EFAULT;
@@ -2167,11 +2184,14 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 		}
 		rc = s_ctrl->func_tbl->sensor_i2c_read_fuseid32(cdata, s_ctrl);
 	break;
+/* HTC_END, HTC_VCM*/
 #endif
 #ifdef CONFIG_OIS_CALIBRATION
+/*HTC_START GYRO calibration*/
     case CFG_SET_GYRO_CALIBRATION:
         rc = htc_ois_calibration(s_ctrl, cdata->cam_id);
     break;
+/*HTC_END*/
 #endif
 	default:
 		rc = -EFAULT;
@@ -2655,6 +2675,7 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 		break;
 	}
 	#if 1
+/* HTC_START, HTC_VCM, Harvey 20130628 - Porting read OTP*/
 	case CFG_I2C_IOCTL_R_OTP:
 		if (s_ctrl->func_tbl->sensor_i2c_read_fuseid == NULL) {
 			rc = -EFAULT;
@@ -2662,11 +2683,14 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 		}
 		rc = s_ctrl->func_tbl->sensor_i2c_read_fuseid(cdata, s_ctrl);
 	break;
+/* HTC_END, HTC_VCM*/
 #endif
 #ifdef CONFIG_OIS_CALIBRATION
+/*HTC_START GYRO calibration*/
     case CFG_SET_GYRO_CALIBRATION:
         rc = htc_ois_calibration(s_ctrl, cdata->cam_id);
     break;
+/*HTC_END*/
 #endif
 	default:
 		rc = -EFAULT;
@@ -2739,10 +2763,12 @@ static struct msm_sensor_fn_t msm_sensor_func_tbl = {
 	.sensor_power_up = msm_sensor_power_up,
 	.sensor_power_down = msm_sensor_power_down,
 	.sensor_match_id = msm_sensor_match_id,
+//HTC_START
 	.sensor_i2c_read_fuseid = msm_sensor_read_fuseid,
 #ifdef CONFIG_COMPAT
 	.sensor_i2c_read_fuseid32 =msm_sensor_read_fuseid32,
 #endif
+//HTC_END
 };
 
 static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl = {
@@ -2751,7 +2777,9 @@ static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl = {
 	.i2c_write = msm_camera_cci_i2c_write,
 	.i2c_write_table = msm_camera_cci_i2c_write_table,
 	.i2c_write_seq_table = msm_camera_cci_i2c_write_seq_table,
+/* HTC_START */
 	.i2c_write_seq = msm_camera_cci_i2c_write_seq,
+/* HTC_END */
 	.i2c_write_table_w_microdelay =
 		msm_camera_cci_i2c_write_table_w_microdelay,
 	.i2c_util = msm_sensor_cci_i2c_util,
@@ -2767,7 +2795,9 @@ static struct msm_camera_i2c_fn_t msm_sensor_qup_func_tbl = {
 	.i2c_read_seq = msm_camera_qup_i2c_read_seq,
 	.i2c_write = msm_camera_qup_i2c_write,
 	.i2c_write_table = msm_camera_qup_i2c_write_table,
+/* HTC_START */
 	.i2c_write_seq = msm_camera_qup_i2c_write_seq,
+/* HTC_END */
 	.i2c_write_seq_table = msm_camera_qup_i2c_write_seq_table,
 	.i2c_write_table_w_microdelay =
 		msm_camera_qup_i2c_write_table_w_microdelay,

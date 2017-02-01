@@ -5713,6 +5713,9 @@ fail_tmdev:
 }
 
 #ifdef CONFIG_PM
+/*
+ * HTC: Avoid wakeup by tsens when suspend/resume.
+ */
 static int tsens_irq_status = 1;
 static int tsens_suspend(struct device *dev)
 {

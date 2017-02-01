@@ -5208,6 +5208,13 @@ static const struct file_operations cpr3_debug_info_fops = {
 	.read = cpr3_debug_info_read,
 };
 
+/**
+ * cpr3_regulator_debugfs_thread_add() - add debugfs files to expose
+ *		configuration data for the CPR thread
+ * @thread:		Pointer to the CPR3 thread
+ *
+ * Return: none
+ */
 static void cpr3_regulator_debugfs_thread_add(struct cpr3_thread *thread)
 {
 	struct cpr3_controller *ctrl = thread->ctrl;

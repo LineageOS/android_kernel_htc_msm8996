@@ -19,4 +19,4 @@
 int Laser_poweron_by_camera(void);
 int Laser_poweroff_by_camera(void);
 
-#endif          
+#endif          /* __LINUX_LASER_H_INCLUDED */

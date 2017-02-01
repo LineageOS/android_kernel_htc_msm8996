@@ -1,27 +1,43 @@
+//********************************************************************************
+//		<< LC898123 Evaluation Soft >>
+//********************************************************************************
+//==============================================================================
+// Calibration Data Memory Map
+//==============================================================================
 #define	CALIBRATION_DATA_ADDRESS	0x0100
 #define	USER_AREA_ADDRESS			0x01B0
 
+// Calibration Status
 #define	CALIBRATION_STATUS		( FLASH_SECTOR_BUFFER + 0x00000000 )
+// Hall amplitude Calibration X
 #define	HALL_MAX_BEFORE_X		( FLASH_SECTOR_BUFFER + 0x00000004 )
 #define	HALL_MIN_BEFORE_X		( FLASH_SECTOR_BUFFER + 0x00000008 )
 #define	HALL_MAX_AFTER_X		( FLASH_SECTOR_BUFFER + 0x0000000C )
 #define	HALL_MIN_AFTER_X		( FLASH_SECTOR_BUFFER + 0x00000010 )
+// Hall amplitude Calibration Y
 #define	HALL_MAX_BEFORE_Y		( FLASH_SECTOR_BUFFER + 0x00000014 )
 #define	HALL_MIN_BEFORE_Y		( FLASH_SECTOR_BUFFER + 0x00000018 )
 #define	HALL_MAX_AFTER_Y		( FLASH_SECTOR_BUFFER + 0x0000001C )
 #define	HALL_MIN_AFTER_Y		( FLASH_SECTOR_BUFFER + 0x00000020 )
+// Hall Bias/Offset
 #define	HALL_BIAS_DAC_X			( FLASH_SECTOR_BUFFER + 0x00000024 )
 #define	HALL_OFFSET_DAC_X		( FLASH_SECTOR_BUFFER + 0x00000028 )
 #define	HALL_BIAS_DAC_Y			( FLASH_SECTOR_BUFFER + 0x0000002C )
 #define	HALL_OFFSET_DAC_Y		( FLASH_SECTOR_BUFFER + 0x00000030 )
+// Loop Gain Calibration X
 #define	LOOP_GAIN_VALUE_X		( FLASH_SECTOR_BUFFER + 0x00000034 )
+// Loop Gain Calibration Y
 #define	LOOP_GAIN_VALUE_Y		( FLASH_SECTOR_BUFFER + 0x00000038 )
+// Lens Center Calibration
 #define	LENS_CENTER_VALUE_X		( FLASH_SECTOR_BUFFER + 0x0000003C )
 #define	LENS_CENTER_VALUE_Y		( FLASH_SECTOR_BUFFER + 0x00000040 )
+// Optical Center Calibration
 #define	OPT_CENTER_VALUE_X		( FLASH_SECTOR_BUFFER + 0x00000044 )
 #define	OPT_CENTER_VALUE_Y		( FLASH_SECTOR_BUFFER + 0x00000048 )
+// Gyro Offset Calibration
 #define	GYRO_OFFSET_VALUE_X		( FLASH_SECTOR_BUFFER + 0x0000004C )
 #define	GYRO_OFFSET_VALUE_Y		( FLASH_SECTOR_BUFFER + 0x00000050 )
+// Gyro Gain Calibration
 #define	GYRO_GAIN_VALUE_X		( FLASH_SECTOR_BUFFER + 0x00000054 )
 #define	GYRO_GAIN_VALUE_Y		( FLASH_SECTOR_BUFFER + 0x00000058 )
 
@@ -58,6 +74,7 @@
 #define MIDDLE_POS_AF_CODE		( FLASH_SECTOR_BUFFER + 0x00000080 )
 
 #define RESERVE_AREA_TOP		( FLASH_SECTOR_BUFFER + 0x00000090 )
+// User area data
 #define POS1_X					( RESERVE_AREA_TOP + 0x00000000 )
 #define POS1_Y					( RESERVE_AREA_TOP + 0x00000002 )
 #define SIZE1_X					( RESERVE_AREA_TOP + 0x00000004 )
@@ -117,11 +134,15 @@
 #define	LN_ZONE5_THRX			( FLASH_SECTOR_BUFFER + 0x000000F0 )
 #define	LN_ZONE5_THRY			( FLASH_SECTOR_BUFFER + 0x000000F2 )
 
+// Gyro Offset factory data
 #define	GYRO_OFFSET_FCTRY_X		( FLASH_SECTOR_BUFFER + 0x000000F8 )
 #define	GYRO_OFFSET_FCTRY_Y		( FLASH_SECTOR_BUFFER + 0x000000FC )
 
 #define USER_AREA_END			( FLASH_SECTOR_BUFFER + 0x000000FF )
 
+//==============================================================================
+//DMA
+//==============================================================================
 #define 	CmdCommand						0x0028
 #define 	CmdEventCommand					0x002C
 #define		SinWaveC						0x00b8
@@ -130,21 +151,21 @@
 #define			SinWaveC_SignFlag				0x0004 + SinWaveC_Regsiter
 
 #define		SinWave							0x00c4
-				
+				// SinGenerator.h SinWave_t
 #define			SinWave_Offset					0x0000 + SinWave
 #define			SinWave_Phase					0x0004 + SinWave_Offset
 #define			SinWave_Gain					0x0004 + SinWave_Phase
 #define			SinWave_Output					0x0004 + SinWave_Gain
 #define			SinWave_OutAddr					0x0004 + SinWave_Output
 #define		CosWave							0x00d8
-				
+				// SinGenerator.h SinWave_t
 #define			CosWave_Offset					0x0000 + CosWave
 #define			CosWave_Phase					0x0004 + CosWave_Offset
 #define			CosWave_Gain					0x0004 + CosWave_Phase
 #define			CosWave_Output					0x0004 + CosWave_Gain
 #define			CosWave_OutAddr					0x0004 + CosWave_Output
 #define		GYRO_RAM_COMMON					0x00ec
-				
+				// GyroFilterDelay.h GYRO_RAM_COMMON_t
 #define			GYRO_RAM_GX_ADIDAT				0x0000 + GYRO_RAM_COMMON
 #define			GYRO_RAM_GY_ADIDAT				0x0004 + GYRO_RAM_GX_ADIDAT
 #define			GYRO_RAM_SINDX					0x0004 + GYRO_RAM_GY_ADIDAT
@@ -159,10 +180,10 @@
 #define			GYRO_RAM_GYRO_LimitY			0x0004 + GYRO_RAM_GYRO_LimitX
 #define			GYRO_RAM_GYROX_AFCnt			0x0004 + GYRO_RAM_GYRO_LimitY
 #define			GYRO_RAM_GYROY_AFCnt			0x0004 + GYRO_RAM_GYROX_AFCnt
-#define			GYRO_RAM_GYRO_Switch			0x0004 + GYRO_RAM_GYROY_AFCnt		
-#define			GYRO_RAM_GYRO_AF_Switch			0x0001 + GYRO_RAM_GYRO_Switch		
+#define			GYRO_RAM_GYRO_Switch			0x0004 + GYRO_RAM_GYROY_AFCnt		// 1Byte
+#define			GYRO_RAM_GYRO_AF_Switch			0x0001 + GYRO_RAM_GYRO_Switch		// 1Byte
 #define		GYRO_RAM_X						0x0128
-				
+				// GyroFilterDelay.h GYRO_RAM_t
 #define			GYRO_RAM_GYROX_OFFSET			0x0000 + GYRO_RAM_X
 #define			GYRO_RAM_GX2X4XF_IN				0x0004 + GYRO_RAM_GYROX_OFFSET
 #define			GYRO_RAM_GX2X4XF_OUT			0x0004 + GYRO_RAM_GX2X4XF_IN
@@ -173,7 +194,7 @@
 #define			GYRO_RAM_GYROX_G3OUT			0x0004 + GYRO_RAM_GYROX_G2OUT
 #define			GYRO_RAM_GYROX_OUT				0x0004 + GYRO_RAM_GYROX_G3OUT
 #define		GYRO_RAM_Y						0x014c
-				
+				// GyroFilterDelay.h GYRO_RAM_t
 #define			GYRO_RAM_GYROY_OFFSET			0x0000 + GYRO_RAM_Y
 #define			GYRO_RAM_GY2X4XF_IN				0x0004 + GYRO_RAM_GYROY_OFFSET
 #define			GYRO_RAM_GY2X4XF_OUT			0x0004 + GYRO_RAM_GY2X4XF_IN
@@ -184,11 +205,11 @@
 #define			GYRO_RAM_GYROY_G3OUT			0x0004 + GYRO_RAM_GYROY_G2OUT
 #define			GYRO_RAM_GYROY_OUT				0x0004 + GYRO_RAM_GYROY_G3OUT
 #define		GyroFilterDelayX				0x0170
-#define		GyroFilterDelayX_GXH1Z2			0x0184	
+#define		GyroFilterDelayX_GXH1Z2			0x0184	// delay3[1]
 #define		GyroFilterDelayY				0x0198
-#define		GyroFilterDelayY_GYH1Z2			0x01ac	
+#define		GyroFilterDelayY_GYH1Z2			0x01ac	// delay3[1]
 #define		HALL_RAM_COMMON					0x01c0
-				
+				//  HallFilterDelay.h HALL_RAM_COMMON_t
 #define			HALL_RAM_HXIDAT					0x0000 + HALL_RAM_COMMON
 #define			HALL_RAM_HYIDAT					0x0004 + HALL_RAM_HXIDAT
 #define			HALL_RAM_GYROX_OUT				0x0004 + HALL_RAM_HYIDAT
@@ -198,7 +219,7 @@
 #define		HallFilterDelayY				0x0220
 #define			HallFilterD_HYDAZ1				0x0010 + HallFilterDelayY
 #define		HALL_RAM_X						0x0270
-				
+				//  HallFilterDelay.h HALL_RAM_t
 #define			HALL_RAM_HXOFF					0x0000 + HALL_RAM_X
 #define			HALL_RAM_HXOFF1					0x0004 + HALL_RAM_HXOFF
 #define			HALL_RAM_HXOUT0					0x0004 + HALL_RAM_HXOFF1
@@ -207,9 +228,9 @@
 #define			HALL_RAM_HXLOP					0x0004 + HALL_RAM_SINDX0
 #define			HALL_RAM_SINDX1					0x0004 + HALL_RAM_HXLOP
 #define			HALL_RAM_HALL_X_OUT				0x0004 + HALL_RAM_SINDX1
-					
+					// MoveAvg	2ch
 #define		HALL_RAM_Y						0x02c0
-				
+				//  HallFilterDelay.h HALL_RAM_t
 #define			HALL_RAM_HYOFF					0x0000 + HALL_RAM_Y
 #define			HALL_RAM_HYOFF1					0x0004 + HALL_RAM_HYOFF
 #define			HALL_RAM_HYOUT0					0x0004 + HALL_RAM_HYOFF1
@@ -218,7 +239,7 @@
 #define			HALL_RAM_HYLOP					0x0004 + HALL_RAM_SINDY0
 #define			HALL_RAM_SINDY1					0x0004 + HALL_RAM_HYLOP
 #define			HALL_RAM_HALL_Y_OUT				0x0004 + HALL_RAM_SINDY1
-					
+					// MoveAvg	2ch
 
 #define		HXOFF1							0x0310
 #define		HYOFF1							0x0314
@@ -258,12 +279,12 @@
 #define			CLAF_DELAY_AFOZ0				0x0004 + CLAF_DELAY_AFPZ3
 #define			CLAF_DELAY_AFOZ1				0x0004 + CLAF_DELAY_AFOZ0
 #define		WaitTimerData					0x0468
-				
+				// CommonLibrary.h  WaitTimer_Type
 #define			WaitTimerData_UiWaitCounter		0x0000 + WaitTimerData
 #define			WaitTimerData_UiTargetCount		0x0004 + WaitTimerData_UiWaitCounter
 #define			WaitTimerData_UiBaseCount		0x0004 + WaitTimerData_UiTargetCount
 #define		StMeasureFunc					0x0478
-				
+				// MeasureFilter.h	MeasureFunction_Type
 #define			StMeasFunc_SiSampleNum			0x0000 + StMeasureFunc
 #define			StMeasFunc_SiSampleMax			0x0004 + StMeasFunc_SiSampleNum
 #define		StMeasFunc_MFA					0x0480
@@ -283,20 +304,20 @@
 #define			StMeasFunc_MFB_LLiAbsInteg2		0x0008 + StMeasFunc_MFB_LLiIntegral2
 #define			StMeasFunc_MFB_PiMeasureRam2	0x0008 + StMeasFunc_MFB_LLiAbsInteg2
 #define		MeasureFilterA_Delay			0x04D0
-				
+				// MeasureFilter.h	MeasureFilter_Delay_Type
 #define			MeasureFilterA_Delay_z11		0x0000 + MeasureFilterA_Delay
 #define			MeasureFilterA_Delay_z12		0x0004 + MeasureFilterA_Delay_z11
 #define			MeasureFilterA_Delay_z21		0x0004 + MeasureFilterA_Delay_z12
 #define			MeasureFilterA_Delay_z22		0x0004 + MeasureFilterA_Delay_z21
 #define		MeasureFilterB_Delay			0x04E0
-				
+				// MeasureFilter.h	MeasureFilter_Delay_Type
 #define			MeasureFilterB_Delay_z11		0x0000 + MeasureFilterB_Delay
 #define			MeasureFilterB_Delay_z12		0x0004 + MeasureFilterB_Delay_z11
 #define			MeasureFilterB_Delay_z21		0x0004 + MeasureFilterB_Delay_z12
 #define			MeasureFilterB_Delay_z22		0x0004 + MeasureFilterB_Delay_z21
 #define		MeasureParameter				0x04F0
 #define		StCalibrationData				0x04FC
-				
+				// Calibration.h  CalibrationData_Type
 #define			StCaliData_UsCalibrationStatus	0x0000 + StCalibrationData
 #define			StCaliData_SiHallMax_Before_X	0x0004 + StCaliData_UsCalibrationStatus
 #define			StCaliData_SiHallMin_Before_X	0x0004 + StCaliData_SiHallMax_Before_X
@@ -333,10 +354,13 @@
 
 
 
+//==============================================================================
+//DMB
+//==============================================================================
 #define		SiVerNum						0x8000
 #define		WaveCoeff						0x8004
 #define		MeasureFilterA_Coeff			0x80a4
-				
+				// MeasureFilter.h  MeasureFilter_Type
 #define			MeasureFilterA_Coeff_b1			0x0000 + MeasureFilterA_Coeff
 #define			MeasureFilterA_Coeff_c1			0x0004 + MeasureFilterA_Coeff_b1
 #define			MeasureFilterA_Coeff_a1			0x0004 + MeasureFilterA_Coeff_c1
@@ -344,7 +368,7 @@
 #define			MeasureFilterA_Coeff_c2			0x0004 + MeasureFilterA_Coeff_b2
 #define			MeasureFilterA_Coeff_a2			0x0004 + MeasureFilterA_Coeff_c2
 #define		MeasureFilterB_Coeff			0x80bc
-				
+				// MeasureFilter.h  MeasureFilter_Type
 #define			MeasureFilterB_Coeff_b1			0x0000 + MeasureFilterB_Coeff
 #define			MeasureFilterB_Coeff_c1			0x0004 + MeasureFilterB_Coeff_b1
 #define			MeasureFilterB_Coeff_a1			0x0004 + MeasureFilterB_Coeff_c1
@@ -352,7 +376,7 @@
 #define			MeasureFilterB_Coeff_c2			0x0004 + MeasureFilterB_Coeff_b2
 #define			MeasureFilterB_Coeff_a2			0x0004 + MeasureFilterB_Coeff_c2
 #define		HallFilterCoeffX				0x8138
-				
+				// HallFilterCoeff.h  DM_HFC_t
 #define			HallFilterCoeffX_HXIGAIN		0x0000 + HallFilterCoeffX
 #define			HallFilterCoeffX_GYROXOUTGAIN	0x0004 + HallFilterCoeffX_HXIGAIN
 #define			HallFilterCoeffX_HXOFFGAIN		0x0004 + HallFilterCoeffX_GYROXOUTGAIN
@@ -396,7 +420,7 @@
 #define			HallFilterCoeffX_hxpe			0x0004 + HallFilterCoeffX_hxpd
 #define			HallFilterCoeffX_hxpa			0x0004 + HallFilterCoeffX_hxpe
 #define		HallFilterCoeffY				0x81d4
-				
+				// HallFilterCoeff.h  DM_HFC_t
 #define			HallFilterCoeffY_HYIGAIN		0x0000 + HallFilterCoeffY
 #define			HallFilterCoeffY_GYROYOUTGAIN	0x0004 + HallFilterCoeffY_HYIGAIN
 #define			HallFilterCoeffY_HYOFFGAIN		0x0004 + HallFilterCoeffY_GYROYOUTGAIN
@@ -438,7 +462,7 @@
 #define			HallFilterCoeffY_hype			0x0004 + HallFilterCoeffY_hypd
 #define			HallFilterCoeffY_hypa			0x0004 + HallFilterCoeffY_hype
 #define		GyroFilterTableX				0x82ac
-				
+				// GyroFilterCoeff.h  DM_GFC_t
 #define			GyroFilterTableX_gx45x			0x0000 + GyroFilterTableX
 #define			GyroFilterTableX_gx45y			0x0004 + GyroFilterTableX_gx45x
 #define			GyroFilterTableX_gxgyro			0x0004 + GyroFilterTableX_gx45y
@@ -464,7 +488,7 @@
 #define			GyroFilterTableX_gxt2a			0x0004 + GyroFilterTableX_gxt2c	
 #define			GyroFilterTableX_afzoom			0x0004 + GyroFilterTableX_gxt2a
 #define		GyroFilterTableY				0x830c
-				
+				// GyroFilterCoeff.h  DM_GFC_t
 #define			GyroFilterTableY_gy45y			0x0000 + GyroFilterTableY
 #define			GyroFilterTableY_gy45x			0x0004 + GyroFilterTableY_gy45y
 #define			GyroFilterTableY_gygyro			0x0004 + GyroFilterTableY_gy45x
@@ -490,13 +514,13 @@
 #define			GyroFilterTableY_gyt2a			0x0004 + GyroFilterTableY_gyt2c
 #define			GyroFilterTableY_afzoom			0x0004 + GyroFilterTableY_gyt2a
 #define		GF_LimitX						0x836c
-				
+				// GyroFilterCoeff.h  GF_Limit_t
 #define			GF_LimitX_H2LMT					0x0000 + GF_LimitX
 #define			GF_LimitX_JLIMT					0x0004 + GF_LimitX_H2LMT
 #define			GF_LimitX_HLIMT					0x0004 + GF_LimitX_JLIMT
 
 #define		GF_LimitY						0x8378
-				
+				// GyroFilterCoeff.h  GF_Limit_t
 #define			GF_LimitY_H2LMT					0x0000 + GF_LimitY
 #define			GF_LimitY_JLIMT					0x0004 + GF_LimitY_H2LMT
 #define			GF_LimitY_HLIMT					0x0004 + GF_LimitY_JLIMT
@@ -528,19 +552,22 @@
 #define		HAL_LN_CORRECT					0x8504
 #define			HAL_LN_COEFAX					0x0000 + HAL_LN_CORRECT
 
-#define SYSCONT_123		0xD00000	
+//==============================================================================
+//IO
+//==============================================================================
+#define SYSCONT_123		0xD00000	// System Control配置アドレス
 #define 		SYS_DSP_REMAP						(SYSCONT_123 + 0xAC)
 
-#define CVER_123		0xD00100	
+#define CVER_123		0xD00100	// LSI Version 読み出しアドレス
 #define			CVER_123A							0x000000B4
 
-#define SOFTRESET		0xD0006C	
-#define OSCRSEL			0xD00090	
-#define OSCCURSEL		0xD00094	
-#define IOPLEVR			0xD00104	
+#define SOFTRESET		0xD0006C	// Soft reset setting
+#define OSCRSEL			0xD00090	// OSC Frequency 1
+#define OSCCURSEL		0xD00094	// OSC Frequency 2
+#define IOPLEVR			0xD00104	// IO port level read
 
-#define ADDA_123		0xD01000	
-				
+#define ADDA_123		0xD01000	// A/D & D/A I/F配置アドレス
+				// LC898123_DMIO.h  ADDA_t
 #define 		ADDA_reserve0_0						0x0000 + ADDA_123
 #define 		ADDA_reserve0_1						0x0004 + ADDA_reserve0_0
 #define 		ADDA_FSCTRL							0x0004 + ADDA_reserve0_1	
@@ -564,19 +591,19 @@
 #define 		ADDA_DASEL							0x0004 + ADDA_DASWAP		
 #define 		ADDA_DAO							0x0004 + ADDA_DASEL		
 
-#define PWM_123			0xD02000	
+#define PWM_123			0xD02000	// PWM I/F配置アドレス
 #define			PWM_DRVCH1SEL						0x0128 + PWM_123
 #define			PWM_DRVCH2SEL						0x012C + PWM_123
 
 #if 0
-#define PORT_123		0xE00000	
-#define TIMER_123		0xE01000	
-#define SPIM_123		0xE02000	
-#define SPIS_123		0xE03000	
-#define UART_123		0xE04000	
-#define I2CS_123		0xE05000	
+#define PORT_123		0xE00000	// PORT I/F配置アドレス
+#define TIMER_123		0xE01000	// TIMER I/F配置アドレス
+#define SPIM_123		0xE02000	// SPI Master I/F配置アドレス
+#define SPIS_123		0xE03000	// SPI Slave I/F配置アドレス
+#define UART_123		0xE04000	// UART I/F配置アドレス
+#define I2CS_123		0xE05000	// I2C Slave配置アドレス
 #endif
-#define FLASHROM_123	0xE07000	
+#define FLASHROM_123	0xE07000	// Flash Memory I/F配置アドレス
 #define 		FLASHROM_RDAT						(FLASHROM_123 + 0x00) 
 #define 		FLASHROM_WDAT						(FLASHROM_123 + 0x04) 
 #define 		FLASHROM_ADR						(FLASHROM_123 + 0x08) 

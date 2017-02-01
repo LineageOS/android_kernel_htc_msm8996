@@ -25,6 +25,7 @@
 #include <linux/of.h>
 #include <linux/poll.h>
 #include <asm/byteorder.h>
+//#include <linux/miscdevice.h>
 #include <linux/platform_device.h>
 #include <linux/input/capsensor_fw_update.h>
 
@@ -182,7 +183,7 @@ static int capsensor_fwu_release(struct inode *inode, struct file *filp)
 
 static ssize_t capsensor_fwu_read(struct file *file, char __user *buf, size_t count, loff_t *offset)
 {
-	
+	//struct cdev_data *fw_cdev = filp->private_data;
 	pr_info("%s: %zu", __func__, count);
 	return 0;
 }
@@ -299,7 +300,7 @@ capsensor_fwu_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 }
 #else
 #define capsensor_fwu_compat_ioctl NULL
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static int fw_update_process(struct data *fwu_data, struct firmware *fw)
 {
