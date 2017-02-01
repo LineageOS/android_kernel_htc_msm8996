@@ -1070,9 +1070,6 @@ done:
 int
 dhdpcie_disable_device(dhd_bus_t *bus)
 {
-#if 1 && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
-	dhdpcie_info_t *pch = NULL;
-#endif 
 	DHD_TRACE(("%s Enter:\n", __FUNCTION__));
 
 	if (bus == NULL) {
@@ -1083,15 +1080,6 @@ dhdpcie_disable_device(dhd_bus_t *bus)
 		return BCME_ERROR;
 	}
 
-#if 1 && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
-	pch = pci_get_drvdata(bus->dev);
-	if (pch == NULL) {
-		return BCME_ERROR;
-	}
-
-	pci_save_state(bus->dev);
-	pch->default_state = pci_store_saved_state(bus->dev);
-#endif 
 	pci_disable_device(bus->dev);
 
 	return 0;
@@ -1119,28 +1107,26 @@ dhdpcie_enable_device(dhd_bus_t *bus)
 	}
 
 #if 1 && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
-	if (pch->default_state != NULL &&
-		pci_load_and_free_saved_state(bus->dev, &pch->default_state)) {
-		pci_disable_device(bus->dev);
-	} else {
+	/* Updated with pci_load_and_free_saved_state to compatible
+	 * with kernel 3.14 or higher
+	 */
+	pci_load_and_free_saved_state(bus->dev, &pch->default_state);
+	pch->default_state = pci_store_saved_state(bus->dev);
 #elif 1 && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)) && \
 	(LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0))
-	if (pci_load_saved_state(bus->dev, pch->default_state))
-		pci_disable_device(bus->dev);
-	else {
-#endif 
+	pci_load_saved_state(bus->dev, pch->default_state);
+#endif /* OEM_ANDROID && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0) and
+		* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)) && \
+		* (LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0)
+		*/
 
-		pci_restore_state(bus->dev);
-		ret = pci_enable_device(bus->dev);
-		if (!ret) {
-			pci_set_master(bus->dev);
-		}
-#if 1 && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0))
-	}
-#endif 
+	pci_restore_state(bus->dev);
+	ret = pci_enable_device(bus->dev);
 
 	if (ret) {
 		pci_disable_device(bus->dev);
+	} else {
+		pci_set_master(bus->dev);
 	}
 
 	return ret;

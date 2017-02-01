@@ -2676,7 +2676,7 @@ int sched_update_freq_max_load(const cpumask_t *cpumask)
 
 		i = 0;
 		costs = per_cpu_info[cpu].ptable;
-		while (costs[i].freq) {
+		while (i<per_cpu_info[cpu].len && costs[i].freq) {
 			entry = &max_load->freqs[i];
 			freq = costs[i].freq;
 			hpct = get_freq_max_load(cpu, freq);

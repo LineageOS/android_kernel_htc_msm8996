@@ -26,8 +26,11 @@ int external_block_en = 0;
 static struct anx7816_platform_data *g_pdata;
 static struct class_compat *sp_class_compat;
 
+/* Use device tree structure data when defined "CONFIG_OF"  */
+/*//#define SP_REGISTER_SET_TEST*/
 
 #ifdef SP_REGISTER_SET_TEST
+/*//For Slimport swing&pre-emphasis test*/
 unchar val_SP_TX_LT_CTRL_REG0;
 unchar val_SP_TX_LT_CTRL_REG10;
 unchar val_SP_TX_LT_CTRL_REG11;
@@ -122,7 +125,7 @@ static ssize_t slimport7816_rev_check_store(struct device *dev,
 	result = sscanf(buf, "%d", &cmd);
 	switch (cmd) {
 	case 1:
-		
+		/*//sp_tx_chip_located();*/
 		break;
 	}
 	return count;
@@ -311,7 +314,7 @@ static ssize_t anx7816_write_reg_store(struct device *dev,
 		return -EINVAL;
 	}
 
-	id = anx7816_id_change(id);	
+	id = anx7816_id_change(id);	/*//ex) 5 -> 0x72*/
 
 	switch (op) {
 	case 0x30:		/* "0" -> read */
@@ -339,7 +342,8 @@ static ssize_t anx7816_write_reg_store(struct device *dev,
 	return count;
 }
 
-#ifdef SP_REGISTER_SET_TEST	
+#ifdef SP_REGISTER_SET_TEST	/*//Slimport test*/
+/*sysfs read interface*/
 static int ctrl_reg0_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
@@ -593,7 +597,7 @@ static struct device_attribute slimport_device_attrs[] = {
 	       anx7816_write_reg_store),
 	__ATTR(chipid, S_IRUGO, slimport_chipid_show,
 	       NULL),
-#ifdef SP_REGISTER_SET_TEST	
+#ifdef SP_REGISTER_SET_TEST	/*//slimport test*/
 	__ATTR(ctrl_reg0, S_IRUGO | S_IWUSR, ctrl_reg0_show, ctrl_reg0_store),
 	__ATTR(ctrl_reg10, S_IRUGO | S_IWUSR, ctrl_reg10_show,
 	       ctrl_reg10_store),

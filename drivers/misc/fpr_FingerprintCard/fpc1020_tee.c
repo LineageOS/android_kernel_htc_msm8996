@@ -142,7 +142,69 @@ struct fpc1020_data {
 #endif //CONFIG_FPC_HTC_ADD_INPUT_DEVICE
 };
 
+// [PME][N-70][Briung up] Remove unused attributes
+/*
+static int vreg_setup(struct fpc1020_data *fpc1020, const char *name,
+	bool enable)
+{
+	size_t i;
+	int rc;
+	struct regulator *vreg;
+	struct device *dev = fpc1020->dev;
 
+	for (i = 0; i < ARRAY_SIZE(fpc1020->vreg); i++) {
+		const char *n = vreg_conf[i].name;
+		if (!strncmp(n, name, strlen(n)))
+			goto found;
+	}
+	dev_err(dev, "Regulator %s not found\n", name);
+	return -EINVAL;
+found:
+	vreg = fpc1020->vreg[i];
+	if (enable) {
+		if (!vreg) {
+			vreg = regulator_get(dev, name);
+			if (IS_ERR(vreg)) {
+				dev_err(dev, "Unable to get  %s\n", name);
+				return PTR_ERR(vreg);
+			}
+		}
+		if (regulator_count_voltages(vreg) > 0) {
+			rc = regulator_set_voltage(vreg, vreg_conf[i].vmin,
+					vreg_conf[i].vmax);
+			if (rc)
+				dev_err(dev,
+					"Unable to set voltage on %s, %d\n",
+					name, rc);
+		}
+		rc = regulator_set_optimum_mode(vreg, vreg_conf[i].ua_load);
+		if (rc < 0)
+			dev_err(dev, "Unable to set current on %s, %d\n",
+					name, rc);
+		rc = regulator_enable(vreg);
+		if (rc) {
+			dev_err(dev, "error enabling %s: %d\n", name, rc);
+			regulator_put(vreg);
+			vreg = NULL;
+		}
+		fpc1020->vreg[i] = vreg;
+	} else {
+		if (vreg) {
+			if (regulator_is_enabled(vreg)) {
+				regulator_disable(vreg);
+				dev_dbg(dev, "disabled %s\n", name);
+			}
+			regulator_put(vreg);
+			fpc1020->vreg[i] = NULL;
+		}
+		rc = 0;
+	}
+	return rc;
+}
+*/
+
+/* ----------------------------------------------------------------------------------- */
+/* Add this attribute for hal_footprint */
 static char hal_footprint_str[128] = {0};
 static ssize_t hal_footprint_set(struct device *dev,
    struct device_attribute *attr, const char *buf, size_t count)
@@ -257,8 +319,78 @@ static int set_pipe_ownership(struct fpc1020_data *fpc1020, bool to_tz)
 }
 */
 
+/*
+static int set_clks(struct fpc1020_data *fpc1020, bool enable)
+{
+	int rc = 0;
+	mutex_lock(&fpc1020->lock);
 
+	if (enable == fpc1020->clocks_enabled)
+		goto out;
 
+	if (enable) {
+		rc = clk_set_rate(fpc1020->core_clk,
+				fpc1020->spi->max_speed_hz);
+		if (rc) {
+			dev_err(fpc1020->dev,
+					"%s: Error setting clk_rate: %u, %d\n",
+					__func__, fpc1020->spi->max_speed_hz,
+					rc);
+			goto out;
+		}
+		rc = clk_prepare_enable(fpc1020->core_clk);
+		if (rc) {
+			dev_err(fpc1020->dev,
+					"%s: Error enabling core clk: %d\n",
+					__func__, rc);
+			goto out;
+		}
+
+		rc = clk_prepare_enable(fpc1020->iface_clk);
+		if (rc) {
+			dev_err(fpc1020->dev,
+					"%s: Error enabling iface clk: %d\n",
+					__func__, rc);
+			clk_disable_unprepare(fpc1020->core_clk);
+			goto out;
+		}
+		dev_dbg(fpc1020->dev, "%s ok. clk rate %u hz\n", __func__,
+				fpc1020->spi->max_speed_hz);
+
+		fpc1020->clocks_enabled = true;
+	} else {
+		clk_disable_unprepare(fpc1020->iface_clk);
+		clk_disable_unprepare(fpc1020->core_clk);
+		fpc1020->clocks_enabled = false;
+	}
+
+out:
+	mutex_unlock(&fpc1020->lock);
+	return rc;
+}
+
+static ssize_t clk_enable_set(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct  fpc1020_data *fpc1020 = dev_get_drvdata(dev);
+	return set_clks(fpc1020, (*buf == '1')) ? : count;
+}
+
+static DEVICE_ATTR(clk_enable, S_IWUSR, NULL, clk_enable_set);
+*/
+
+/**
+ * Will try to select the set of pins (GPIOS) defined in a pin control node of
+ * the device tree named @p name.
+ *
+ * The node can contain several eg. GPIOs that is controlled when selecting it.
+ * The node may activate or deactivate the pins it contains, the action is
+ * defined in the device tree node itself and not here. The states used
+ * internally is fetched at probe time.
+ *
+ * @see pctl_names
+ * @see fpc1020_probe
+ */
 static int select_pin_ctl(struct fpc1020_data *fpc1020, const char *name)
 {
 	size_t i;
@@ -341,7 +473,47 @@ static ssize_t fabric_vote_set(struct device *dev,
 static DEVICE_ATTR(fabric_vote, S_IWUSR, NULL, fabric_vote_set);
 */
 
+// [PME][N-70][Briung up] Remove unused attributes
+/*
+static ssize_t regulator_enable_set(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct  fpc1020_data *fpc1020 = dev_get_drvdata(dev);
+	char op;
+	char name[16];
+	int rc;
+	bool enable;
 
+	if (NUM_PARAMS_REG_ENABLE_SET != sscanf(buf, "%15s,%c", name, &op))
+		return -EINVAL;
+	if (op == 'e')
+		enable = true;
+	else if (op == 'd')
+		enable = false;
+	else
+		return -EINVAL;
+	rc = vreg_setup(fpc1020, name, enable);
+	return rc ? rc : count;
+}
+static DEVICE_ATTR(regulator_enable, S_IWUSR, NULL, regulator_enable_set);
+*/
+
+/*
+static ssize_t spi_bus_lock_set(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct  fpc1020_data *fpc1020 = dev_get_drvdata(dev);
+
+	if (!strncmp(buf, "lock", strlen("lock")))
+		spi_bus_lock(fpc1020->spi->master);
+	else if (!strncmp(buf, "unlock", strlen("unlock")))
+		spi_bus_unlock(fpc1020->spi->master);
+	else
+		return -EINVAL;
+	return count;
+}
+static DEVICE_ATTR(bus_lock, S_IWUSR, NULL, spi_bus_lock_set);
+*/
 
 static int hw_reset(struct  fpc1020_data *fpc1020)
 {
@@ -402,8 +574,107 @@ static int device_prepare(struct  fpc1020_data *fpc1020, bool enable)
     return rc;
 }
 
+/**
+ * Will setup clocks, GPIOs, and regulators to correctly initialize the touch
+ * sensor to be ready for work.
+ *
+ * In the correct order according to the sensor spec this function will
+ * enable/disable regulators, SPI platform clocks, and reset line, all to set
+ * the sensor in a correct power on or off state "electrical" wise.
+ *
+ * @see  spi_prepare_set
+ * @note This function will not send any commands to the sensor it will only
+ *       control it "electrically".
+ */
+/*
+static int device_prepare(struct  fpc1020_data *fpc1020, bool enable)
+{
+	int rc;
+//    rc = set_pipe_ownership(fpc1020, true);
+    return 0;
+	mutex_lock(&fpc1020->lock);
+	if (enable && !fpc1020->prepared) {
+		spi_bus_lock(fpc1020->spi->master);
+		fpc1020->prepared = true;
+		select_pin_ctl(fpc1020, "fpc1020_reset_reset");
 
+		rc = vreg_setup(fpc1020, "vcc_spi", true);
+		if (rc)
+			goto exit;
 
+		rc = vreg_setup(fpc1020, "vdd_io", true);
+		if (rc)
+			goto exit_1;
+
+		rc = vreg_setup(fpc1020, "vdd_ana", true);
+		if (rc)
+			goto exit_2;
+
+		usleep_range(PWR_ON_STEP_SLEEP, PWR_ON_STEP_RANGE2);
+
+		rc = spi_set_fabric(fpc1020, true);
+		if (rc)
+			goto exit_3;
+
+		(void)select_pin_ctl(fpc1020, "fpc1020_cs_high");
+		(void)select_pin_ctl(fpc1020, "fpc1020_reset_active");
+		usleep_range(PWR_ON_STEP_SLEEP, PWR_ON_STEP_RANGE1);
+		(void)select_pin_ctl(fpc1020, "fpc1020_cs_active");
+
+		rc = set_pipe_ownership(fpc1020, true);
+		if (rc)
+			goto exit_4;
+	} else if (!enable && fpc1020->prepared) {
+		rc = 0;
+		(void)set_pipe_ownership(fpc1020, false);
+exit_4:
+		(void)spi_set_fabric(fpc1020, false);
+exit_3:
+		(void)select_pin_ctl(fpc1020, "fpc1020_cs_high");
+		(void)select_pin_ctl(fpc1020, "fpc1020_reset_reset");
+		usleep_range(PWR_ON_STEP_SLEEP, PWR_ON_STEP_RANGE2);
+
+		(void)vreg_setup(fpc1020, "vdd_ana", false);
+exit_2:
+		(void)vreg_setup(fpc1020, "vdd_io", false);
+exit_1:
+		(void)vreg_setup(fpc1020, "vcc_spi", false);
+exit:
+		(void)select_pin_ctl(fpc1020, "fpc1020_cs_low");
+
+		fpc1020->prepared = false;
+		spi_bus_unlock(fpc1020->spi->master);
+	} else {
+		rc = 0;
+	}
+	mutex_unlock(&fpc1020->lock);
+	return rc;
+}
+*/
+
+// [PME][N-70][Briung up] Remove unused attributes
+/*
+static ssize_t spi_prepare_set(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc;
+	struct  fpc1020_data *fpc1020 = dev_get_drvdata(dev);
+
+	if (!strncmp(buf, "enable", strlen("enable")))
+		rc = device_prepare(fpc1020, true);
+	else if (!strncmp(buf, "disable", strlen("disable")))
+		rc = device_prepare(fpc1020, false);
+	else
+		return -EINVAL;
+	return rc ? rc : count;
+}
+static DEVICE_ATTR(spi_prepare, S_IWUSR, NULL, spi_prepare_set);
+*/
+
+/**
+ * sysfs node for controlling whether the driver is allowed
+ * to wake up the platform on interrupt.
+ */
 static ssize_t wakeup_enable_set(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -762,7 +1033,33 @@ static int fpc1020_remove(struct platform_device *spi)
     dev_info(&spi->dev, "%s\n", __func__);
 	return 0;
 }
+/*
+static int fpc1020_suspend(struct device *dev)
+{
+	struct fpc1020_data *fpc1020 = dev_get_drvdata(dev);
 
+	fpc1020->clocks_suspended = fpc1020->clocks_enabled;
+	set_clks(fpc1020, false);
+	return 0;
+}
+
+static int fpc1020_resume(struct device *dev)
+{
+	struct fpc1020_data *fpc1020 = dev_get_drvdata(dev);
+
+	if (fpc1020->clocks_suspended)
+		set_clks(fpc1020, true);
+
+	return 0;
+}
+*/
+
+/*
+static const struct dev_pm_ops fpc1020_pm_ops = {
+	.suspend = fpc1020_suspend,
+	.resume = fpc1020_resume,
+};
+*/
 static struct of_device_id fpc1020_of_match[] = {
 	{ .compatible = "fpc,fpc1020", },
 	{}

@@ -1475,7 +1475,7 @@ static int projector2_bind_config(struct usb_configuration *c)
 
 	INIT_WORK(&dev->send_fb_work, projector2_send_fb_do_work);
 
-	 
+	/*atomic_set(&prj2_dev->prj2_enable_HSML, 1);*/ /*++ 2015/03/18 USB Team, PCN00072 ++*/
 
 	return 0;
 

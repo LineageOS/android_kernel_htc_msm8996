@@ -16,7 +16,7 @@
 static unsigned int usb_project_pid; /*++ 2015/07/06 USB Team, PCN00008 ++*/
 static bool bundle_headset = false;
 
-#define REQUEST_RESET_DELAYED (HZ / 10)  
+#define REQUEST_RESET_DELAYED (HZ / 10) /* 100 ms */ /*++ 2015/07/07 USB Team, PCN00010 ++*/
 
 /*++ 2015/10/23, USB Team, PCN00026 ++*/
 int htc_usb_enable_function(char *name, int ebl)

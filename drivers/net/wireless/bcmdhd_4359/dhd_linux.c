@@ -11097,7 +11097,9 @@ dhd_dev_get_feature_set(struct net_device *dev)
 	if (dhd_is_pno_supported(dhd)) {
 		feature_set |= WIFI_FEATURE_PNO;
 		feature_set |= WIFI_FEATURE_BATCH_SCAN;
- 
+/* #ifdef GSCAN_SUPPORT
+		feature_set |= WIFI_FEATURE_GSCAN;
+#endif */ /* GSCAN_SUPPORT */
 	}
 	if (FW_SUPPORTED(dhd, rssi_mon)) {
 		feature_set |= WIFI_FEATURE_RSSI_MONITOR;

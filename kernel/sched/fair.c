@@ -34,6 +34,7 @@
 #include "sched.h"
 #include <trace/events/sched.h>
 
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  * (default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
@@ -2404,6 +2405,7 @@ unsigned int __read_mostly sched_freq_aggregate_threshold = 0;
 unsigned int __read_mostly sched_upmigrate;
 unsigned int __read_mostly sysctl_sched_upmigrate_pct = 80;
 
+
 /*
  * Big tasks, once migrated, will need to drop their bandwidth
  * consumption to less than sched_downmigrate before they are "down"
@@ -3230,6 +3232,7 @@ bias_to_prev_cpu(struct cpu_select_env *env, struct cluster_cpu_stats *stats)
 	 * p->last_switch_out_ts can denote last preemption time as well as
 	 * last sleep time.
 	 */
+
 	if (task->ravg.mark_start - task->last_switch_out_ts >=
 					sched_short_sleep_task_threshold)
 		return false;
@@ -3854,6 +3857,7 @@ int sched_hmp_proc_update_handler(struct ctl_table *table, int write,
 			goto done;
 		}
 	}
+
 
 	/*
 	 * Big task tunable change will need to re-classify tasks on

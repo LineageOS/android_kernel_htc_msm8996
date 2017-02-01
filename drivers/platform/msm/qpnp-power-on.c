@@ -29,6 +29,7 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/of_regulator.h>
 #include <linux/qpnp/power-on.h>
+#include <soc/qcom/rpm-smd.h>
 
 #include <../../power/reset/htc_restart_handler.h>
 
@@ -2303,6 +2304,47 @@ static int read_gen2_pon_off_reason(struct qpnp_pon *pon, u16 *reason,
 	return 0;
 }
 
+static int send_isRamdumpEnable_To_RPM(void)
+{
+	struct msm_rpm_request *rpm_req;
+	int ret = 0;
+	int msg_id, isRamdumpEnable = 0;
+
+	if (get_radio_flag() & BIT(3))
+		isRamdumpEnable = 1;
+	else // If ramdump debug mode is not enable, just return and do nothing.
+		return ret;
+
+	rpm_req = msm_rpm_create_request(MSM_RPM_CTX_ACTIVE_SET, RPM_HTC_CMD_REQ,
+					 RHCF_GENERIC_CMD, 1);
+	if (!rpm_req)
+		return -ENODEV;
+
+	ret = msm_rpm_add_kvp_data(rpm_req, RAMDUMP_MODE_PARA_ENABLE, (uint8_t *)&isRamdumpEnable,
+			     sizeof(int));
+	if (ret) {
+		printk(KERN_ERR "Adding KVP data failed. err:%d\n", ret);
+		goto free_rpm_handle;
+	}
+
+	msg_id = msm_rpm_send_request(rpm_req);
+	if (!msg_id) {
+		printk(KERN_ERR "RPM send request failed\n");
+		ret = -ENXIO;
+		goto free_rpm_handle;
+	}
+
+	ret = msm_rpm_wait_for_ack(msg_id);
+	if (ret) {
+		printk(KERN_ERR "RPM wait for ACK failed. err:%d\n", ret);
+		goto free_rpm_handle;
+	}
+
+free_rpm_handle:
+	msm_rpm_free_request(rpm_req);
+	return ret;
+}
+
 static int qpnp_pon_probe(struct spmi_device *spmi)
 {
 	struct qpnp_pon *pon;
@@ -2656,6 +2698,7 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 					"qcom,store-hard-reset-reason");
 
 	qpnp_pon_debugfs_init(spmi);
+	send_isRamdumpEnable_To_RPM();
 	return 0;
 }
 

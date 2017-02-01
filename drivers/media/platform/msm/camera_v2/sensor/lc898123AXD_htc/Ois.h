@@ -9,6 +9,7 @@
  * @revision	svn:$Revision: 120 $
  * @attention
  **/
+/*HTC_START*/
 #if 0
 #define		INT16	short
 #define		INT32	long
@@ -26,65 +27,73 @@
 #define		UINT32	unsigned int
 #define		UINT64	unsigned long long
 #endif
+/*HTC_END*/
 
- 
-#define		NEUTRAL_CENTER					
-#define		NEUTRAL_CENTER_FINE				
+/**************** Select Mode **************/ 
+#define		NEUTRAL_CENTER					//!< Upper Position Current 0mA Measurement
+//#define		SEL_CLOSED_AF
+#define		NEUTRAL_CENTER_FINE				//!< Optimize natural center current
+//#define		COPY_RAM						//! Copy calibration data from flash after data write
 
-#define		HF_LINEAR_ENA					
+#define		HF_LINEAR_ENA					// 
 #define		HF_MIXING_ENA
 
 #include "OisAPI.h"
-#ifdef	__OIS_TYPE_XC__						
+#ifdef	__OIS_TYPE_XC__						// for LC898123XC
 #include "OisLc898123XC.h"
 #else
 #include "OisLc898123AXD.h"
 #endif
 
+/**************** Model name *****************/
+/**************** FW version *****************/
  #define	MDL_VER			0x01
  #define	FW_VER			0x0F
 
-#define		EXE_END		0x00000002L			
-#define		EXE_HXADJ	0x00000006L			
-#define		EXE_HYADJ	0x0000000AL			
-#define		EXE_LXADJ	0x00000012L			
-#define		EXE_LYADJ	0x00000022L			
-#define		EXE_GXADJ	0x00000042L			
-#define		EXE_GYADJ	0x00000082L			
-#define		EXE_ERR		0x00000099L			
+// Command Status
+#define		EXE_END		0x00000002L			//!< Execute End (Adjust OK)
+#define		EXE_HXADJ	0x00000006L			//!< Adjust NG : X Hall NG (Gain or Offset)
+#define		EXE_HYADJ	0x0000000AL			//!< Adjust NG : Y Hall NG (Gain or Offset)
+#define		EXE_LXADJ	0x00000012L			//!< Adjust NG : X Loop NG (Gain)
+#define		EXE_LYADJ	0x00000022L			//!< Adjust NG : Y Loop NG (Gain)
+#define		EXE_GXADJ	0x00000042L			//!< Adjust NG : X Gyro NG (offset)
+#define		EXE_GYADJ	0x00000082L			//!< Adjust NG : Y Gyro NG (offset)
+#define		EXE_ERR		0x00000099L			//!< Execute Error End
 #ifdef	SEL_CLOSED_AF
- #define	EXE_HZADJ	0x00100002L			
- #define	EXE_LZADJ	0x00200002L			
+ #define	EXE_HZADJ	0x00100002L			//!< Adjust NG : AF Hall NG (Gain or Offset)
+ #define	EXE_LZADJ	0x00200002L			//!< Adjust NG : AF Loop NG (Gain)
 #endif
 
-#define		EXE_HXMVER	0x06				
-#define		EXE_HYMVER	0x0A				
+#define		EXE_HXMVER	0x06				//!< X Err
+#define		EXE_HYMVER	0x0A				//!< Y Err
 
-#define		EXE_GXABOVE	0x06				
-#define		EXE_GXBELOW	0x0A				
-#define		EXE_GYABOVE	0x12				
-#define		EXE_GYBELOW	0x22				
+// Gyro Examination of Acceptance
+#define		EXE_GXABOVE	0x06				//!< X Above
+#define		EXE_GXBELOW	0x0A				//!< X Below
+#define		EXE_GYABOVE	0x12				//!< Y Above
+#define		EXE_GYBELOW	0x22				//!< Y Below
 
-#define	SUCCESS			0x00				
-#define	FAILURE			0x01				
+// Common Define
+#define	SUCCESS			0x00				//!< Success
+#define	FAILURE			0x01				//!< Failure
 
 #ifndef ON
- #define	ON				0x01			
- #define	OFF				0x00			
+ #define	ON				0x01			//!< ON
+ #define	OFF				0x00			//!< OFF
 #endif
-#define	SPC				0x02				
+#define	SPC				0x02				//!< Special Mode
 
-#define	X_DIR			0x00				
-#define	Y_DIR			0x01				
-#define	Z_DIR			0x02				
+#define	X_DIR			0x00				//!< X Direction
+#define	Y_DIR			0x01				//!< Y Direction
+#define	Z_DIR			0x02				//!< Z Direction(AF)
 
 #define	NOP_TIME		0.00004166F
 
-#define	WPB_OFF			0x01				
-#define WPB_ON			0x00				
+#define	WPB_OFF			0x01				//!< Write protect OFF
+#define WPB_ON			0x00				//!< Write protect ON
 
-#define	MD5_MAIN		0x01				
-#define MD5_NVR			0x02				
+#define	MD5_MAIN		0x01				//!< main array
+#define MD5_NVR			0x02				//!< NVR
 #define MD5_BOTH		(MD5_MAIN | MD5_NVR)
 
 #define		SXGAIN_LOP		0x30000000
@@ -100,12 +109,12 @@
 struct STFILREG {
 	UINT16	UsRegAdd ;
 	UINT8	UcRegDat ;
-} ;											
+} ;											//!< Register Data Table
 
 struct STFILRAM {
 	UINT16	UsRamAdd ;
 	UINT32	UlRamDat ;
-} ;											
+} ;											//!< Filter Coefficient Table
 
 struct STCMDTBL {
 	UINT16	Cmd ;
@@ -113,101 +122,114 @@ struct STCMDTBL {
 	void ( *UcCmdPtr )( void ) ;
 } ;
 
-#define		CMD_IO_ADR_ACCESS				0xC000				
-#define		CMD_IO_DAT_ACCESS				0xD000				
-#define		CMD_REMAP						0xF001				
-#define		CMD_REBOOT						0xF003				
-#define		CMD_RETURN_TO_CENTER			0xF010				
-	#define		BOTH_SRV_OFF					0x00000000			
-	#define		XAXS_SRV_ON						0x00000001			
-	#define		YAXS_SRV_ON						0x00000002			
-	#define		BOTH_SRV_ON						0x00000003			
-	#define		ZAXS_SRV_OFF					0x00000004			
-	#define		ZAXS_SRV_ON						0x00000005			
-#define		CMD_PAN_TILT					0xF011				
-	#define		PAN_TILT_OFF					0x00000000			
-	#define		PAN_TILT_ON						0x00000001			
-#define		CMD_OIS_ENABLE					0xF012				
-	#define		OIS_DISABLE						0x00000000			
-	#define		OIS_ENABLE						0x00000001			
-	#define		OIS_ENA_NCL						0x00000002			
-	#define		OIS_ENA_DOF						0x00000004			
-#define		CMD_MOVE_STILL_MODE				0xF013				
-	#define		MOVIE_MODE						0x00000000			
-	#define		STILL_MODE						0x00000001			
-	#define		MOVIE_MODE1						0x00000002			
-	#define		STILL_MODE1						0x00000003			
-	#define		MOVIE_MODE2						0x00000004			
-	#define		STILL_MODE2						0x00000005			
-	#define		MOVIE_MODE3						0x00000006			
-	#define		STILL_MODE3						0x00000007			
-#define		CMD_CALIBRATION					0xF014				
-#define		CMD_CHASE_CONFIRMATION			0xF015				
-#define		CMD_GYRO_SIG_CONFIRMATION		0xF016				
-#define		CMD_FLASH_LOAD					0xF017				
+/************************************************/
+/*	Command										*/
+/************************************************/
+#define		CMD_IO_ADR_ACCESS				0xC000				//!< IO Write Access
+#define		CMD_IO_DAT_ACCESS				0xD000				//!< IO Read Access
+#define		CMD_REMAP						0xF001				//!< Remap
+#define		CMD_REBOOT						0xF003				//!< Reboot
+#define		CMD_RETURN_TO_CENTER			0xF010				//!< Center Servo ON/OFF choose axis
+	#define		BOTH_SRV_OFF					0x00000000			//!< Both   Servo OFF
+	#define		XAXS_SRV_ON						0x00000001			//!< X axis Servo ON
+	#define		YAXS_SRV_ON						0x00000002			//!< Y axis Servo ON
+	#define		BOTH_SRV_ON						0x00000003			//!< Both   Servo ON
+	#define		ZAXS_SRV_OFF					0x00000004			//!< Z axis Servo OFF
+	#define		ZAXS_SRV_ON						0x00000005			//!< Z axis Servo ON
+#define		CMD_PAN_TILT					0xF011				//!< Pan Tilt Enable/Disable
+	#define		PAN_TILT_OFF					0x00000000			//!< Pan/Tilt OFF
+	#define		PAN_TILT_ON						0x00000001			//!< Pan/Tilt ON
+#define		CMD_OIS_ENABLE					0xF012				//!< Ois Enable/Disable
+	#define		OIS_DISABLE						0x00000000			//!< OIS Disable
+	#define		OIS_ENABLE						0x00000001			//!< OIS Enable
+	#define		OIS_ENA_NCL						0x00000002			//!< OIS Enable ( none Delay clear )
+	#define		OIS_ENA_DOF						0x00000004			//!< OIS Enable ( Drift offset exec )
+#define		CMD_MOVE_STILL_MODE				0xF013				//!< Select mode
+	#define		MOVIE_MODE						0x00000000			//!< Movie mode
+	#define		STILL_MODE						0x00000001			//!< Still mode
+	#define		MOVIE_MODE1						0x00000002			//!< Movie Preview mode 1
+	#define		STILL_MODE1						0x00000003			//!< Still Preview mode 1
+	#define		MOVIE_MODE2						0x00000004			//!< Movie Preview mode 2
+	#define		STILL_MODE2						0x00000005			//!< Still Preview mode 2
+	#define		MOVIE_MODE3						0x00000006			//!< Movie Preview mode 3
+	#define		STILL_MODE3						0x00000007			//!< Still Preview mode 3
+#define		CMD_CALIBRATION					0xF014				//!< Gyro offset re-calibration
+#define		CMD_CHASE_CONFIRMATION			0xF015				//!< Hall Chase confirmation
+#define		CMD_GYRO_SIG_CONFIRMATION		0xF016				//!< Gyro Signal confirmation
+#define		CMD_FLASH_LOAD					0xF017				//!< Flash Load
+//#define		CMD_FLASH_STORE					0xF018				//!< Flash Write
 	#define		HALL_CALB_FLG					0x00008000			
 		#define		HALL_CALB_BIT					0x00FF00FF
 	#define		GYRO_GAIN_FLG					0x00004000			
-	#define		ANGL_CORR_FLG					0x00002000			
+	#define		ANGL_CORR_FLG					0x00002000			//!< Actuator angle correction
 	#define		FOCL_GAIN_FLG					0x00001000			
-	#define		CLAF_CALB_FLG					0x00000800			
-	#define		HLLN_CALB_FLG					0x00000400			
-	#define		CROS_TALK_FLG					0x00000200			
-#define		CMD_GYRO_RD_ACCS				0xF01D				
-#define		CMD_GYRO_WR_ACCS				0xF01E				
+	#define		CLAF_CALB_FLG					0x00000800			//!< CLAF Hall calibration
+	#define		HLLN_CALB_FLG					0x00000400			//!< Hall linear calibration
+	#define		CROS_TALK_FLG					0x00000200			//!< Gyro cross talk calibration
+#define		CMD_GYRO_RD_ACCS				0xF01D				//!< Gyro Read Acess
+#define		CMD_GYRO_WR_ACCS				0xF01E				//!< Gyro Write Acess
 
-#define		CMD_READ_STATUS					0xF100				
+#define		CMD_READ_STATUS					0xF100				//!< Status Read
 
 #define		READ_STATUS_INI					0x01000000
 
-#define		STBOSCPLL						0x00D00074			
-	#define		OSC_STB							0x00000002			
+#define		STBOSCPLL						0x00D00074			//!< STB OSC
+	#define		OSC_STB							0x00000002			//!< OSC standby
 
-#define CmEqSw1			0					
-#define CmEqSw2			1					
-#define CmShakeOn		2					
-#define CmRecMod		4					
-#define CmCofCnt		5					
-#define CmTpdCnt		6					
-#define CmIntDrft		7					
-#define CmAfZoom		0					
-
-
-
-#define	HLXO			0x00000001			
-#define	HLYO			0x00000002			
-#define	HLXBO			0x00000004			
-#define	HLYBO			0x00000008			
-#define	HLAFO			0x00000010			
-#define	HLAFBO			0x00000020			
+/**************************************************** *************************************/
+// GyroFilterDefine.h *******************************************************************
+#define CmEqSw1			0					//!< Select AD input(0: Off, 1: On)
+#define CmEqSw2			1					//!< Select Sin wave input(0: Off, 1: On)
+#define CmShakeOn		2					//!< Setting image stabilization enable(0: Off, 1: On)
+#define CmRecMod		4					//!< Recording Mode(0: Off, 1: On)
+#define CmCofCnt		5					//!< Coefficient setting(0: Off, 1: On)
+#define CmTpdCnt		6					//!< Tripod Cntrol(0: Off, 1: On)
+#define CmIntDrft		7					//!< Drift Integral Subtraction(0: Off, 1: On)
+#define CmAfZoom		0					//!< AF Zoom Control
 
 
 
+// Calibration.h *******************************************************************
+#define	HLXO			0x00000001			//!< D/A Converter Channel Select HLXO
+#define	HLYO			0x00000002			//!< D/A Converter Channel Select HLYO
+#define	HLXBO			0x00000004			//!< D/A Converter Channel Select HLXBO
+#define	HLYBO			0x00000008			//!< D/A Converter Channel Select HLYBO
+#define	HLAFO			0x00000010			//!< D/A Converter Channel Select HLAFO
+#define	HLAFBO			0x00000020			//!< D/A Converter Channel Select HLAFBO
+
+
+
+// MeasureFilter.h *******************************************************************
 typedef struct {
-	INT32				SiSampleNum ;		
-	INT32				SiSampleMax ;		
+	INT32				SiSampleNum ;		//!< Measure Sample Number
+	INT32				SiSampleMax ;		//!< Measure Sample Number Max
 
 	struct {
-		INT32			SiMax1 ;			
-		INT32			SiMin1 ;			
-		UINT32	UiAmp1 ;					
-		INT64		LLiIntegral1 ;			
-		INT64		LLiAbsInteg1 ;			
-		INT32			PiMeasureRam1 ;		
+		INT32			SiMax1 ;			//!< Max Measure Result
+		INT32			SiMin1 ;			//!< Min Measure Result
+		UINT32	UiAmp1 ;					//!< Amplitude Measure Result
+		INT64		LLiIntegral1 ;			//!< Integration Measure Result
+		INT64		LLiAbsInteg1 ;			//!< Absolute Integration Measure Result
+		INT32			PiMeasureRam1 ;		//!< Measure Delay RAM Address
 	} MeasureFilterA ;
 
 	struct {
-		INT32			SiMax2 ;				
-		INT32			SiMin2 ;				
-		UINT32	UiAmp2 ;					
-		INT64		LLiIntegral2 ;			
-		INT64		LLiAbsInteg2 ;			
-		INT32			PiMeasureRam2 ;		
+		INT32			SiMax2 ;				//!< Max Measure Result
+		INT32			SiMin2 ;				//!< Min Measure Result
+		UINT32	UiAmp2 ;					//!< Amplitude Measure Result
+		INT64		LLiIntegral2 ;			//!< Integration Measure Result
+		INT64		LLiAbsInteg2 ;			//!< Absolute Integration Measure Result
+		INT32			PiMeasureRam2 ;		//!< Measure Delay RAM Address
 	} MeasureFilterB ;
 } MeasureFunction_Type ;
 
 
+/********************************************************/
+/*** caution [MPU endian] ***/
+/********************************************************/
 #ifdef __OIS_BIG_ENDIAN__
+// Big endian
+// Word Data Union
 union	WRDVAL{
 	INT16	SsWrdVal ;
 	UINT16	UsWrdVal ;
@@ -245,6 +267,7 @@ union	ULLNVAL {
 } ;
 
 
+// Float Data Union
 union	FLTVAL {
 	float			SfFltVal ;
 	UINT32	UlLngVal ;
@@ -255,7 +278,9 @@ union	FLTVAL {
 	} StFltVal ;
 } ;
 
-#else	
+#else	// __OIS_BIG_ENDIAN__
+// Little endian
+// Word Data Union
 union	WRDVAL{
 	INT16	SsWrdVal ;
 	UINT16	UsWrdVal ;
@@ -292,6 +317,7 @@ union	ULLNVAL {
 	} StUllnVal ;
 } ;
 
+// Float Data Union
 union	FLTVAL {
 	float			SfFltVal ;
 	UINT32	UlLngVal ;
@@ -301,7 +327,7 @@ union	FLTVAL {
 		UINT16	UsHigVal ;
 	} StFltVal ;
 } ;
-#endif	
+#endif	// __OIS_BIG_ENDIAN__
 
 typedef union WRDVAL	UnWrdVal ;
 typedef union DWDVAL	UnDwdVal;
@@ -311,61 +337,61 @@ typedef union FLTVAL	UnFltVal ;
 
 typedef struct STADJPAR {
 	struct {
-		UINT32	UlAdjPhs ;					
+		UINT32	UlAdjPhs ;					//!< Hall Adjust Phase
 
-		UINT16	UsHlxCna ;					
-		UINT16	UsHlxMax ;					
-		UINT16	UsHlxMxa ;					
-		UINT16	UsHlxMin ;					
-		UINT16	UsHlxMna ;					
-		UINT16	UsHlxGan ;					
-		UINT16	UsHlxOff ;					
-		UINT16	UsAdxOff ;					
-		UINT16	UsHlxCen ;					
+		UINT16	UsHlxCna ;					//!< Hall Center Value after Hall Adjust
+		UINT16	UsHlxMax ;					//!< Hall Max Value
+		UINT16	UsHlxMxa ;					//!< Hall Max Value after Hall Adjust
+		UINT16	UsHlxMin ;					//!< Hall Min Value
+		UINT16	UsHlxMna ;					//!< Hall Min Value after Hall Adjust
+		UINT16	UsHlxGan ;					//!< Hall Gain Value
+		UINT16	UsHlxOff ;					//!< Hall Offset Value
+		UINT16	UsAdxOff ;					//!< Hall A/D Offset Value
+		UINT16	UsHlxCen ;					//!< Hall Center Value
 
-		UINT16	UsHlyCna ;					
-		UINT16	UsHlyMax ;					
-		UINT16	UsHlyMxa ;					
-		UINT16	UsHlyMin ;					
-		UINT16	UsHlyMna ;					
-		UINT16	UsHlyGan ;					
-		UINT16	UsHlyOff ;					
-		UINT16	UsAdyOff ;					
-		UINT16	UsHlyCen ;					
+		UINT16	UsHlyCna ;					//!< Hall Center Value after Hall Adjust
+		UINT16	UsHlyMax ;					//!< Hall Max Value
+		UINT16	UsHlyMxa ;					//!< Hall Max Value after Hall Adjust
+		UINT16	UsHlyMin ;					//!< Hall Min Value
+		UINT16	UsHlyMna ;					//!< Hall Min Value after Hall Adjust
+		UINT16	UsHlyGan ;					//!< Hall Gain Value
+		UINT16	UsHlyOff ;					//!< Hall Offset Value
+		UINT16	UsAdyOff ;					//!< Hall A/D Offset Value
+		UINT16	UsHlyCen ;					//!< Hall Center Value
 
 #ifdef	SEL_CLOSED_AF
-		UINT16	UsHlzCna ;					
-		UINT16	UsHlzMax ;					
-		UINT16	UsHlzMxa ;					
-		UINT16	UsHlzMin ;					
-		UINT16	UsHlzMna ;					
-		UINT16	UsHlzGan ;					
-		UINT16	UsHlzOff ;					
-		UINT16	UsAdzOff ;					
-		UINT16	UsHlzCen ;					
+		UINT16	UsHlzCna ;					//!< Z Hall Center Value after Hall Adjust
+		UINT16	UsHlzMax ;					//!< Z Hall Max Value
+		UINT16	UsHlzMxa ;					//!< Z Hall Max Value after Hall Adjust
+		UINT16	UsHlzMin ;					//!< Z Hall Min Value
+		UINT16	UsHlzMna ;					//!< Z Hall Min Value after Hall Adjust
+		UINT16	UsHlzGan ;					//!< Z Hall Gain Value
+		UINT16	UsHlzOff ;					//!< Z Hall Offset Value
+		UINT16	UsAdzOff ;					//!< Z Hall A/D Offset Value
+		UINT16	UsHlzCen ;					//!< Z Hall Center Value
 #endif
 	} StHalAdj ;
 
 	struct {
-		UINT32	UlLxgVal ;					
-		UINT32	UlLygVal ;					
+		UINT32	UlLxgVal ;					//!< Loop Gain X
+		UINT32	UlLygVal ;					//!< Loop Gain Y
 #ifdef	SEL_CLOSED_AF
-		UINT32	UlLzgVal ;					
+		UINT32	UlLzgVal ;					//!< Loop Gain Z
 #endif
 	} StLopGan ;
 
 	struct {
-		UINT16	UsGxoVal ;					
-		UINT16	UsGyoVal ;					
-		UINT16	UsGxoSts ;					
-		UINT16	UsGyoSts ;					
+		UINT16	UsGxoVal ;					//!< Gyro A/D Offset X
+		UINT16	UsGyoVal ;					//!< Gyro A/D Offset Y
+		UINT16	UsGxoSts ;					//!< Gyro Offset X Status
+		UINT16	UsGyoSts ;					//!< Gyro Offset Y Status
 	} StGvcOff ;
 	
-	UINT8		UcOscVal ;					
+	UINT8		UcOscVal ;					//!< OSC value
 
 } stAdjPar ;
 
-__OIS_CMD_HEADER__	stAdjPar	StAdjPar ;	
+__OIS_CMD_HEADER__	stAdjPar	StAdjPar ;	//!< Execute Command Parameter
 
 
 typedef struct STMESRAM {
@@ -373,7 +399,7 @@ typedef struct STMESRAM {
 	INT32	SlMeasureMinValue ;
 	INT32	SlMeasureAmpValue ;
 	INT32	SlMeasureAveValue ;
-} stMesRam ;								
+} stMesRam ;								// Struct Measure Ram
 
 typedef struct STHALLINEAR {
 	UINT16	XCoefA[6] ;
@@ -382,14 +408,16 @@ typedef struct STHALLINEAR {
 	UINT16	YCoefA[6] ;
 	UINT16	YCoefB[6] ;
 	UINT16	YZone[5] ;
-} stHalLinear ;								
+} stHalLinear ;								// Struct 
 
+//	for RtnCen
 #define		BOTH_ON			0x00
 #define		XONLY_ON		0x01
 #define		YONLY_ON		0x02
 #define		BOTH_OFF		0x03
 #define		ZONLY_OFF		0x04
 #define		ZONLY_ON		0x05
+//	for SetSinWavePara
 #define		SINEWAVE		0
 #define		XHALWAVE		1
 #define		YHALWAVE		2
@@ -397,21 +425,31 @@ typedef struct STHALLINEAR {
 #define		XACTTEST		10
 #define		YACTTEST		11
 #define		CIRCWAVE		255
-#define		HALL_H_VAL		0x3F800000		
+//	for TnePtp
+#define		HALL_H_VAL		0x3F800000		//!< 1.0
+//	for TneCen
 #define		PTP_BEFORE		0
 #define		PTP_AFTER		1
 #define		PTP_ACCEPT		2
-#define		ACT_CHK_LVL		0x33320000		
-#define		ACT_CHK_FRQ		0x00068C16		
-#define		ACT_CHK_NUM		5005			
-#define		ACT_THR			0x0A3D0000		
-#define		GEA_DIF_HIG		0x0057			
+//	for RunHea
+#define		ACT_CHK_LVL		0x33320000		//!< 0.4
+#define		ACT_CHK_FRQ		0x00068C16		//!< 4Hz
+#define		ACT_CHK_NUM		5005			//!< 20.0195/0.004 < x
+#define		ACT_THR			0x0A3D0000		//!< 20dB 0.4*10^(-20dB/20)*FFFF
+//	for RunGea
+// #define		GEA_DIF_HIG		0x0062			//!< 2021_32.8lsb/?/s    max 3.0?/s-p-p
+#define		GEA_DIF_HIG		0x0057			//!< 2030_87.5lsb/?/s    max 1.0?/s-p-p
 #define		GEA_DIF_LOW		0x0001
-#define		GEA_MAX_LVL		0x0A41			
-#define		GEA_MIN_LVL		0x1482			
-#define		GEA_MINMAX_MODE	0x00			
-#define		GEA_MEAN_MODE	0x01			
+// for RunGea2
+// level of judgement
+#define		GEA_MAX_LVL		0x0A41			//!< 2030_87.5lsb/?/s    max 30?/s-p-p
+#define		GEA_MIN_LVL		0x1482			//!< 2030_87.5lsb/?/s    min 60?/s-p-p
+// mode
+#define		GEA_MINMAX_MODE	0x00			//!< min, max mode
+#define		GEA_MEAN_MODE	0x01			//!< mean mode
 
+/*******************************************************************************
+ ******************************************************************************/
 #define _GET_UINT32(n,b)				\
 {										\
 	(n) = ( (UINT32) (b)[0]       )		\

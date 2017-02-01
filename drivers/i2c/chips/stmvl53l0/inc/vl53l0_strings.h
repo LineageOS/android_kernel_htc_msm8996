@@ -25,6 +25,11 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ********************************************************************************/
+/*
+ * @file vl53l0_string.h
+ * $Date: 2014-12-04 16:15:06 +0100 (Thu, 04 Dec 2014) $
+ * $Revision: 1906 $
+ */
 
 #ifndef VL53L0_STRINGS_H_
 #define VL53L0_STRINGS_H_
@@ -41,7 +46,7 @@ extern "C" {
     #define  VL53L0_STRING_DEVICE_INFO_NAME_ES1                             ""
     #define  VL53L0_STRING_DEVICE_INFO_TYPE                                 ""
 
-    
+    /* PAL ERROR strings */
     #define  VL53L0_STRING_ERROR_NONE                                       ""
     #define  VL53L0_STRING_ERROR_CALIBRATION_WARNING                        ""
     #define  VL53L0_STRING_ERROR_MIN_CLIPPED                                ""
@@ -64,7 +69,7 @@ extern "C" {
 
 
 
-	
+	/* Range Status */
 	#define  VL53L0_STRING_RANGESTATUS_NONE                                 ""
 	#define  VL53L0_STRING_RANGESTATUS_RANGEVALID                           ""
 	#define  VL53L0_STRING_RANGESTATUS_SIGMA                                ""
@@ -74,7 +79,7 @@ extern "C" {
 	#define  VL53L0_STRING_RANGESTATUS_HW                                   ""
 
 
-	
+	/* Range Status */
 	#define  VL53L0_STRING_STATE_POWERDOWN                                  ""
 	#define  VL53L0_STRING_STATE_WAIT_STATICINIT                            ""
 	#define  VL53L0_STRING_STATE_STANDBY                                    ""
@@ -84,7 +89,7 @@ extern "C" {
 	#define  VL53L0_STRING_STATE_ERROR                                      ""
 
 
-	
+	/* Device Specific */
 	#define  VL53L0_STRING_DEVICEERROR_NONE                                 ""
 	#define  VL53L0_STRING_DEVICEERROR_VCSELCONTINUITYTESTFAILURE           ""
 	#define  VL53L0_STRING_DEVICEERROR_VCSELWATCHDOGTESTFAILURE             ""
@@ -102,13 +107,13 @@ extern "C" {
 	#define  VL53L0_STRING_DEVICEERROR_RANGEIGNORETHRESHOLD                 ""
 	#define  VL53L0_STRING_DEVICEERROR_UNKNOWN                              ""
 
-    
+    /* Check Enable */
     #define  VL53L0_STRING_CHECKENABLE_SIGMA_FINAL_RANGE                    ""
 	#define  VL53L0_STRING_CHECKENABLE_SIGNAL_RATE_FINAL_RANGE              ""
 	#define  VL53L0_STRING_CHECKENABLE_SIGNAL_REF_CLIP                      ""
 	#define  VL53L0_STRING_CHECKENABLE_RANGE_IGNORE_THRESHOLD               ""
 
-	
+	/* Sequence Step */
     #define  VL53L0_STRING_SEQUENCESTEP_TCC                                 ""
 	#define  VL53L0_STRING_SEQUENCESTEP_DSS                                 ""
 	#define  VL53L0_STRING_SEQUENCESTEP_MSRC                                ""
@@ -122,7 +127,7 @@ extern "C" {
     #define  VL53L0_STRING_DEVICE_INFO_NAME_ES1                             "VL53L0 ES1 or later"
     #define  VL53L0_STRING_DEVICE_INFO_TYPE                                 "VL53L0"
 
-    
+    /* PAL ERROR strings */
     #define  VL53L0_STRING_ERROR_NONE                                       "No Error"
     #define  VL53L0_STRING_ERROR_CALIBRATION_WARNING                        "Calibration Warning Error"
     #define  VL53L0_STRING_ERROR_MIN_CLIPPED                                "Min clipped error"
@@ -145,7 +150,7 @@ extern "C" {
 
 
 
-	
+	/* Range Status */
 	#define  VL53L0_STRING_RANGESTATUS_NONE                                 "No Update"
 	#define  VL53L0_STRING_RANGESTATUS_RANGEVALID                           "Range Valid"
 	#define  VL53L0_STRING_RANGESTATUS_SIGMA                                "Sigma Fail"
@@ -155,7 +160,7 @@ extern "C" {
 	#define  VL53L0_STRING_RANGESTATUS_HW                                   "Hardware Fail"
 
 
-	
+	/* Range Status */
 	#define  VL53L0_STRING_STATE_POWERDOWN                                  "POWERDOWN State"
 	#define  VL53L0_STRING_STATE_WAIT_STATICINIT                            "Wait for staticinit State"
 	#define  VL53L0_STRING_STATE_STANDBY                                    "STANDBY State"
@@ -165,7 +170,7 @@ extern "C" {
 	#define  VL53L0_STRING_STATE_ERROR                                      "ERROR State"
 
 
-	
+	/* Device Specific */
 	#define  VL53L0_STRING_DEVICEERROR_NONE                                 "No Update"
 	#define  VL53L0_STRING_DEVICEERROR_VCSELCONTINUITYTESTFAILURE           "VCSEL Continuity Test Failure"
 	#define  VL53L0_STRING_DEVICEERROR_VCSELWATCHDOGTESTFAILURE             "VCSEL Watchdog Test Failure"
@@ -183,19 +188,19 @@ extern "C" {
 	#define  VL53L0_STRING_DEVICEERROR_RANGEIGNORETHRESHOLD                 "Range Ignore Threshold Error"
 	#define  VL53L0_STRING_DEVICEERROR_UNKNOWN                              "Unknown error code"
 
-    
+    /* Check Enable */
     #define  VL53L0_STRING_CHECKENABLE_SIGMA_FINAL_RANGE                    "SIGMA FINAL RANGE"
 	#define  VL53L0_STRING_CHECKENABLE_SIGNAL_RATE_FINAL_RANGE              "SIGNAL RATE FINAL RANGE"
 	#define  VL53L0_STRING_CHECKENABLE_SIGNAL_REF_CLIP                      "SIGNAL REF CLIP"
 	#define  VL53L0_STRING_CHECKENABLE_RANGE_IGNORE_THRESHOLD               "RANGE IGNORE THRESHOLD"
 
-	
+	/* Sequence Step */
     #define  VL53L0_STRING_SEQUENCESTEP_TCC                                 "TCC"
 	#define  VL53L0_STRING_SEQUENCESTEP_DSS                                 "DSS"
 	#define  VL53L0_STRING_SEQUENCESTEP_MSRC                                "MSRC"
 	#define  VL53L0_STRING_SEQUENCESTEP_PRE_RANGE                           "PRE RANGE"
 	#define  VL53L0_STRING_SEQUENCESTEP_FINAL_RANGE                         "FINAL RANGE"
-#endif 
+#endif //USE_EMPTY_STRING
 
 
 #ifdef __cplusplus

@@ -51,7 +51,13 @@ int sysctl_tcp_retrans_collapse __read_mostly = 1;
 int sysctl_tcp_workaround_signed_windows __read_mostly = 0;
 
 /* Default TSQ limit of four TSO segments */
-int sysctl_tcp_limit_output_bytes __read_mostly = 262144;
+/* HTC_WIFI_START */
+//** 20160113 fine tune tcp_limit_output_bytes for Wi-Fi MIMO performance
+//** remove original source code
+//int sysctl_tcp_limit_output_bytes __read_mostly = 262144;
+//** add new source code
+int sysctl_tcp_limit_output_bytes __read_mostly = 2097152;
+/* HTC_WIFI_END */
 
 /* This limits the percentage of the congestion window which we
  * will allow a single TSO frame to consume.  Building TSO frames

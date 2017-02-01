@@ -4862,6 +4862,11 @@ static int synaptics_rmi4_hw_reset_device(struct synaptics_rmi4_data *rmi4_data)
 
 	pr_info(" %s\n", __func__);
 
+	if (!rmi4_data) {
+		pr_err("%s: rmi4_data is null.\n", __func__);
+		return -EFAULT;
+	}
+
 	retval = synaptics_rmi4_hw_reset(rmi4_data);
 	if (retval < 0) {
 		dev_err(rmi4_data->pdev->dev.parent,

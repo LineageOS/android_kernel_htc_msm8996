@@ -84,10 +84,10 @@ static int tfa98xx_ftrace_regs = 0;
 static struct tfa98xx *tfa98xx_devices[4] = {NULL, NULL, NULL, NULL};
 static int tfa98xx_registered_handles = 0;
 static int tfa98xx_vsteps[4]={0,0,0,0};
-static int tfa98xx_profile = 7;  
-static int tfa98xx_prof_vsteps[10] = {0}; 
-static int tfa98xx_mixer_profiles = 0; 
-static int tfa98xx_mixer_profile = 7;  
+static int tfa98xx_profile = 7; /* HTC_AUDIO: bypass profile */ /* store profile */
+static int tfa98xx_prof_vsteps[10] = {0}; /* store vstep per profile (single device) */
+static int tfa98xx_mixer_profiles = 0; /* number of user selectable profiles */
+static int tfa98xx_mixer_profile = 7; /* HTC_AUDIO: bypass profile */ /* current mixer profile */
 
 //HTC_AUD_START
 static int previews_profile = 7; /* previews profile */
