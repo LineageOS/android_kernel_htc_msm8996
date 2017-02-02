@@ -387,7 +387,6 @@ static struct mutex enable_pktfilter_mutex;
 #endif /* PKT_FILTER_SUPPORT */
 
 void wl_android_set_screen_off(int off);
-int dhd_set_keepalive(int value);
 /* HTC_WIFI_START */
 // ** [HPKB#7947] Tx stuck detection
 #ifdef TX_STUCK_DETECTION
@@ -2647,10 +2646,6 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 					DHD_ERROR(("failed to set intr_width (%d)\n", ret));
 				}
 #endif /* DYNAMIC_SWOOB_DURATION */
-#ifdef CUSTOMER_HW_ONE
-				/* keep alive packet */
-				dhd_set_keepalive(1);
-#endif /* CUSTOMER_HW_ONE */
 			} else {
 #ifdef PKT_FILTER_SUPPORT
 				dhd->early_suspended = 0;
@@ -2697,10 +2692,6 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 						DHD_ERROR(("failed to set nd_ra_filter (%d)\n",
 							ret));
 				}
-#ifdef CUSTOMER_HW_ONE
-				/* keep alive packet */
-				dhd_set_keepalive(0);
-#endif /* CUSTOMER_HW_ONE */
 			}
 	}
 	dhd_suspend_unlock(dhd);
@@ -14743,43 +14734,6 @@ void wl_android_enable_pktfilter(struct net_device *dev, int multicastlock)
 	multicast_lock = multicastlock;
 	/* we don't need to care first parameter in dhd_enable_packet_filter */
 	dhd_enable_packet_filter(0, &dhd->pub);
-}
-
-int dhd_set_keepalive(int value)
-{
-	char *str;
-	int str_len;
-	int buf_len;
-	char buf[256];
-	wl_keep_alive_pkt_t keep_alive_pkt;
-	wl_keep_alive_pkt_t *keep_alive_pktp;
-	int ret = 0;
-
-	dhd_pub_t *dhd = priv_dhdp;
-	memset(&keep_alive_pkt, 0, sizeof(keep_alive_pkt));
-
-	/* Set keep-alive attributes */
-	str = "keep_alive";
-	str_len = strlen(str);
-	strncpy(buf, str, str_len);
-	buf[str_len] = '\0';
-	buf_len = str_len + 1;
-	keep_alive_pktp = (wl_keep_alive_pkt_t *) (buf + str_len + 1);
-
-	keep_alive_pkt.period_msec = htod32(55000); /* Send NULL keepalive packet every 55s */
-	keep_alive_pkt.len_bytes = 0;
-	buf_len += WL_KEEP_ALIVE_FIXED_LEN;
-	bzero(keep_alive_pkt.data, sizeof(keep_alive_pkt.data));
-	/* Keep-alive attributes are set in local variable (keep_alive_pkt), and
-	 * then memcpy'ed into buffer (keep_alive_pktp) since there is no
-	 * guarantee that the buffer is properly aligned.
-	*/
-	memcpy((char*)keep_alive_pktp, &keep_alive_pkt, WL_KEEP_ALIVE_FIXED_LEN);
-
-	ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, buf, buf_len, TRUE, 0);
-	DHD_ERROR(("%s set result ret[%d]\n", __FUNCTION__, ret));
-
-	return ret;
 }
 
 /* HTC_WIFI_START */
