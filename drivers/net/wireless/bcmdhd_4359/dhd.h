@@ -629,6 +629,7 @@ typedef struct dhd_pub {
 	uint32 new_tx_completed_count;
 	uint32 xmit_count;
 	uint32 xmit_record_time;
+	bool xmit_hang_possible;
 	/* HTC_WIFI_END */
 #endif /* CUSTOMER_HW_ONE */
 } dhd_pub_t;
