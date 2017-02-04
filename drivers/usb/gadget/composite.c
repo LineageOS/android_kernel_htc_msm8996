@@ -2049,26 +2049,6 @@ void composite_disconnect(struct usb_gadget *gadget)
 	spin_unlock_irqrestore(&cdev->lock, flags);
 }
 
-/*++ 2015/11/26 USB Team, PCN00043 ++*/
-void composite_mute_disconnect(struct usb_gadget *gadget)
-{
-	struct usb_composite_dev	*cdev = get_gadget_data(gadget);
-	unsigned long				flags;
-
-	/* REVISIT:  should we have config and device level
-	 * disconnect callbacks?
-	 */
-	spin_lock_irqsave(&cdev->lock, flags);
-	if (cdev->config)
-		reset_config(cdev);
-
-	if (cdev->delayed_status != 0) {
-		INFO(cdev, "delayed status mismatch..resetting\n");
-		cdev->delayed_status = 0;
-	}
-	spin_unlock_irqrestore(&cdev->lock, flags);
-}
-/*-- 2015/11/26 USB Team, PCN00043 --*/
 /*-------------------------------------------------------------------------*/
 
 static ssize_t suspended_show(struct device *dev, struct device_attribute *attr,
@@ -2377,8 +2357,6 @@ static const struct usb_gadget_driver composite_driver_template = {
 	.setup		= composite_setup,
 	.reset		= composite_disconnect,
 	.disconnect	= composite_disconnect,
-
-	.mute_disconnect = composite_mute_disconnect,   /*++ 2015/11/26 USB Team, PCN00043 ++*/
 
 	.suspend	= composite_suspend,
 	.resume		= composite_resume,
