@@ -510,8 +510,6 @@ static void android_work(struct work_struct *data)
 /*++ 2015/11/16 USB Team, PCN00038 ++*/
 	if (connect2pc != dev->sw_connected) {
 		connect2pc = dev->sw_connected;
-		switch_set_state(&cdev->sw_connect2pc, connect2pc ? 1 : 0);
-		pr_info("set usb_connect2pc = %d\n", connect2pc);
 	}
 /*-- 2015/11/16 USB Team, PCN00038 --*/
 
@@ -4593,12 +4591,6 @@ static int android_bind(struct usb_composite_dev *cdev)
 	cdev->sw_function_switch_off.name = "function_switch_off";
 	switch_dev_register(&cdev->sw_function_switch_off);
 /*-- 2015/11/11 USB Team, PCN00037 --*/
-/*++ 2015/11/16 USB Team, PCN00038 ++*/
-	cdev->sw_connect2pc.name = "usb_connect2pc";
-	ret = switch_dev_register(&cdev->sw_connect2pc);
-	if (ret < 0)
-		pr_err("switch_dev_register fail:usb_connect2pc\n");
-/*-- 2015/11/16 USB Team, PCN00038 --*/
 
 	dev->cdev = cdev;
 
@@ -4627,7 +4619,6 @@ static int android_usb_unbind(struct usb_composite_dev *cdev)
 	switch_dev_unregister(&cdev->sw_function_switch_on);
 	switch_dev_unregister(&cdev->sw_function_switch_off);
 /*-- 2015/11/11 USB Team, PCN00037 --*/
-	switch_dev_unregister(&cdev->sw_connect2pc);	// ++ 2015/11/16 USB Team, PCN00038 ++
 	return 0;
 }
 

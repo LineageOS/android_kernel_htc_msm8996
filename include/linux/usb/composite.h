@@ -503,7 +503,6 @@ struct usb_composite_dev {
 	struct switch_dev		sw_function_switch_on;
 	struct switch_dev		sw_function_switch_off;
 /*-- 2015/10/23, USB Team, PCN00026 --*/
-	struct switch_dev		sw_connect2pc;	// ++ 2015/11/16 USB Team, PCN00038  ++
 
 	u8				next_string_id;
 	char				*def_manufacturer;
