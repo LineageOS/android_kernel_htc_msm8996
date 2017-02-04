@@ -41,8 +41,6 @@
 
 /*++ 2015/11/16 USB Team, PCN00038 ++*/
 static bool connect2pc;
-static int first_dt_w_length = 0;
-static int first_string_w_length = 0;
 
 #include "composite.c"
 /*-- 2015/11/16 USB Team, PCN00038 --*/
@@ -514,12 +512,6 @@ static void android_work(struct work_struct *data)
 		connect2pc = dev->sw_connected;
 		switch_set_state(&cdev->sw_connect2pc, connect2pc ? 1 : 0);
 		pr_info("set usb_connect2pc = %d\n", connect2pc);
-		if (!connect2pc) {
-			first_dt_w_length = 0;
-			first_string_w_length = 0;
-			pr_info("%s: OS_NOT_YET\n", __func__);
-			os_type = OS_NOT_YET;
-		}
 	}
 /*-- 2015/11/16 USB Team, PCN00038 --*/
 

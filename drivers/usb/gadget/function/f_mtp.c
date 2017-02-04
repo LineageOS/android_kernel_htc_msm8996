@@ -241,25 +241,23 @@ static struct usb_ss_ep_comp_descriptor mtp_superspeed_intr_comp_desc = {
 	.wBytesPerInterval =	cpu_to_le16(INTR_BUFFER_SIZE),
 };
 
-struct usb_descriptor_header *fs_mtp_descs[] = { /*++ 2015/07/08 USB Team, PCN00011 ++*/
+static struct usb_descriptor_header *fs_mtp_descs[] = {
 	(struct usb_descriptor_header *) &mtp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_fullspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_fullspeed_out_desc,
 	(struct usb_descriptor_header *) &mtp_intr_desc,
 	NULL,
 };
-EXPORT_SYMBOL(fs_mtp_descs); /*++ 2015/07/08 USB Team, PCN00011 ++*/
 
-struct usb_descriptor_header *hs_mtp_descs[] = { /*++ 2015/07/08 USB Team, PCN00011 ++*/
+static struct usb_descriptor_header *hs_mtp_descs[] = {
 	(struct usb_descriptor_header *) &mtp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_highspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_highspeed_out_desc,
 	(struct usb_descriptor_header *) &mtp_intr_desc,
 	NULL,
 };
-EXPORT_SYMBOL(hs_mtp_descs); /*++ 2015/07/08 USB Team, PCN00011 ++*/
 
-struct usb_descriptor_header *ss_mtp_descs[] = { /*++ 2015/07/08 USB Team, PCN00011 ++*/
+static struct usb_descriptor_header *ss_mtp_descs[] = {
 	(struct usb_descriptor_header *) &mtp_interface_desc,
 	(struct usb_descriptor_header *) &mtp_superspeed_in_desc,
 	(struct usb_descriptor_header *) &mtp_superspeed_in_comp_desc,
@@ -269,7 +267,6 @@ struct usb_descriptor_header *ss_mtp_descs[] = { /*++ 2015/07/08 USB Team, PCN00
 	(struct usb_descriptor_header *) &mtp_superspeed_intr_comp_desc,
 	NULL,
 };
-EXPORT_SYMBOL(ss_mtp_descs); /*++ 2015/07/08 USB Team, PCN00011 ++*/
 
 static struct usb_descriptor_header *fs_ptp_descs[] = {
 	(struct usb_descriptor_header *) &ptp_interface_desc,
@@ -1551,16 +1548,6 @@ static int mtp_bind_config(struct usb_configuration *c, bool ptp_config)
 	dev->cdev = c->cdev;
 	dev->function.name = DRIVER_NAME;
 	dev->function.strings = mtp_strings;
-/*++ 2015/07/08 USB Team, PCN00011 ++*/
-#if 1
-	/* Always report ptp descirptor to Host
-	 * Only change to mtp descriptor on MAC
-	 */
-	dev->function.fs_descriptors = fs_ptp_descs;
-	dev->function.hs_descriptors = hs_ptp_descs;
-	if (gadget_is_superspeed(c->cdev->gadget))
-		dev->function.ss_descriptors = ss_ptp_descs;
-#else
 	if (ptp_config) {
 		dev->function.fs_descriptors = fs_ptp_descs;
 		dev->function.hs_descriptors = hs_ptp_descs;
@@ -1572,8 +1559,6 @@ static int mtp_bind_config(struct usb_configuration *c, bool ptp_config)
 		if (gadget_is_superspeed(c->cdev->gadget))
 			dev->function.ss_descriptors = ss_mtp_descs;
 	}
-#endif
-/*-- 2015/07/08 USB Team, PCN00011 --*/
 	dev->function.bind = mtp_function_bind;
 	dev->function.unbind = mtp_function_unbind;
 	dev->function.set_alt = mtp_function_set_alt;

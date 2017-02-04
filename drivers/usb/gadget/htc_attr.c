@@ -315,18 +315,6 @@ static ssize_t show_usb_cable_connect(struct device *dev,
 /*-- 2015/10/13, USB Team, PCN00024 --*/
 
 
-/*++ 2015/11/16, USB Team, PCN00038 ++*/
-/* show current os type for mac or non-mac */
-static ssize_t show_os_type(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	unsigned length;
-
-	length = sprintf(buf, "%d\n", os_type);
-	pr_info("[USB] %s: %s\n", __func__, buf);
-	return length;
-}
-/*-- 2015/11/16, USB Team, PCN00038 --*/
 /*++ 2015/11/18, USB Team, PCN00040 ++*/
 static ssize_t store_usb_modem_enable_setting(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
@@ -482,7 +470,6 @@ static DEVICE_ATTR(usb_ac_cable_status, 0444, show_usb_ac_cable_status, NULL); /
 static DEVICE_ATTR(ats, 0664, show_ats, store_ats); /*++ 2015/10/16, USB Team, PCN00023 ++*/
 static DEVICE_ATTR(usb_disable, 0664,show_usb_disable_setting, store_usb_disable_setting); /*++ 2015/10/13, USB Team, PCN00022 ++*/
 static DEVICE_ATTR(usb_cable_connect, 0444, show_usb_cable_connect, NULL); /*++ 2015/10/13, USB Team, PCN00024 ++*/
-static DEVICE_ATTR(os_type, 0444, show_os_type, NULL); /*++ 2015/11/16, USB Team, PCN00038 ++*/
 static DEVICE_ATTR(usb_modem_enable, S_IWUSR|S_IWGRP,NULL, store_usb_modem_enable_setting);/*++ 2015/11/18, USB Team, PCN00040 ++*/
 static DEVICE_ATTR(speed, 0444, show_speed, NULL); /*++ 2015/11/25, USB Team, PCN00042 ++*/
 static DEVICE_ATTR(lock_speed, 0664, show_lock_speed, store_lock_speed); /*++ 2015/12/22, USB Team, PCN00050 ++*/
@@ -501,7 +488,6 @@ static __maybe_unused struct attribute *android_htc_usb_attributes[] = {
 	&dev_attr_usb_cable_connect.attr, /*++ 2015/10/13, USB Team, PCN00024 ++*/
 	&dev_attr_ats.attr, /*++ 2015/10/16, USB Team, PCN00023 ++*/
 	&dev_attr_usb_disable.attr, /*++ 2015/10/13, USB Team, PCN00022 ++*/
-	&dev_attr_os_type.attr, /*++ 2015/11/16, USB Team, PCN00038 ++*/
 	&dev_attr_usb_modem_enable.attr,/*++ 2015/11/18, USB Team, PCN00040 ++*/
 	&dev_attr_speed.attr, /*++ 2015/11/25, USB Team, PCN00042 ++*/
 	&dev_attr_lock_speed.attr, /*++ 2015/12/22, USB Team, PCN00050 ++*/
