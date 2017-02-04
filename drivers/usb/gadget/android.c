@@ -2422,20 +2422,6 @@ static int mtp_function_ctrlrequest(struct android_usb_function *f,
 {
 	return mtp_ctrlrequest(cdev, c);
 }
-/*++ 2015/12/14, USB Team, PCN00047 ++*/
-static ssize_t mtp_open_state_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%d\n", htc_mtp_open_state);
-}
-
-static DEVICE_ATTR(mtp_open_state, S_IRUGO, mtp_open_state_show, NULL);
-static struct device_attribute *mtp_function_attributes[] = {
-	&dev_attr_mtp_open_state,
-	NULL
-};
-/*-- 2015/12/14, USB Team, PCN00047 --*/
-
 
 static int ptp_function_ctrlrequest(struct android_usb_function *f,
 					struct usb_composite_dev *cdev,
@@ -2451,7 +2437,6 @@ static struct android_usb_function mtp_function = {
 	.cleanup	= mtp_function_cleanup,
 	.bind_config	= mtp_function_bind_config,
 	.ctrlrequest	= mtp_function_ctrlrequest,
-	.attributes     = mtp_function_attributes,/*++ 2015/12/14, USB Team, PCN00047 --*/
 };
 
 /* PTP function is same as MTP with slightly different interface descriptor */
