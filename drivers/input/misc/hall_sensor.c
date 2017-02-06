@@ -45,7 +45,7 @@ struct ak_hall_data {
 
 static struct ak_hall_data *g_hl;
 static int prev_val_n = 0;
-static int prev_val_s = 0;
+static int prev_val_s = -1;
 static int first_boot_s = 1;
 static int first_boot_n = 1;
 
@@ -214,6 +214,21 @@ parser_failed:
 }
 #endif
 
+static int get_s_pole_value(struct ak_hall_data *hl)
+{
+	return gpio_get_value(hl->gpio_att_s);
+}
+
+static void report_s_pole(struct ak_hall_data *hl, int val_s)
+{
+	if (prev_val_s != val_s) {
+		input_report_switch(hl->input_dev, SW_LID, !val_s);
+		input_sync(hl->input_dev);
+		prev_val_s = val_s;
+		printk("[HL] att_s[%s]", val_s ? "Far" : "Near");
+		hallsensor_notifier_call_chain((HALL_POLE_S << HALL_POLE_BIT) |(!val_s), NULL);
+	}
+}
 
 static int hall_input_register(struct ak_hall_data *hl)
 {
@@ -227,11 +242,12 @@ static int hall_input_register(struct ak_hall_data *hl)
 	input_set_drvdata(hl->input_dev, hl);
 	hl->input_dev->name = HL_INPUTDEV_NAME;
 
-	set_bit(EV_SYN, hl->input_dev->evbit);
 	set_bit(EV_KEY, hl->input_dev->evbit);
+	set_bit(EV_SW, hl->input_dev->evbit);
+	set_bit(EV_SYN, hl->input_dev->evbit);
 
 	input_set_capability(hl->input_dev, EV_KEY, HALL_N_POLE);
-	input_set_capability(hl->input_dev, EV_KEY, HALL_S_POLE);
+	input_set_capability(hl->input_dev, EV_SW, SW_LID);
 
 	HL_LOG("%s\n", __func__);
 	return input_register_device(hl->input_dev);
@@ -257,17 +273,10 @@ static void report_cover_event(int pole, int irq, struct ak_hall_data *hl)
 
 	}else if(pole == HALL_POLE_S) //S-pole
 	{
-		val_s = gpio_get_value(hl->gpio_att_s);
+		val_s = get_s_pole_value(hl);
 		irq_set_irq_type(irq, val_s?IRQF_TRIGGER_LOW|IRQF_ONESHOT : IRQF_TRIGGER_HIGH|IRQF_ONESHOT);
 		wake_lock_timeout(&hl->wake_lock, (2 * HZ));
-
-		if (prev_val_s != val_s) {
-			input_report_key(hl->input_dev, HALL_S_POLE, !val_s);
-			input_sync(hl->input_dev);
-			prev_val_s = val_s;
-			printk("[HL] att_s[%s]", val_s ? "Far" : "Near");
-			hallsensor_notifier_call_chain((HALL_POLE_S << HALL_POLE_BIT) |(!val_s), NULL);
-		}
+		report_s_pole(hl, val_s);
 
 	}
 
@@ -371,9 +380,10 @@ static int hall_sensor_probe(struct platform_device *pdev)
 		goto err_request_irq_failed;
 	}
 	if (hl->att_used > 1) {
-		prev_val_s = gpio_get_value(hl->gpio_att_s);
+		int val_s = get_s_pole_value(hl);
+		report_s_pole(hl, val_s);
 		ret = request_threaded_irq(gpio_to_irq(hl->gpio_att_s), NULL, hall_spole_irq_thread,
-				prev_val_s? IRQF_TRIGGER_LOW|IRQF_ONESHOT : IRQF_TRIGGER_HIGH|IRQF_ONESHOT, "ak8789_att_s", hl);
+				val_s? IRQF_TRIGGER_LOW|IRQF_ONESHOT : IRQF_TRIGGER_HIGH|IRQF_ONESHOT, "ak8789_att_s", hl);
 		if (ret == 0)
 		{
 			irq_set_irq_wake(gpio_to_irq(hl->gpio_att_s), 1);
