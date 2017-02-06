@@ -64,7 +64,6 @@
 
 #ifdef CONFIG_AK8789_HALLSENSOR
 #include <linux/hall_sensor.h>
-#include <linux/input.h>
 #endif
 
 /*#include <mach/gpiomux.h>*/
@@ -287,7 +286,6 @@ struct cwmcu_data {
 	bool w_hall_inform_mcu;
 
 	u8 dotview_st;
-	struct input_dev *hall_input_dev;
 #endif
 	bool w_batch_read;
 	bool iio_work_done;
@@ -1952,9 +1950,6 @@ static int hallsensor_status_handler_func(struct notifier_block *this,
 			dotview_status = DOTVIEW_COVER;
 
 		s_mcu_data->dotview_st = dotview_status;
-
-		input_report_switch(s_mcu_data->hall_input_dev, SW_LID, dotview_status);
-		input_sync(s_mcu_data->hall_input_dev);
 
 		rc = CWMCU_i2c_write_power(s_mcu_data,
 					   CW_I2C_REG_DOTVIEW_STATUS,
@@ -8992,19 +8987,6 @@ static int CWMCU_spi_probe(struct spi_device *spi)
 
 #ifdef CONFIG_AK8789_HALLSENSOR
 	hallsensor_register_notifier(&hallsensor_status_handler);
-	mcu_data->hall_input_dev = input_allocate_device();
-	if (!mcu_data->hall_input_dev) {
-		pr_err("%s: failed to allocate input_device\n", __func__);
-	} else {
-		input_set_drvdata(mcu_data->hall_input_dev, mcu_data);
-		mcu_data->hall_input_dev->name = "hall_sensor";
-		set_bit(EV_SW, mcu_data->hall_input_dev->evbit);
-		input_set_capability(mcu_data->hall_input_dev, EV_SW, SW_LID);
-		if (input_register_device(mcu_data->hall_input_dev) < 0) {
-			pr_err("%s: failed to register input_device\n", __func__);
-		}
-	}
-
 #endif
 
 	return 0;
@@ -9027,7 +9009,6 @@ static int CWMCU_spi_remove(struct spi_device *spi)
 	struct cwmcu_data *mcu_data = spi_get_drvdata(spi);
 #ifdef CONFIG_AK8789_HALLSENSOR
 	hallsensor_unregister_notifier(&hallsensor_status_handler);
-	input_unregister_device(mcu_data->hall_input_dev);
 #endif
 	gpio_set_value(mcu_data->gpio_wake_mcu, 1);
 
