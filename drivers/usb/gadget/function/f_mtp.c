@@ -982,15 +982,9 @@ static void receive_file_work(struct work_struct *data)
 			/* wait for our last read to complete */
 			ret = wait_event_interruptible(dev->read_wq,
 				dev->rx_done || dev->state != STATE_BUSY);
-			/*++ 2015/11/24, USB Team, PCN00041 ++*/
 			if (dev->state == STATE_CANCELED
-					|| dev->state == STATE_OFFLINE
-					|| dev->state == STATE_ERROR) {
+					|| dev->state == STATE_OFFLINE) {
 				if (dev->state == STATE_OFFLINE)
-					r = -EIO;
-				/* Solved unplug cable but no error code to notify mtp
-				server to return error in doSendObject. */
-				else if (dev->state == STATE_ERROR)
 					r = -EIO;
 				else
 					r = -ECANCELED;
@@ -998,7 +992,6 @@ static void receive_file_work(struct work_struct *data)
 					usb_ep_dequeue(dev->ep_out, read_req);
 				break;
 			}
-			/*-- 2015/11/24, USB Team, PCN00041 --*/
 			/* Check if we aligned the size due to MTU constraint */
 			if (count < read_req->length)
 				read_req->actual = (read_req->actual > count ?
