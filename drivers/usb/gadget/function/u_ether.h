@@ -261,10 +261,6 @@ int gether_get_ifname(struct net_device *net, char *name, int len);
 
 void gether_cleanup(struct eth_dev *dev);
 
-/*++ 2015/12/25, USB Team, PCN00051 ++*/
-int gether_change_mtu(int new_mtu);
-/*-- 2015/12/25, USB Team, PCN00051 --*/
-
 /* connect/disconnect is handled by individual functions */
 struct net_device *gether_connect(struct gether *);
 void gether_disconnect(struct gether *);
