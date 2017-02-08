@@ -79,8 +79,6 @@ static bool connect2pc;
 #include "f_gsi.c"
 #include "f_mass_storage.h"
 
-#include "f_projector.c" /*++ 2015/10/28 USB Team, PCN00034 ++*/
-#include "f_projector2.c" /*++ 2015/11/03 USB Team, PCN00035 ++*/
 USB_ETHERNET_MODULE_PARAMETERS();
 #include "debug.h"
 
@@ -512,20 +510,6 @@ static void android_work(struct work_struct *data)
 		connect2pc = dev->sw_connected;
 	}
 /*-- 2015/11/16 USB Team, PCN00038 --*/
-
-/*++ 2016/01/26 USB Team, PCN00059 ++*/
-    if (dev->connected == 0 && check_htc_mode_status() != NOT_ON_AUTOBOT) {
-        htc_mode_enable(0);
-        pr_err("%s : the projector flag did not reset, set it ti 0\n", __func__);
-    }
-
-    if (next_state == USB_DISCONNECTED && switch_get_state(&ml_switch)) {
-        switch_set_state(&ml_switch, 0);
-        pr_err("[MIRROR_LINK]%s : Out of order, ml_switch set 0\n", __func__);
-    }
-/*-- 2016/01/26 USB Team, PCN00059 --*/
-
-
 }
 /*++ 2016/01/20 USB Team, PCN00058 ++*/
 bool get_connect2pc(void)
@@ -2253,15 +2237,6 @@ bind_config:
 			}
 		}
 /*-- 2015/06/23 USB Team, PCN00004 --*/
-/*++ 2015/10/28 USB Team, PCN00034 ++*/
-		if (check_htc_mode_status() && usb_serial_pool[i].serial_func_type == USB_FSER_FUNC_AUTOBOT) {
-			err = usb_add_function(c, usb_serial_pool[i].usb_serial_function);
-			if (err) {
-				pr_err("Could not bind gser%u config\n", i);
-				goto err_gser_usb_add_function;
-			}
-		}
-/*-- 2015/10/28 USB Team, PCN00034 --*/
 	}
 	return 0;
 
@@ -3301,330 +3276,6 @@ static struct android_usb_function midi_function = {
 };
 #endif
 
-/*++ 2015/10/28 USB Team, PCN00034 ++*/
-/* HTC projector */
-static int projector_function_init(struct android_usb_function *f,
-		struct usb_composite_dev *cdev)
-{
-	f->config = kzalloc(sizeof(struct htcmode_protocol), GFP_KERNEL);
-	if (!f->config)
-		return -ENOMEM;
-
-	return projector_setup(f->config);
-}
-
-static void projector_function_cleanup(struct android_usb_function *f)
-{
-	projector_cleanup();
-	kfree(f->config);
-}
-
-static int projector_function_bind_config(struct android_usb_function *f,
-		struct usb_configuration *c)
-{
-	return projector_bind_config(c);
-}
-
-static ssize_t projector_width_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	return snprintf(buf, PAGE_SIZE, "%d\n", config->server_info.width);
-}
-
-static DEVICE_ATTR(width, S_IRUGO, projector_width_show, NULL);
-
-static ssize_t projector_height_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	return snprintf(buf, PAGE_SIZE, "%d\n", config->server_info.height);
-}
-
-static DEVICE_ATTR(height, S_IRUGO, projector_height_show, NULL);
-
-static ssize_t projector_rotation_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	return snprintf(buf, PAGE_SIZE, "%d\n", (config->client_info.display_conf & CLIENT_INFO_SERVER_ROTATE_USED));
-}
-
-static DEVICE_ATTR(rotation, S_IRUGO , projector_rotation_show, NULL);
-
-static ssize_t projector_version_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	return snprintf(buf, PAGE_SIZE, "%d\n", config->version);
-}
-
-static DEVICE_ATTR(version, S_IRUGO , projector_version_show, NULL);
-
-static ssize_t projector_vendor_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	return snprintf(buf, PAGE_SIZE, "%d\n", config->vendor);
-}
-
-static DEVICE_ATTR(vendor, S_IRUGO , projector_vendor_show,	NULL);
-
-static ssize_t projector_server_nonce_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	memcpy(buf, config->nonce, HSML_SERVER_NONCE_SIZE);
-	return HSML_SERVER_NONCE_SIZE;
-}
-
-static DEVICE_ATTR(server_nonce, S_IRUGO , projector_server_nonce_show, NULL);
-
-static ssize_t projector_client_sig_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	memcpy(buf, config->client_sig, HSML_CLIENT_SIG_SIZE);
-	return HSML_CLIENT_SIG_SIZE;
-}
-
-static DEVICE_ATTR(client_sig, S_IRUGO , projector_client_sig_show, NULL);
-
-static ssize_t projector_server_sig_store(
-		struct device *dev, struct device_attribute *attr,
-		const char *buff, size_t size)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	memcpy(config->server_sig, buff, HSML_SERVER_SIG_SIZE);
-	return HSML_SERVER_SIG_SIZE;
-}
-
-static DEVICE_ATTR(server_sig, S_IWUSR, NULL, projector_server_sig_store);
-
-static ssize_t projector_auth_store(
-		struct device *dev, struct device_attribute *attr,
-		const char *buff, size_t size)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	memcpy(&config->auth_result, buff, sizeof(config->auth_result));
-	config->auth_in_progress = 0;
-	return sizeof(config->auth_result);
-}
-
-static DEVICE_ATTR(auth, S_IWUSR, NULL, projector_auth_store);
-
-static ssize_t projector_debug_mode_store(
-		struct device *dev, struct device_attribute *attr,
-		const char *buff, size_t size)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct htcmode_protocol *config = f->config;
-	int value, i;
-	int framesize = DEFAULT_PROJ_HEIGHT * DEFAULT_PROJ_WIDTH;
-
-	if (sscanf(buff, "%d", &value) == 1) {
-
-		if (!test_frame)
-			test_frame = kzalloc(framesize * 2, GFP_KERNEL);
-
-		if (test_frame)
-			for (i = 0 ; i < framesize ; i++)
-				if (i < framesize/4)
-					test_frame[i] = 0xF800;
-				else if (i < framesize*2/4)
-					test_frame[i] = 0x7E0;
-				else if (i < framesize*3/4)
-					test_frame[i] = 0x1F;
-				else
-					test_frame[i] = 0xFFFF;
-
-		config->debug_mode = value;
-		return size;
-	}
-	return -EINVAL;
-}
-
-static DEVICE_ATTR(debug_mode, S_IWUSR, NULL, projector_debug_mode_store);
-
-static struct device_attribute *projector_function_attributes[] = {
-	&dev_attr_width,
-	&dev_attr_height,
-	&dev_attr_rotation,
-	&dev_attr_version,
-	&dev_attr_vendor,
-	&dev_attr_server_nonce,
-	&dev_attr_client_sig,
-	&dev_attr_server_sig,
-	&dev_attr_auth,
-	&dev_attr_debug_mode,
-	NULL
-};
-
-struct android_usb_function projector_function = {
-	.name		= "projector",
-	.init		= projector_function_init,
-	.cleanup	= projector_function_cleanup,
-	.bind_config	= projector_function_bind_config,
-	.attributes = projector_function_attributes
-};
-/*-- 2015/10/28 USB Team, PCN00034 --*/
-
-/*++ 2015/11/03 USB Team, PCN00035 ++*/
-static int projector2_function_init(struct android_usb_function *f,
-		struct usb_composite_dev *cdev)
-{
-	f->config = kzalloc(sizeof(struct hsml_protocol), GFP_KERNEL);
-	if (!f->config)
-		return -ENOMEM;
-
-	return projector2_setup(f->config);
-}
-
-static void projector2_function_cleanup(struct android_usb_function *f)
-{
-
-	projector2_cleanup();
-
-	if (f->config) {
-		kfree(f->config);
-		f->config = NULL;
-	}
-}
-
-static int projector2_function_bind_config(struct android_usb_function *f,
-		struct usb_configuration *c)
-{
-	return projector2_bind_config(c);
-}
-
-static ssize_t projector2_width_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct hsml_protocol *config = f->config;
-	return snprintf(buf, PAGE_SIZE, "%d\n", config->set_display_info.wWidth);
-}
-
-#if HSML_VERSION_12
-#define cHSML_WIDTH_SIZE        2
-
-static ssize_t projector2_width_store(struct device *dev,
-        struct device_attribute *attr, const char *buff, size_t size)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct hsml_protocol *config = f->config;
-	u16 uValue;
-	u8 aucWidth[cHSML_WIDTH_SIZE];
-
-    if (size <= cHSML_WIDTH_SIZE) {
-        memset(aucWidth, 0, sizeof(aucWidth));
-        memcpy(aucWidth, buff, size);
-        uValue = be16_to_cpu(*((__le16 *) aucWidth));
-        config->set_display_info.wWidth = uValue;
-        return size;
-    } else {
-        printk(KERN_ERR "%s: size is invalid %zu/%d\n", __func__, size, cHSML_WIDTH_SIZE);
-    }
-    return -EINVAL;
-}
-
-static DEVICE_ATTR(client_width, S_IRUGO | S_IWUSR, projector2_width_show, projector2_width_store);
-#else
-static DEVICE_ATTR(client_width, S_IRUGO, projector2_width_show, NULL);
-#endif
-
-static ssize_t projector2_height_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct hsml_protocol *config = f->config;
-	return snprintf(buf, PAGE_SIZE, "%d\n", config->set_display_info.wHeight);
-}
-
-#if HSML_VERSION_12
-static ssize_t projector2_height_store(struct device *dev,
-        struct device_attribute *attr, const char *buff, size_t size)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct hsml_protocol *config = f->config;
-	u16 uValue;
-	u8 aucWidth[cHSML_WIDTH_SIZE];
-
-    if (size <= cHSML_WIDTH_SIZE) {
-        memset(aucWidth, 0, sizeof(aucWidth));
-        memcpy(aucWidth, buff, size);
-        uValue = be16_to_cpu(*((__le16 *) aucWidth));
-        config->set_display_info.wHeight = uValue;
-        return size;
-    } else {
-        printk(KERN_ERR "%s: size is invalid %zu/%d\n", __func__, size, cHSML_WIDTH_SIZE);
-    }
-
-    return -EINVAL;
-}
-static DEVICE_ATTR(client_height, S_IRUGO | S_IWUSR, projector2_height_show, projector2_height_store);
-#else
-static DEVICE_ATTR(client_height, S_IRUGO, projector2_height_show, NULL);
-#endif
-
-static ssize_t projector2_maxfps_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct hsml_protocol *config = f->config;
-	return snprintf(buf, PAGE_SIZE, "%d\n", config->MaxFPS);
-}
-
-static DEVICE_ATTR(client_maxfps, S_IRUGO, projector2_maxfps_show, NULL);
-
-static ssize_t projector2_pixel_format_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct hsml_protocol *config = f->config;
-	return snprintf(buf, PAGE_SIZE, "%d\n", config->set_display_info.bPixelFormat);
-}
-
-static DEVICE_ATTR(client_pixel_format, S_IRUGO, projector2_pixel_format_show, NULL);
-static DEVICE_ATTR(client_context_info, S_IWUSR, NULL, context_info_store);
-#if HSML_VERSION_12
-static DEVICE_ATTR(client_ver, S_IRUGO, projector2_ver_show, NULL);
-static DEVICE_ATTR(client_cap, S_IRUGO, projector2_cap_show, NULL);
-static DEVICE_ATTR(client_uuid, S_IWUSR, NULL, projector2_uuid_store);
-#endif
-
-static struct device_attribute *projector2_function_attributes[] = {
-	&dev_attr_client_width,
-	&dev_attr_client_height,
-	&dev_attr_client_maxfps,
-	&dev_attr_client_pixel_format,
-	&dev_attr_client_context_info,
-#if HSML_VERSION_12
-	&dev_attr_client_ver,
-	&dev_attr_client_cap,
-	&dev_attr_client_uuid,
-#endif
-	NULL
-};
-
-struct android_usb_function projector2_function = {
-	.name		= "projector2",
-	.init		= projector2_function_init,
-	.cleanup	= projector2_function_cleanup,
-	.bind_config	= projector2_function_bind_config,
-	.attributes = projector2_function_attributes
-};
-/*-- 2015/11/03 USB Team, PCN00035 --*/
-
 static int rndis_gsi_function_init(struct android_usb_function *f,
 					struct usb_composite_dev *cdev)
 {
@@ -3815,8 +3466,6 @@ static struct android_usb_function *default_functions[] = {
 	&qdss_function,
 	&serial_function,
 	&ccid_function,
-	&projector_function, /*++ 2015/10/28 USB Team, PCN00034 ++*/
-	&projector2_function, /*++ 2015/11/03 USB Team, PCN00035 ++*/
 	&acm_function,
 	&mtp_function,
 	&ptp_function,
@@ -4639,16 +4288,6 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 	 */
 	if (value < 0)
 		value = acc_ctrlrequest(cdev, c);
-
-/*++ 2015/10/28 USB Team, PCN00034 ++*/
-	if (value < 0)
-		value = projector_ctrlrequest(cdev, c);
-/*-- 2015/10/28 USB Team, PCN00034 --*/
-
-/*++ 2015/11/03 USB Team, PCN00035 ++*/
-	if (value < 0)
-		value = projector2_ctrlrequest(cdev, c);
-/*-- 2015/11/03 USB Team, PCN00035 --*/
 
 	if (value < 0)
 		value = composite_setup_func(gadget, c);
