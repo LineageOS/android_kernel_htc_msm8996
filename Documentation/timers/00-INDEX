@@ -16,5 +16,3 @@ timekeeping.txt
 	- Clock sources, clock events, sched_clock() and delay timer notes
 timers-howto.txt
 	- how to insert delays in the kernel the right (tm) way.
-timer_stats.txt
-	- timer usage statistics
