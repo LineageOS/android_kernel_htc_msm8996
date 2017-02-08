@@ -4118,7 +4118,6 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	struct android_usb_function_holder *f_holder;
 	char *name;
 	char buf[256], *b;
-	const char *buffer;
 	char aliases[256], *a;
 	int err;
 	int is_ffs;
@@ -4145,24 +4144,7 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 		INIT_LIST_HEAD(&conf->enabled_functions);
 	}
 
-	pr_info("%s: switch function to %s\n", __func__, buff);
-	buffer = buff;
-/*++ 2015/09/17 USB Team, PCN00020 ++*/
-	/* if the flag 8 20000 or 5 100 has been set. Instead of
-	 * string "charging", the system use the "mass_storage" to
-	 * enable function */
-	if (get_radio_flag() & 0x20000 || (get_debug_flag() & 0x101))
-		buffer = change_charging_to_ums(buff);
-/*-- 2015/09/17 USB Team, PCN00020 --*/
-
-/*++ 2015/07/06 USB Team, PCN00008 ++*/
-	if (get_radio_flag() & 0x20000) {
-		buffer = add_usb_radio_debug_function(buffer);
-		pr_info("%s : switch to radio debug function %s\n", __func__, buffer);
-	}
-/*-- 2015/07/06 USB Team, PCN00008 --*/
-
-	strlcpy(buf, buffer, sizeof(buf));
+	strlcpy(buf, buff, sizeof(buf));
 	b = strim(buf);
 
 	while (b) {
@@ -4255,7 +4237,6 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	mutex_lock(&dev->mutex);
 
 	sscanf(buff, "%d", &enabled);
-	pr_info("%s: soft disconnect : %d\n", __func__, enabled);
 	if (enabled && !dev->enabled) {
 		/*
 		 * Update values in composite driver's copy of
@@ -4268,17 +4249,6 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		cdev->desc.bDeviceClass = device_desc.bDeviceClass;
 		cdev->desc.bDeviceSubClass = device_desc.bDeviceSubClass;
 		cdev->desc.bDeviceProtocol = device_desc.bDeviceProtocol;
-
-/*++ 2015/09/17 USB Team, PCN00020 ++*/
-		if (get_radio_flag() & 0x20000 || get_debug_flag() & 0x101)
-			change_charging_pid_to_ums(cdev);
-/*-- 2015/09/17 USB Team, PCN00020 --*/
-
-/*++ 2015/07/06 USB Team, PCN00008 ++*/
-		if (get_radio_flag() & 0x20000)
-			check_usb_vid_pid(cdev);
-		check_usb_project_pid(cdev);
-/*-- 2015/07/06 USB Team, PCN00008 --*/
 
 		/* Audio dock accessory is unable to enumerate device if
 		 * pull-up is enabled immediately. The enumeration is
@@ -4669,11 +4639,6 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 	 */
 	if (value < 0)
 		value = acc_ctrlrequest(cdev, c);
-
-/*++ 2015/10/22 USB Team, PCN00025 ++*/
-	if (value < 0)
-		value = ums_ctrlrequest(cdev, c);
-/*-- 2015/10/22 USB Team, PCN00025 --*/
 
 /*++ 2015/10/28 USB Team, PCN00034 ++*/
 	if (value < 0)
