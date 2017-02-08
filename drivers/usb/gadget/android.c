@@ -223,11 +223,6 @@ struct android_dev {
 
 	/* A list node inside the android_dev_list */
 	struct list_head list_item;
-
-/*++ 2015/12/30, USB Team, PCN00052 ++*/
-	atomic_t adb_ready;
-	atomic_t delay_enable_store;
-/*-- 2015/12/30, USB Team, PCN00052 --*/
 };
 
 struct android_configuration {
@@ -746,7 +741,6 @@ static int functionfs_ready_callback(struct ffs_data *ffs)
 {
 	struct android_dev *dev = ffs_function.android_dev;
 	struct functionfs_config *config = ffs_function.config;
-	int ret = 0;	/*++ 2015/12/30 USB Team, PCN00052 ++*/
 
 	if (!dev)
 		return -ENODEV;
@@ -758,25 +752,7 @@ static int functionfs_ready_callback(struct ffs_data *ffs)
 	if (config->enabled && dev)
 		android_enable(dev);
 
-/*++ 2015/12/30 USB Team, PCN00052 ++*/
-	if (dev) {
-		atomic_set(&dev->adb_ready, 1);
-		while (atomic_read(&dev->delay_enable_store) != 0) {
-			ret = android_enable(dev);
-			if (ret < 0) {
-				pr_err("%s: android_enable failed\n", __func__);
-				dev->connected = 0;
-				dev->enabled = false;
-			} else {
-				dev->enabled = true;
-			}
-			atomic_sub(1, &dev->delay_enable_store);
-		}
-	}
-/*-- 2015/12/30 USB Team, PCN00052 --*/
-
-	if (dev)
-		mutex_unlock(&dev->mutex);
+	mutex_unlock(&dev->mutex);
 
 	return 0;
 }
@@ -3856,7 +3832,6 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	struct android_configuration *conf;
 	int enabled = 0;
 	bool audio_enabled = false;
-	bool ffs_enabled = false;	/*++ 2015/12/30 USB Team, PCN00052 ++*/
 	static DEFINE_RATELIMIT_STATE(rl, 10*HZ, 1);
 	int err = 0;
 
@@ -3891,42 +3866,18 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 				if (!strncmp(f_holder->f->name,
 						"audio_source", 12))
 					audio_enabled = true;
-/*++ 2015/12/30 USB Team, PCN00052 ++*/
-				if (!strncmp(f_holder->f->name,
-						"ffs", 3))
-					ffs_enabled = true;
-/*-- 2015/12/30 USB Team, PCN00052 --*/
 			}
 		if (audio_enabled)
 			msleep(100);
-/*++ 2015/12/30 USB Team, PCN00052 ++*/
-		if ((ffs_enabled && atomic_read(&dev->adb_ready)) || !ffs_enabled) {
-			err = android_enable(dev);
-			if (err < 0) {
-				pr_err("%s: android_enable failed\n", __func__);
-				dev->connected = 0;
-				dev->enabled = false;
-				mutex_unlock(&dev->mutex);
-				return size;
-			}
+		err = android_enable(dev);
+		if (err < 0) {
+			pr_err("%s: android_enable failed\n", __func__);
+			dev->connected = 0;
 			dev->enabled = true;
-
-			while (atomic_read(&dev->delay_enable_store) != 0) {
-				err = android_enable(dev);
-				if (err < 0) {
-					pr_err("%s: android_enable failed\n", __func__);
-					dev->connected = 0;
-					dev->enabled = false;
-					mutex_unlock(&dev->mutex);
-					return size;
-				}
-				dev->enabled = true;
-				atomic_sub(1, &dev->delay_enable_store);
-			}
-		} else {
-			atomic_add(1, &dev->delay_enable_store);
+			mutex_unlock(&dev->mutex);
+			return size;
 		}
-/*-- 2015/12/30 USB Team, PCN00052 --*/
+		dev->enabled = true;
 	} else if (!enabled && dev->enabled) {
 		android_disable(dev);
 		list_for_each_entry(conf, &dev->configs, list_item)
@@ -3936,10 +3887,6 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 					f_holder->f->disable(f_holder->f);
 			}
 		dev->enabled = false;
-/*++ 2015/12/30 USB Team, PCN00052 ++*/
-		atomic_set(&dev->delay_enable_store, 0);
-		atomic_set(&dev->adb_ready, 0);
-/*-- 2015/12/30 USB Team, PCN00052 --*/
 	} else if (__ratelimit(&rl)) {
 		pr_err("android_usb: already %s\n",
 				dev->enabled ? "enabled" : "disabled");
