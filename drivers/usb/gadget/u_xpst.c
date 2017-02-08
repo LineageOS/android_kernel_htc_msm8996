@@ -24,7 +24,6 @@ struct diag_context _qsc_context;
 static struct usb_diag_ch *qscch;
 static  struct diag_context *qscctxt;
 
-int htc_usb_enable_function(char *name, int ebl);
 static struct switch_dev sw_htc_usb_diag;
 
 #if DIAG_XPST
@@ -304,7 +303,6 @@ static long htc_diag_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 		pr_info("diag: enable %d\n", tmp_value);
 		switch_set_state(&sw_htc_usb_diag, !!tmp_value);
 
-		htc_usb_enable_function("mtp,adb,mass_storage,diag", tmp_value?1:0);
 #if 0
 		if (tmp_value) {
 			/* Never close SMD channel */

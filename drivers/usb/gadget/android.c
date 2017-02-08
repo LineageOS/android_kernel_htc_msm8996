@@ -213,7 +213,6 @@ struct android_dev {
 	unsigned down_pm_qos_threshold;
 	unsigned idle_pc_rpm_no_int_secs;
 	struct delayed_work pm_qos_work;
-	struct delayed_work request_reset; /*++ 2015/07/07 USB Team, PCN00010 ++*/
 	enum android_pm_qos_state curr_pm_qos_state;
 	struct work_struct work;
 	char ffs_aliases[256];
@@ -241,7 +240,6 @@ struct android_configuration {
 	struct list_head list_item;
 };
 
-static struct android_dev *_android_dev; /*++ 2015/07/07 USB Team, PCN00010 ++*/
 struct dload_struct __iomem *diag_dload;
 static struct class *android_class;
 static struct list_head android_dev_list;
@@ -593,24 +591,6 @@ static void android_disable(struct android_dev *dev)
 			usb_gadget_autopm_put_async(cdev->gadget);
 	}
 }
-
-/*++ 2015/07/07 USB Team, PCN00010 ++*/
-static void usb_android_force_reset(struct work_struct *data)
-{
-	struct android_dev *dev = container_of(data, struct android_dev,
-							request_reset.work);
-
-	mutex_lock(&dev->mutex);
-	if (dev && dev->enabled) {
-		android_disable(dev);
-
-		msleep(100);
-
-		android_enable(dev);
-	}
-	mutex_unlock(&dev->mutex);
-}
-/*-- 2015/07/07 USB Team, PCN00010 --*/
 
 /*-------------------------------------------------------------------------*/
 /* Supported functions initialization */
@@ -4609,7 +4589,6 @@ static int android_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&android_dev->configs);
 	INIT_WORK(&android_dev->work, android_work);
 	INIT_DELAYED_WORK(&android_dev->pm_qos_work, android_pm_qos_work);
-	INIT_DELAYED_WORK(&android_dev->request_reset, usb_android_force_reset); /*++ 2015/07/07 USB Team, PCN00010 ++*/
 	mutex_init(&android_dev->mutex);
 
 	android_dev->pdata = pdata;
@@ -4666,12 +4645,6 @@ static int android_probe(struct platform_device *pdev)
 	}
 	strlcpy(android_dev->pm_qos, "high", sizeof(android_dev->pm_qos));
 
-	_android_dev = android_dev; /*++ 2015/07/07 USB Team, PCN00010 ++*/
-/*++ 2015/07/06 USB Team, PCN00007 ++*/
-	setup_vendor_info(android_dev);
-	pr_info("probe complete\n");
-/*-- 2015/07/06 USB Team, PCN00007 --*/
-
 	return ret;
 err_probe:
 	android_destroy_device(android_dev);
@@ -4715,7 +4688,6 @@ static int android_remove(struct platform_device *pdev)
 		list_del(&dev->list_item);
 		android_dev_count--;
 		kfree(dev);
-		_android_dev = NULL; /*++ 2015/07/07 USB Team, PCN00010 ++*/
 	}
 
 	if (list_empty(&android_dev_list)) {
