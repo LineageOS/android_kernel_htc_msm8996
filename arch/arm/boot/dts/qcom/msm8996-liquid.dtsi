@@ -11,8 +11,8 @@
  */
 
 #include "msm8996-pinctrl.dtsi"
-#include "msm8996-camera-sensor-liquid.dtsi"
-#include "msm8996-wsa881x.dtsi"
+/*#include "msm8996-camera-sensor-liquid.dtsi"*/
+/*#include "msm8996-wsa881x.dtsi"*/ /* HTC_AUD */
 
 / {
 	bluetooth: bt_qca6174 {
@@ -481,11 +481,13 @@
 		qcom,hdmi-audio-rx;
 		asoc-codec = <&stub_codec>, <&hdmi_audio>;
 		asoc-codec-names = "msm-stub-codec.1", "msm-hdmi-audio-codec-rx";
-		qcom,wsa-max-devs = <2>;
+//HTC_AUD_START
+		/*qcom,wsa-max-devs = <2>;
 		qcom,wsa-devs = <&wsa881x_211>, <&wsa881x_212>,
 				<&wsa881x_213>, <&wsa881x_214>;
 		qcom,wsa-aux-dev-prefix = "SpkrLeft", "SpkrRight",
-					  "SpkrLeft", "SpkrRight";
+					  "SpkrLeft", "SpkrRight";*/
+//HTC_AUD_END
 	};
 };
 
