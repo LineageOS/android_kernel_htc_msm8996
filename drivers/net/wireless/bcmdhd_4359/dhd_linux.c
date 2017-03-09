@@ -2503,6 +2503,7 @@ static void lineage_update_screen_state(dhd_pub_t *dhd, bool is_screen_off)
 	char iovbuf[32];
 	int ret;
 	int pm2_sleep_ret = is_screen_off ? 50 : 200;
+	int mpc = is_screen_off;
 
 	/* Set the maximum time to wait before going back to sleep */
 	bcm_mkiovar("pm2_sleep_ret", (char *)&pm2_sleep_ret,
@@ -2511,6 +2512,15 @@ static void lineage_update_screen_state(dhd_pub_t *dhd, bool is_screen_off)
 	ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
 	if (ret < 0) {
 		DHD_ERROR(("%s set pm2_sleep_ret ret[%d] \n", __FUNCTION__, ret));
+	}
+
+	/* Set minimum power consumption mode */
+	bcm_mkiovar("mpc", (char *)&mpc,
+		4, iovbuf, sizeof(iovbuf));
+
+	ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	if (ret < 0) {
+		DHD_ERROR(("%s set mpc ret[%d] \n", __FUNCTION__, ret));
 	}
 }
 
