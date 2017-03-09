@@ -2498,6 +2498,22 @@ void dhd_enable_packet_filter(int value, dhd_pub_t *dhd)
 #endif /* PKT_FILTER_SUPPORT */
 }
 
+static void lineage_update_screen_state(dhd_pub_t *dhd, bool is_screen_off)
+{
+	char iovbuf[32];
+	int ret;
+	int pm2_sleep_ret = is_screen_off ? 50 : 200;
+
+	/* Set the maximum time to wait before going back to sleep */
+	bcm_mkiovar("pm2_sleep_ret", (char *)&pm2_sleep_ret,
+		4, iovbuf, sizeof(iovbuf));
+
+	ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	if (ret < 0) {
+		DHD_ERROR(("%s set pm2_sleep_ret ret[%d] \n", __FUNCTION__, ret));
+	}
+}
+
 static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 {
 #ifndef SUPPORT_PM2_ONLY
@@ -2541,6 +2557,8 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 	/* indicate wl_iw screen off */
 	is_screen_off = value;
 	wl_android_set_screen_off(is_screen_off);
+
+	lineage_update_screen_state(dhd, is_screen_off);
 
 	/* clear p2p indicate event when screen off */
 	if (is_screen_off && !dhd->allow_p2p_event) {
