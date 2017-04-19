@@ -207,8 +207,8 @@ static int debug_shrinker_show(struct seq_file *s, void *unused)
 	struct shrinker *shrinker;
 	struct shrink_control sc;
 
+	memset(&sc, 0, sizeof(sc));
 	sc.gfp_mask = -1;
-	sc.nr_to_scan = 0;
 
 	down_read(&shrinker_rwsem);
 	list_for_each_entry(shrinker, &shrinker_list, list) {
