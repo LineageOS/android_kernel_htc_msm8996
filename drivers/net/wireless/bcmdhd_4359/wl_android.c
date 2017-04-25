@@ -252,10 +252,12 @@ typedef enum traffic_ind {
 
 static int screen_off = 0;
 int sta_connected = 0;
+#ifdef ENABLE_TRAFFIC_MONITOR
 static int traffic_stats_flag = TRAFFIC_STATS_NORMAL;
 static unsigned long current_traffic_count = 0;
 static unsigned long last_traffic_count = 0;
 static unsigned long last_traffic_count_jiffies = 0;
+#endif
 
 static struct mutex wl_wificall_mutex;
 int multi_core_locked = 0;
@@ -3862,6 +3864,7 @@ fail :
 
 void wl_android_traffic_monitor(struct net_device *dev)
 {
+#ifdef ENABLE_TRAFFIC_MONITOR
 	unsigned long rx_packets_count = 0;
 	unsigned long tx_packets_count = 0;
 	unsigned long traffic_diff = 0;
@@ -3984,6 +3987,7 @@ void wl_android_traffic_monitor(struct net_device *dev)
 	/* End of Traffic High/Low indication */
 #ifdef DHD_TRACE_PERF_STATE
 	dhd_set_perf_state(dev, traffic_stats_flag, FALSE);
+#endif
 #endif
 }
 
