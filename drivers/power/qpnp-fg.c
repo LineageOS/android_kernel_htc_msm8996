@@ -4021,11 +4021,12 @@ static void status_change_work(struct work_struct *work)
 	}
 	if (chip->status == POWER_SUPPLY_STATUS_FULL ||
 			chip->status == POWER_SUPPLY_STATUS_CHARGING) {
-		if (!chip->vbat_low_irq_enabled &&
-				!chip->use_vbat_low_empty_soc) {
-			enable_irq(chip->batt_irq[VBATT_LOW].irq);
-			enable_irq_wake(chip->batt_irq[VBATT_LOW].irq);
-			chip->vbat_low_irq_enabled = true;
+		if (!chip->use_vbat_low_empty_soc) {
+			if (!chip->vbat_low_irq_enabled) {
+				enable_irq(chip->batt_irq[VBATT_LOW].irq);
+				enable_irq_wake(chip->batt_irq[VBATT_LOW].irq);
+				chip->vbat_low_irq_enabled = true;
+			}
 		}
 
 		if (!chip->full_soc_irq_enabled) {
@@ -4037,11 +4038,12 @@ static void status_change_work(struct work_struct *work)
 		if (!!(chip->wa_flag & PULSE_REQUEST_WA) && capacity == 100)
 			fg_configure_soc(chip);
 	} else if (chip->status == POWER_SUPPLY_STATUS_DISCHARGING) {
-		if (chip->vbat_low_irq_enabled &&
-				!chip->use_vbat_low_empty_soc) {
-			disable_irq_wake(chip->batt_irq[VBATT_LOW].irq);
-			disable_irq_nosync(chip->batt_irq[VBATT_LOW].irq);
-			chip->vbat_low_irq_enabled = false;
+		if (!chip->use_vbat_low_empty_soc) {
+			if (chip->vbat_low_irq_enabled) {
+				disable_irq_wake(chip->batt_irq[VBATT_LOW].irq);
+				disable_irq_nosync(chip->batt_irq[VBATT_LOW].irq);
+				chip->vbat_low_irq_enabled = false;
+			}
 		}
 
 		if (chip->full_soc_irq_enabled) {
