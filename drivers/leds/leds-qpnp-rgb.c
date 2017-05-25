@@ -299,6 +299,7 @@ static struct workqueue_struct *g_led_on_work_queue;
 static struct qpnp_led_data *g_led_red = NULL, *g_led_green = NULL, *g_led_blue = NULL, *g_led_virtual = NULL;
 
 
+static uint16_t current_off_timer = 0;
 static int current_blink = 0;
 static int table_level_num = 0;
 static DEFINE_MUTEX(flash_lock);
@@ -2524,6 +2525,15 @@ static void led_alarm_handler(struct alarm *alarm)
 	queue_work(g_led_work_queue, &ldata->led_off_work);
 }*/
 
+static ssize_t led_off_timer_show(struct device *dev,
+                                    struct device_attribute *attr,
+                                    char *buf)
+{
+	int min = current_off_timer / 60;
+	int sec = current_off_timer - (min * 60);
+	return sprintf(buf, "%d %d\n", min, sec);
+}
+
 static ssize_t led_off_timer_store(struct device *dev,
 				   struct device_attribute *attr,
 				   const char *buf, size_t count)
@@ -2549,6 +2559,7 @@ static ssize_t led_off_timer_store(struct device *dev,
 
 	LED_DBG("Setting %s off_timer to %d min %d sec \n", led_cdev->name, min, sec);
 	off_timer = min * 60 + sec;
+	current_off_timer = off_timer;
 
 /*	alarm_cancel(&led->led_alarm);
 	cancel_work_sync(&led->led_off_work);
@@ -2559,7 +2570,7 @@ static ssize_t led_off_timer_store(struct device *dev,
 	}*/
 	return count;
 }
-static DEVICE_ATTR(off_timer, 0644, NULL, led_off_timer_store);
+static DEVICE_ATTR(off_timer, 0644, led_off_timer_show, led_off_timer_store);
 
 
 static ssize_t pm8xxx_led_blink_show(struct device *dev,
