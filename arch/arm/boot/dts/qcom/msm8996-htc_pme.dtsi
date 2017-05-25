@@ -115,7 +115,6 @@
 			pinctrl-0 = <&laser_pwdn &laser_int>;
 			laser,power-2v8 = <&pmi8994_gpios 2 0>;
 			laser,pwdn-gpio = <&tlmm 94 0>;
-			CAMIO_1v8-supply = <&pm8994_l14>;
 			interrupt-parent = <&tlmm>;
 			interrupts = <106 0x0>;
 			laser,intr-gpio = <&tlmm 106 0>;
